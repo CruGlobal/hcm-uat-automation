@@ -1,10 +1,12 @@
 import fs from 'fs';
 import path from 'path';
-import type { UATTestCase } from './types';
+import type { UATTestCase, TestCase } from './types';
 
 const CACHE_FILE = path.resolve(process.cwd(), '.cache', 'uat-plan.json');
+const FIELD_DATA_FILE = path.resolve(process.cwd(), '.cache-generated', 'field-data.json');
 
 let _cachedPlan: UATTestCase[] | null = null;
+let _fieldDataCache: Map<string, TestCase> | null = null;
 
 /** Load all UAT Plan test cases from cache. */
 export function loadUATPlan(): UATTestCase[] {
@@ -61,4 +63,21 @@ export function uatTestTitle(tc: UATTestCase): string {
 export function isTestable(tc: UATTestCase): boolean {
   const status = tc.status.toLowerCase();
   return status !== 'deferred' && status !== 'cancelled';
+}
+
+/**
+ * Get field-level test data for a UAT Plan test ID.
+ * Returns a TestCase with form field values from the migration DB,
+ * or undefined if no field data exists for this testId.
+ */
+export function getFieldData(testId: string): TestCase | undefined {
+  if (!_fieldDataCache) {
+    if (fs.existsSync(FIELD_DATA_FILE)) {
+      const raw = JSON.parse(fs.readFileSync(FIELD_DATA_FILE, 'utf-8'));
+      _fieldDataCache = new Map(Object.entries(raw));
+    } else {
+      _fieldDataCache = new Map();
+    }
+  }
+  return _fieldDataCache.get(testId);
 }

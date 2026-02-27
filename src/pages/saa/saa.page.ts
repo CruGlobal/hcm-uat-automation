@@ -74,7 +74,7 @@ export class SAAPage extends BasePage {
     const actionsMenu = this.page.locator(
       '[role="menuitem"][aria-label="Actions"], button:has-text("Actions")'
     ).first();
-    if (await actionsMenu.isVisible({ timeout: 5000 }).catch(() => false)) {
+    if (await actionsMenu.isVisible({ timeout: 5000 }).catch((e) => { console.warn('SAA: Actions menu visibility check failed:', e.message); return false; })) {
       await actionsMenu.click();
       await this.page.waitForTimeout(2000);
     }
@@ -98,13 +98,13 @@ export class SAAPage extends BasePage {
     const searchInput = this.page.locator(
       '[id$="q1:value00::content"], input[aria-label*="Search"]'
     ).first();
-    if (await searchInput.isVisible({ timeout: 5000 }).catch(() => false)) {
+    if (await searchInput.isVisible({ timeout: 5000 }).catch((e) => { console.warn('SAA: Search input visibility check failed:', e.message); return false; })) {
       await searchInput.click();
     }
 
     // Click Edit button if available
     const editBtn = this.page.getByRole('button', { name: /Edit|Update/i }).first();
-    if (await editBtn.isVisible({ timeout: 5000 }).catch(() => false)) {
+    if (await editBtn.isVisible({ timeout: 5000 }).catch((e) => { console.warn('SAA: Edit button visibility check failed:', e.message); return false; })) {
       await editBtn.click();
       await this.page.waitForTimeout(3000);
       await this.waitForJET();
@@ -128,7 +128,9 @@ export class SAAPage extends BasePage {
     const pendingItems = this.page.locator(
       '[class*="notification"], [id*="worklist"]'
     ).first();
-    await pendingItems.waitFor({ state: 'visible', timeout: 10_000 }).catch(() => {});
+    await pendingItems.waitFor({ state: 'visible', timeout: 10_000 }).catch((e) => {
+      console.warn('SAA: Pending approval items not visible:', e.message);
+    });
     await this.waitForJET();
   }
 
@@ -143,7 +145,7 @@ export class SAAPage extends BasePage {
     const salaryNotif = this.page.locator(
       'a:has-text("Salary"), [role="row"]:has-text("Salary"), [role="listitem"]:has-text("Salary")'
     ).first();
-    if (await salaryNotif.isVisible({ timeout: 10_000 }).catch(() => false)) {
+    if (await salaryNotif.isVisible({ timeout: 10_000 }).catch((e) => { console.warn('SAA: Salary notification visibility check failed:', e.message); return false; })) {
       await salaryNotif.click();
       await this.page.waitForTimeout(5000);
       await this.waitForJET();
@@ -159,7 +161,7 @@ export class SAAPage extends BasePage {
     const mhaNotif = this.page.locator(
       'a:has-text("MHA"), [role="row"]:has-text("MHA"), [role="listitem"]:has-text("MHA")'
     ).first();
-    if (await mhaNotif.isVisible({ timeout: 10_000 }).catch(() => false)) {
+    if (await mhaNotif.isVisible({ timeout: 10_000 }).catch((e) => { console.warn('SAA: MHA notification visibility check failed:', e.message); return false; })) {
       await mhaNotif.click();
       await this.page.waitForTimeout(5000);
       await this.waitForJET();
@@ -176,7 +178,7 @@ export class SAAPage extends BasePage {
       'a:has-text("Additional Salary"), [role="row"]:has-text("Additional Salary"), ' +
       '[role="listitem"]:has-text("Additional Salary")'
     ).first();
-    if (await addlSalaryNotif.isVisible({ timeout: 10_000 }).catch(() => false)) {
+    if (await addlSalaryNotif.isVisible({ timeout: 10_000 }).catch((e) => { console.warn('SAA: Additional salary notification visibility check failed:', e.message); return false; })) {
       await addlSalaryNotif.click();
       await this.page.waitForTimeout(5000);
       await this.waitForJET();
@@ -207,7 +209,7 @@ export class SAAPage extends BasePage {
 
     // Handle confirmation dialog if it appears
     const confirmBtn = this.page.getByRole('button', { name: /Yes|OK|Confirm|Submit/i }).first();
-    if (await confirmBtn.isVisible({ timeout: 5000 }).catch(() => false)) {
+    if (await confirmBtn.isVisible({ timeout: 5000 }).catch((e) => { console.warn('SAA: Approve confirm button visibility check failed:', e.message); return false; })) {
       await confirmBtn.click();
       await this.page.waitForTimeout(3000);
       await this.waitForJET();
@@ -222,7 +224,7 @@ export class SAAPage extends BasePage {
 
     // Handle confirmation dialog
     const confirmBtn = this.page.getByRole('button', { name: /Yes|OK|Confirm|Submit/i }).first();
-    if (await confirmBtn.isVisible({ timeout: 5000 }).catch(() => false)) {
+    if (await confirmBtn.isVisible({ timeout: 5000 }).catch((e) => { console.warn('SAA: Reject confirm button visibility check failed:', e.message); return false; })) {
       await confirmBtn.click();
       await this.page.waitForTimeout(3000);
       await this.waitForJET();
@@ -231,7 +233,7 @@ export class SAAPage extends BasePage {
 
   /** Add comments before approving/rejecting. */
   async addComments(comments: string): Promise<void> {
-    if (await this.commentsTextarea.isVisible({ timeout: 5000 }).catch(() => false)) {
+    if (await this.commentsTextarea.isVisible({ timeout: 5000 }).catch((e) => { console.warn('SAA: Comments textarea visibility check failed:', e.message); return false; })) {
       await this.commentsTextarea.clear();
       await this.commentsTextarea.fill(comments);
       await this.waitForJET();
@@ -244,13 +246,13 @@ export class SAAPage extends BasePage {
    */
   async viewApprovalHistory(): Promise<void> {
     const historyTab = this.page.getByRole('tab', { name: /History/i }).first();
-    if (await historyTab.isVisible({ timeout: 5000 }).catch(() => false)) {
+    if (await historyTab.isVisible({ timeout: 5000 }).catch((e) => { console.warn('SAA: History tab visibility check failed:', e.message); return false; })) {
       await historyTab.click();
       await this.page.waitForTimeout(3000);
       await this.waitForJET();
     } else {
       const historyLink = this.page.getByText('History').first();
-      if (await historyLink.isVisible({ timeout: 3000 }).catch(() => false)) {
+      if (await historyLink.isVisible({ timeout: 3000 }).catch((e) => { console.warn('SAA: History link visibility check failed:', e.message); return false; })) {
         await historyLink.click();
         await this.page.waitForTimeout(3000);
         await this.waitForJET();
@@ -271,12 +273,12 @@ export class SAAPage extends BasePage {
       const delegateInput = this.page.locator(
         'input[aria-label*="Delegate"], input[aria-label*="Person"]'
       ).first();
-      if (await delegateInput.isVisible({ timeout: 5000 }).catch(() => false)) {
+      if (await delegateInput.isVisible({ timeout: 5000 }).catch((e) => { console.warn('SAA: Delegate input visibility check failed:', e.message); return false; })) {
         await this.fillCombobox(delegateInput, delegateTo);
       }
 
       const confirmBtn = this.page.getByRole('button', { name: /OK|Submit|Confirm/i }).first();
-      if (await confirmBtn.isVisible({ timeout: 5000 }).catch(() => false)) {
+      if (await confirmBtn.isVisible({ timeout: 5000 }).catch((e) => { console.warn('SAA: Delegate confirm button visibility check failed:', e.message); return false; })) {
         await confirmBtn.click();
         await this.page.waitForTimeout(3000);
         await this.waitForJET();
@@ -290,8 +292,6 @@ export class SAAPage extends BasePage {
       ':text("approved"), :text("Approved"), :text("completed"), ' +
       ':text("successfully"), [class*="success"], [class*="confirmation"]'
     ).first();
-    await successIndicator.waitFor({ state: 'visible', timeout: 30_000 }).catch(() => {
-      // Approval confirmation may not have a specific indicator
-    });
+    await successIndicator.waitFor({ state: 'visible', timeout: 30_000 });
   }
 }

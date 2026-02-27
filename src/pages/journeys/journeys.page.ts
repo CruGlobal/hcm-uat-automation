@@ -1,6 +1,7 @@
 import { type Page } from '@playwright/test';
 import { BasePage } from '../base.page';
 import type { UATTestCase } from '../../data/types';
+import { parseTestData } from '../../utils/test-data-parser';
 
 /**
  * Oracle HCM Journeys page object.
@@ -394,7 +395,7 @@ export class JourneysPage extends BasePage {
    * Extracts relevant data from businessProcess, testScenario, and testData.
    */
   async fillFromTestCase(tc: UATTestCase): Promise<void> {
-    const data = this.parseTestData(tc.testData);
+    const data = parseTestData(tc.testData);
 
     // Person lookup
     const personName = data['person name'] || data['employee name'] || data['worker name'] || '';
@@ -435,26 +436,4 @@ export class JourneysPage extends BasePage {
     }
   }
 
-  /**
-   * Parse testData string into key-value pairs.
-   * Supports formats: "key: value; key2: value2" or "key=value\nkey2=value2"
-   */
-  private parseTestData(testData: string): Record<string, string> {
-    const result: Record<string, string> = {};
-    if (!testData) return result;
-
-    const delimiters = [';', '\n'];
-    for (const delim of delimiters) {
-      const parts = testData.split(delim).filter(p => p.trim());
-      for (const part of parts) {
-        const match = part.match(/^\s*([^:=]+?)\s*[:=]\s*(.+?)\s*$/);
-        if (match) {
-          result[match[1].toLowerCase().trim()] = match[2].trim();
-        }
-      }
-      if (Object.keys(result).length > 0) break;
-    }
-
-    return result;
-  }
 }

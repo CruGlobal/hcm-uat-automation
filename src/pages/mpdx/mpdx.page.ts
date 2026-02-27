@@ -1,4 +1,5 @@
 import { BasePage } from '../base.page';
+import { HomePage } from '../home.page';
 
 /**
  * Page object for MPDX (Ministry Partner Development) module.
@@ -36,34 +37,21 @@ export class MPDXPage extends BasePage {
 
   // --- Navigation ---
 
-  /**
-   * Navigate to Scheduled Processes page.
-   * URL: /fscmUI/faces/FuseOverview?fndGlobalItemNodeId=itemNode_tools_scheduled_processes_fuse_plus
-   */
+  /** Navigate to Scheduled Processes page via HomePage. */
   private async goToScheduledProcesses(): Promise<void> {
-    await this.page.goto('/fscmUI/faces/FuseOverview?fndGlobalItemNodeId=itemNode_tools_scheduled_processes_fuse_plus');
-    await this.page.waitForLoadState('networkidle', { timeout: 60_000 });
-    await this.page.waitForTimeout(5000);
+    const home = new HomePage(this.page);
+    await home.goToScheduledProcesses();
     await this.waitForJET();
   }
 
-  /** Navigate to a module via the Navigator menu. */
+  /** Navigate to a module via the Navigator menu using HomePage. */
   private async navigateToModule(moduleName: string): Promise<void> {
-    const navigator = this.page.locator('a[title="Navigator"]');
-    await navigator.click();
-    await this.page.waitForTimeout(2000);
-
-    const showMore = this.page.locator('a:has-text("Show More")').first();
-    if (await showMore.isVisible({ timeout: 3000 }).catch(() => false)) {
-      await showMore.click();
-      await this.page.waitForTimeout(2000);
-    }
-
+    const home = new HomePage(this.page);
+    await home.openNavigator();
     const moduleLink = this.page.locator(`a[title="${moduleName}"], a:has-text("${moduleName}")`).first();
     if (await moduleLink.isVisible({ timeout: 5000 }).catch(() => false)) {
       await moduleLink.click({ force: true });
     }
-
     await this.page.waitForLoadState('networkidle', { timeout: 60_000 });
     await this.page.waitForTimeout(5000);
     await this.waitForJET();
@@ -82,7 +70,7 @@ export class MPDXPage extends BasePage {
     await this.page.waitForTimeout(2000);
 
     const okButton = this.page.getByRole('button', { name: 'OK' }).first();
-    if (await okButton.isVisible({ timeout: 5000 }).catch(() => false)) {
+    if (await okButton.isVisible({ timeout: 5000 }).catch((e) => { console.warn(`Schedule process OK button visibility check failed: ${e.message}`); return false; })) {
       await okButton.click();
       await this.page.waitForTimeout(3000);
       await this.waitForJET();
@@ -149,7 +137,7 @@ export class MPDXPage extends BasePage {
   /** Run calculation by clicking Calculate/Run/Submit button. */
   async runCalculation(): Promise<void> {
     const calcBtn = this.page.getByRole('button', { name: /Calculate|Run|Submit/i }).first();
-    if (await calcBtn.isVisible({ timeout: 5000 }).catch(() => false)) {
+    if (await calcBtn.isVisible({ timeout: 5000 }).catch((e) => { console.warn(`Calculate/Run/Submit button visibility check failed: ${e.message}`); return false; })) {
       await calcBtn.click();
     } else {
       await this.clickAdfButton('Submit');
@@ -159,7 +147,7 @@ export class MPDXPage extends BasePage {
 
     // Handle confirmation dialog
     const okButton = this.page.getByRole('button', { name: 'OK' }).first();
-    if (await okButton.isVisible({ timeout: 5000 }).catch(() => false)) {
+    if (await okButton.isVisible({ timeout: 5000 }).catch((e) => { console.warn(`Calculation confirmation OK button visibility check failed: ${e.message}`); return false; })) {
       await okButton.click();
       await this.page.waitForTimeout(3000);
       await this.waitForJET();
@@ -225,7 +213,7 @@ export class MPDXPage extends BasePage {
   /** Submit additional salary request. */
   async submitRequest(): Promise<void> {
     const submitBtn = this.page.getByRole('button', { name: /Submit|Save/i }).first();
-    if (await submitBtn.isVisible({ timeout: 5000 }).catch(() => false)) {
+    if (await submitBtn.isVisible({ timeout: 5000 }).catch((e) => { console.warn(`Submit/Save button visibility check failed: ${e.message}`); return false; })) {
       await submitBtn.click();
     } else {
       await this.clickAdfButton('Submit');
@@ -266,7 +254,7 @@ export class MPDXPage extends BasePage {
   async goToStaffExpenseReport(): Promise<void> {
     await this.navigateToModule('Expenses');
     const expenseLink = this.page.getByText('Create Expense Report').first();
-    if (await expenseLink.isVisible({ timeout: 5000 }).catch(() => false)) {
+    if (await expenseLink.isVisible({ timeout: 5000 }).catch((e) => { console.warn(`"Create Expense Report" link visibility check failed: ${e.message}`); return false; })) {
       await expenseLink.click();
     } else {
       await this.clickTaskLink('Expense Report');
@@ -287,8 +275,6 @@ export class MPDXPage extends BasePage {
       ':text("Succeeded"), :text("Completed"), :text("submitted"), ' +
       '[class*="success"], [class*="confirmation"]'
     ).first();
-    await successIndicator.waitFor({ state: 'visible', timeout: 30_000 }).catch(() => {
-      // Process may still be running; not an error
-    });
+    await successIndicator.waitFor({ state: 'visible', timeout: 30_000 });
   }
 }

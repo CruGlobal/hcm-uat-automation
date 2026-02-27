@@ -1,6 +1,7 @@
 import { type Page } from '@playwright/test';
 import { BaseAbsenceFlow } from './base-absence.flow';
 import type { UATTestCase } from '../../data/types';
+import { parseTestDataMulti } from '../../utils/test-data-parser';
 
 /**
  * Flow: Absence Administration
@@ -147,7 +148,7 @@ export class AbsenceAdminFlow extends BaseAbsenceFlow {
     }
 
     // Step 9: Enter Start Date
-    const data = this.parseTestData(tc);
+    const data = parseTestDataMulti(tc.testData, tc.preConditions);
     if (data['start date'] || data['start']) {
       await this.absence.fillEnrollmentStartDate(data['start date'] || data['start']);
     }
@@ -176,7 +177,7 @@ export class AbsenceAdminFlow extends BaseAbsenceFlow {
     await this.absence.clickUpdateEnrollment();
 
     // Steps 9-10: Update Start/End dates, then submit
-    const data = this.parseTestData(tc);
+    const data = parseTestDataMulti(tc.testData, tc.preConditions);
     if (data['start date'] || data['start']) {
       await this.absence.fillEnrollmentStartDate(data['start date'] || data['start']);
     }
@@ -219,7 +220,7 @@ export class AbsenceAdminFlow extends BaseAbsenceFlow {
     await this.absence.clickPlanName(planName || undefined);
 
     // Enter a Balance Calculation Date if provided
-    const data = this.parseTestData(tc);
+    const data = parseTestDataMulti(tc.testData, tc.preConditions);
     const calcDate = data['balance calculation date'] || data['calculation date'] || data['date'] || '';
     if (calcDate) {
       await this.absence.fillBalanceCalculationDate(calcDate);
@@ -245,7 +246,7 @@ export class AbsenceAdminFlow extends BaseAbsenceFlow {
     await this.absence.clickAdjustBalance();
 
     // Fill adjustment details
-    const data = this.parseTestData(tc);
+    const data = parseTestDataMulti(tc.testData, tc.preConditions);
     const reason = data['reason'] || '';
     const amount = data['adjustment amount'] || data['amount'] || '';
     const date = data['date'] || '';
@@ -271,7 +272,7 @@ export class AbsenceAdminFlow extends BaseAbsenceFlow {
     await this.absence.clickRunAccrualsAllPlans();
 
     // Enter a Balance As-of-Date if provided
-    const data = this.parseTestData(tc);
+    const data = parseTestDataMulti(tc.testData, tc.preConditions);
     const asOfDate = data['balance as-of-date'] || data['as-of-date'] || data['date'] || '';
     if (asOfDate) {
       await this.absence.fillBalanceCalculationDate(asOfDate);
@@ -298,7 +299,7 @@ export class AbsenceAdminFlow extends BaseAbsenceFlow {
     await this.absence.clickDisburseBalance();
 
     // Fill disbursement details
-    const data = this.parseTestData(tc);
+    const data = parseTestDataMulti(tc.testData, tc.preConditions);
     const amount = data['disbursement amount'] || data['amount'] || '';
     const date = data['date'] || '';
     await this.absence.fillDisbursement(amount, date);
@@ -482,21 +483,4 @@ export class AbsenceAdminFlow extends BaseAbsenceFlow {
     await this.hrAddWorkScheduleAssignment(tc);
   }
 
-  /**
-   * Parse test data from a UATTestCase into key-value pairs.
-   */
-  private parseTestData(tc: UATTestCase): Record<string, string> {
-    const result: Record<string, string> = {};
-    const sources = [tc.testData || '', tc.preConditions || ''];
-    for (const source of sources) {
-      const lines = source.split(/[\n;]+/);
-      for (const line of lines) {
-        const match = line.match(/^\s*([^:=]+?)\s*[:=]\s*(.+?)\s*$/);
-        if (match) {
-          result[match[1].toLowerCase().trim()] = match[2].trim();
-        }
-      }
-    }
-    return result;
-  }
 }

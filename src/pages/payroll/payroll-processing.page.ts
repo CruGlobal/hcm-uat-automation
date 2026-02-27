@@ -1,4 +1,5 @@
 import { BasePage } from '../base.page';
+import { HomePage } from '../home.page';
 
 /**
  * Page object for Oracle HCM Payroll Processing / Scheduled Processes.
@@ -176,34 +177,12 @@ export class PayrollProcessingPage extends BasePage {
   // --- Navigation methods ---
 
   /**
-   * Navigate to the Scheduled Processes page.
+   * Navigate to the Scheduled Processes page via HomePage.
    * Navigator > Tools > Scheduled Processes
    */
   async goToScheduledProcesses(): Promise<void> {
-    const navigator = this.page.locator('a[title="Navigator"]');
-    await navigator.click();
-    await this.page.waitForTimeout(2000);
-
-    const showMore = this.page.locator('a:has-text("Show More")').first();
-    if (await showMore.isVisible({ timeout: 3000 }).catch(() => false)) {
-      await showMore.click();
-      await this.page.waitForTimeout(2000);
-    }
-
-    const scheduledLink = this.page.locator('a[title="Scheduled Processes"]').first();
-    if (await scheduledLink.isVisible({ timeout: 5000 }).catch(() => false)) {
-      await scheduledLink.click({ force: true });
-    } else {
-      // Try via Tools section
-      const toolsLink = this.page.getByText('Tools').first();
-      if (await toolsLink.isVisible({ timeout: 3000 }).catch(() => false)) {
-        await toolsLink.click({ force: true });
-        await this.page.waitForTimeout(2000);
-      }
-    }
-
-    await this.page.waitForLoadState('networkidle', { timeout: 60_000 });
-    await this.page.waitForTimeout(5000);
+    const home = new HomePage(this.page);
+    await home.goToScheduledProcesses();
     await this.waitForJET();
   }
 
@@ -430,19 +409,10 @@ export class PayrollProcessingPage extends BasePage {
 
   // --- W-4 / Tax Forms ---
 
-  /** Navigate to Calculation Card (W-4 tax setup). */
+  /** Navigate to Calculation Card (W-4 tax setup) via Navigator > Payroll. */
   async goToCalculationCard(): Promise<void> {
-    const navigator = this.page.locator('a[title="Navigator"]');
-    await navigator.click();
-    await this.page.waitForTimeout(2000);
-
-    const showMore = this.page.locator('a:has-text("Show More")').first();
-    if (await showMore.isVisible({ timeout: 3000 }).catch(() => false)) {
-      await showMore.click();
-      await this.page.waitForTimeout(2000);
-    }
-
-    // Navigate to Payroll > Calculation Cards
+    const home = new HomePage(this.page);
+    await home.openNavigator();
     const payrollLink = this.page.locator('a[title="Payroll"]').first();
     if (await payrollLink.isVisible({ timeout: 5000 }).catch(() => false)) {
       await payrollLink.click({ force: true });
@@ -478,19 +448,10 @@ export class PayrollProcessingPage extends BasePage {
 
   // --- Direct Deposit ---
 
-  /** Navigate to Direct Deposit / Payment Methods page. */
+  /** Navigate to Direct Deposit / Payment Methods page via Navigator. */
   async goToDirectDeposit(): Promise<void> {
-    const navigator = this.page.locator('a[title="Navigator"]');
-    await navigator.click();
-    await this.page.waitForTimeout(2000);
-
-    const showMore = this.page.locator('a:has-text("Show More")').first();
-    if (await showMore.isVisible({ timeout: 3000 }).catch(() => false)) {
-      await showMore.click();
-      await this.page.waitForTimeout(2000);
-    }
-
-    // Try Payment Methods or Direct Deposit link
+    const home = new HomePage(this.page);
+    await home.openNavigator();
     const ddLink = this.page.locator(
       'a[title="Payment Methods"], a:has-text("Payment Methods"), a:has-text("Direct Deposit")'
     ).first();
@@ -534,16 +495,8 @@ export class PayrollProcessingPage extends BasePage {
 
   /** Navigate to Costing page via Navigator. */
   async goToCosting(): Promise<void> {
-    const navigator = this.page.locator('a[title="Navigator"]');
-    await navigator.click();
-    await this.page.waitForTimeout(2000);
-
-    const showMore = this.page.locator('a:has-text("Show More")').first();
-    if (await showMore.isVisible({ timeout: 3000 }).catch(() => false)) {
-      await showMore.click();
-      await this.page.waitForTimeout(2000);
-    }
-
+    const home = new HomePage(this.page);
+    await home.openNavigator();
     const costingLink = this.page.locator(
       'a[title="Costing"], a:has-text("Costing")'
     ).first();

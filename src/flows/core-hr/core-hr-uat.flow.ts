@@ -6,6 +6,15 @@ import { AssignmentPage } from '../../pages/core-hr/assignment.page';
 import { ManagersPage } from '../../pages/core-hr/managers.page';
 import { SalaryPage } from '../../pages/core-hr/salary.page';
 import { ConfirmationPage } from '../../pages/core-hr/confirmation.page';
+import { HireEmployeeFlow } from './hire-employee.flow';
+import { AddPendingWorkerFlow } from './add-pending-worker.flow';
+import { AddNonWorkerFlow } from './add-non-worker.flow';
+import { RehireEmployeeFlow } from './rehire-employee.flow';
+import { PendingToHireFlow } from './pending-to-hire.flow';
+import { CreateWorkRelationshipFlow } from './create-work-relationship.flow';
+import { AssignmentChangeFlow } from './assignment-change.flow';
+import { TerminationFlow } from './termination.flow';
+import { getFieldData } from '../../data/uat-plan-provider';
 import type { UATTestCase } from '../../data/types';
 
 /**
@@ -92,35 +101,43 @@ export class CoreHRUATFlow extends BaseFlow {
   // --- Hire Actions (HCM.CORE.205, 203, 207, 206, 204) ---
 
   private async executeHire(tc: UATTestCase): Promise<void> {
+    const fieldData = getFieldData(tc.testId);
     const process = tc.businessProcess.toLowerCase();
+
+    if (fieldData) {
+      // Delegate to tab-specific flow which fills all form fields
+      if (process.includes('pending')) {
+        const flow = new AddPendingWorkerFlow(this.page);
+        await flow.execute(fieldData);
+      } else if (process.includes('non worker') || process.includes('nonworker')) {
+        const flow = new AddNonWorkerFlow(this.page);
+        await flow.execute(fieldData);
+      } else {
+        const flow = new HireEmployeeFlow(this.page);
+        await flow.execute(fieldData);
+      }
+      return;
+    }
+
+    // No field data — navigation-only behavior
     if (process.includes('pending')) {
-      // HCM.CORE.203: Add Pending Worker
       await this.homePage.goToAddPendingWorker();
     } else if (process.includes('non worker') || process.includes('nonworker')) {
-      // HCM.CORE.207: Create Non-Worker
       await this.homePage.goToAddNonworker();
     } else if (process.includes('contingent')) {
-      // HCM.CORE.206: Contingent Worker
       await this.homePage.goToAddContingentWorker();
     } else {
-      // HCM.CORE.205: New Hire
       await this.homePage.goToHireEmployee();
     }
-    // Step: "What info do you want to manage" — select checkboxes and click Continue
     await this.page.waitForTimeout(5000);
     await this.person.clickAdfButton('Continue');
     await this.page.waitForTimeout(5000);
-    // Step: "When and Why" — enter dates and reasons
     await this.person.clickAdfButton('Continue');
     await this.page.waitForTimeout(5000);
-    // Step: "Personal Details" — enter name, DOB, etc.
     await this.person.clickAdfButton('Continue');
     await this.page.waitForTimeout(5000);
-    // Step: "Employment Details" — guided flow with assignment sections
-    // Navigate through each section using Next/Continue
     await this.person.clickAdfButton('Next');
     await this.page.waitForTimeout(5000);
-    // Submit
     await this.confirmation.clickSubmit();
     await this.confirmation.expectSuccess();
   }
@@ -128,22 +145,25 @@ export class CoreHRUATFlow extends BaseFlow {
   // --- Rehire (HCM.CORE.208) ---
 
   private async executeRehire(tc: UATTestCase): Promise<void> {
-    // Navigate to Person Management, search for person
+    const fieldData = getFieldData(tc.testId);
+    if (fieldData) {
+      const flow = new RehireEmployeeFlow(this.page);
+      await flow.execute(fieldData);
+      return;
+    }
+
+    // No field data — navigation-only behavior
     await this.homePage.goToPersonManagement();
     const personName = this.extractPersonRef(tc);
     if (personName) {
       await this.person.searchByName(personName);
     }
-    // Actions menu → Rehire
     await this.selectPersonAction('Rehire');
     await this.page.waitForTimeout(5000);
-    // "When and Why" — fill dates and reason
     await this.person.clickAdfButton('Continue');
     await this.page.waitForTimeout(5000);
-    // Assignment details
     await this.person.clickAdfButton('Next');
     await this.page.waitForTimeout(5000);
-    // Submit
     await this.confirmation.clickSubmit();
     await this.confirmation.expectSuccess();
   }
@@ -151,22 +171,25 @@ export class CoreHRUATFlow extends BaseFlow {
   // --- Termination (HCM.CORE.239) ---
 
   private async executeTermination(tc: UATTestCase): Promise<void> {
-    // Per test script: Navigate to Quick Actions > Termination, or Person Management
+    const fieldData = getFieldData(tc.testId);
+    if (fieldData) {
+      const flow = new TerminationFlow(this.page);
+      await flow.execute(fieldData);
+      return;
+    }
+
+    // No field data — navigation-only behavior
     await this.homePage.goToPersonManagement();
     const personName = this.extractPersonRef(tc);
     if (personName) {
       await this.person.searchByName(personName);
     }
-    // Actions → Terminate Work Relationship
     await this.selectPersonAction('Terminate');
     await this.page.waitForTimeout(5000);
-    // "When and Why" — enter termination date, action, reason
     await this.person.clickAdfButton('Continue');
     await this.page.waitForTimeout(5000);
-    // "Enter Termination Info" — fill additional details
     await this.person.clickAdfButton('Continue');
     await this.page.waitForTimeout(5000);
-    // "Comments and Attachments" — optional
     await this.confirmation.clickSubmit();
     await this.confirmation.expectSuccess();
   }
@@ -174,6 +197,14 @@ export class CoreHRUATFlow extends BaseFlow {
   // --- Transfer (HCM.CORE.2xx transfer scripts) ---
 
   private async executeTransfer(tc: UATTestCase): Promise<void> {
+    const fieldData = getFieldData(tc.testId);
+    if (fieldData) {
+      const flow = new AssignmentChangeFlow(this.page);
+      await flow.execute(fieldData);
+      return;
+    }
+
+    // No field data — navigation-only behavior
     await this.homePage.goToPersonManagement();
     const personName = this.extractPersonRef(tc);
     if (personName) {
@@ -186,10 +217,8 @@ export class CoreHRUATFlow extends BaseFlow {
       await this.selectPersonAction('Transfer');
     }
     await this.page.waitForTimeout(5000);
-    // "When and Why" — effective date, action reason
     await this.person.clickAdfButton('Continue');
     await this.page.waitForTimeout(5000);
-    // Assignment details — new department, location, etc.
     await this.person.clickAdfButton('Next');
     await this.page.waitForTimeout(5000);
     await this.confirmation.clickSubmit();
@@ -199,6 +228,14 @@ export class CoreHRUATFlow extends BaseFlow {
   // --- Assignment Change (HCM.CORE.2xx) ---
 
   private async executeAssignmentChange(tc: UATTestCase): Promise<void> {
+    const fieldData = getFieldData(tc.testId);
+    if (fieldData) {
+      const flow = new AssignmentChangeFlow(this.page);
+      await flow.execute(fieldData);
+      return;
+    }
+
+    // No field data — navigation-only behavior
     await this.homePage.goToPersonManagement();
     const personName = this.extractPersonRef(tc);
     if (personName) {
@@ -206,10 +243,8 @@ export class CoreHRUATFlow extends BaseFlow {
     }
     await this.selectPersonAction('Change Assignment');
     await this.page.waitForTimeout(5000);
-    // "When and Why" section
     await this.person.clickAdfButton('Continue');
     await this.page.waitForTimeout(5000);
-    // Assignment fields
     await this.person.clickAdfButton('Next');
     await this.page.waitForTimeout(5000);
     await this.confirmation.clickSubmit();

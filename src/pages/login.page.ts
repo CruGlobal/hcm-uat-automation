@@ -1,4 +1,4 @@
-import { type Page, expect } from '@playwright/test';
+import { type Page } from '@playwright/test';
 import { BasePage } from './base.page';
 import { env } from '../config/environment';
 import { TOTP } from 'otpauth';

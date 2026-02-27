@@ -29,14 +29,14 @@ export class ConfirmationPage extends BasePage {
   }
 
   async expectSuccess(): Promise<void> {
-    // Wait for either confirmation message or any dialog
-    const hasConfirmation = await this.confirmationMessage.isVisible({ timeout: 30_000 }).catch(() => false);
-    if (hasConfirmation) {
-      const text = await this.confirmationMessage.textContent() || '';
-      console.log('Confirmation:', text.substring(0, 200));
-    }
+    // Assert that a confirmation message is visible
+    await expect(this.confirmationMessage, 'Expected confirmation/success message to appear after submission')
+      .toBeVisible({ timeout: 30_000 });
 
-    // Also look for warning/error messages
+    const text = await this.confirmationMessage.textContent() || '';
+    console.log('Confirmation:', text.substring(0, 200));
+
+    // Log warning/error messages for debugging
     const warnings = await this.warningMessages.allTextContents().catch(() => []);
     if (warnings.length > 0) {
       console.log('Warnings:', warnings.map(w => w.substring(0, 100)));

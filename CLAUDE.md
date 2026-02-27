@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What This Is
 
-Oracle HCM UAT automation framework using Playwright + TypeScript. 1,580 tests across 20 spec files covering 12 modules. Tests are dynamically generated from two data sources: a transposed test data sheet (424 detailed cases) and the UAT Plan sheet (1,139 unique high-level cases).
+Oracle HCM UAT automation framework using Playwright + TypeScript. ~1,155 tests across 11 spec files covering 12 modules. Tests are dynamically generated from the **UAT Plan spreadsheet** (the single source of test cases). Field-level form data is generated from the **migration database** and matched to UAT Plan test IDs.
 
 ## Project Location
 
@@ -15,12 +15,11 @@ This project lives at `/home/ai/htdocs/hcm-uat-automation/` (not the parent `uat
 ```bash
 npx playwright test                              # Run all tests
 npx playwright test tests/core-hr/               # Run one module
-npx playwright test tests/core-hr/hires.spec.ts  # Run one spec
 npx playwright test -g "HR-019"                  # Run by test name/ID
 npx playwright test --list                       # List all tests without running
 npx playwright show-report                       # Open HTML report
-npm run fetch-data                               # Preview Google Sheets data
-npm run fetch-data "Core - Hires"                # Fetch a specific tab
+npx tsx scripts/generate-test-data.ts            # Generate field data from migration DB
+npx tsx scripts/fetch-uat-plan.ts                # Fetch UAT Plan from Google Sheets
 ```
 
 Tests run serially (`workers: 1`) because Oracle HCM sessions conflict. Timeouts: 120s/test, 60s navigation, 30s actions.
@@ -31,25 +30,26 @@ Three-layer pattern: **Page Objects → Flows → Specs**, with a shared data la
 
 ### Data Pipeline
 
-Two parallel data pipelines feed tests:
+Two complementary data sources:
 
-**1. Test Data Sheet (detailed field-level data, 424 cases):**
+**1. UAT Plan Sheet (test case definitions, ~1,155 cases):**
 ```
-Test Data Sheet (9 tabs, transposed) → global-setup.ts → .cache/*.json → test-data.fixture.ts → core-hr + payroll specs
-```
-- `global-setup.ts` runs once before all tests via Playwright `globalSetup`, fetching all tabs via Google Sheets API v4 and caching as JSON. Without Google credentials, it creates empty cache files.
-- `test-data.fixture.ts` extends Playwright's `test` with `loadTab` fixture and provides `hasRequiredFields()` and `testTitle()` helpers. Core HR and payroll element entry specs import `{ test, expect }` from this fixture.
-- `testTitle(tc)` appends `col-{columnIndex}` when scenario is empty to avoid Playwright duplicate-title errors.
-- The `TestCase` interface in `src/data/types.ts` holds field-level data with `getField(tc, partialKey)` for case-insensitive partial key matching.
-
-**2. UAT Plan Sheet (high-level test metadata, 1,139 cases):**
-```
-UAT Plan Sheet (11 modules) → scripts/fetch-uat-plan.ts → .cache/uat-plan.json → uat-plan.fixture.ts → all module specs
+UAT Plan Sheet (11 modules) → scripts/fetch-uat-plan.ts → .cache/uat-plan.json → uat-plan.fixture.ts → all 11 spec files
 ```
 - `scripts/fetch-uat-plan.ts` fetches the full UAT Plan spreadsheet (27 tabs, deduplicates by testId).
-- `uat-plan-provider.ts` provides `loadUATModule()`, `loadByCategory()`, `uatTestTitle()`, `isTestable()`.
-- `uat-plan.fixture.ts` extends Playwright's `test` for UAT Plan tests. New module specs (absence, benefits, time-labor, journeys, compensation, mpdx, saa, other) import from this fixture.
+- `uat-plan-provider.ts` provides `loadUATModule()`, `loadByCategory()`, `uatTestTitle()`, `isTestable()`, `getFieldData()`.
+- `uat-plan.fixture.ts` extends Playwright's `test` for UAT Plan tests. All spec files import from this fixture.
 - The `UATTestCase` interface holds test metadata: testId, module, businessProcess, testScenario, transactionCategory, testScript, expectedResult, etc.
+
+**2. Migration Database (field-level form data, matched to UAT Plan IDs):**
+```
+UAT Plan IDs + Migration DB → scripts/generate-test-data.ts → .cache-generated/field-data.json → uat-plan-provider.getFieldData()
+```
+- `scripts/generate-test-data.ts` loads the UAT Plan cache, groups tests by business process type, queries the migration DB for matching persons/assignments, and outputs `TestCase` objects keyed by UAT Plan testId.
+- `getFieldData(testId)` in `uat-plan-provider.ts` returns field data for a test ID (or undefined if none exists).
+- When field data exists, flows delegate to tab-specific flows (HireEmployeeFlow, RehireEmployeeFlow, etc.) which fill all form fields.
+- When no field data exists, flows use navigation-only behavior (click Continue/Next/Submit).
+- The `TestCase` interface in `src/data/types.ts` holds field-level data with `getField(tc, partialKey)` for case-insensitive partial key matching.
 
 ### Page Objects (`src/pages/`)
 - `base.page.ts` — All pages extend this. Provides `waitForJET()` (Oracle JET busy-context wait), `dismissPopups()`, `fillField()` with Tab-to-trigger-validation, `fillCombobox()`, `clickAdfButton()`, `clickAdfLink()`, and `clickAndWait()`.
@@ -69,8 +69,8 @@ UAT Plan Sheet (11 modules) → scripts/fetch-uat-plan.ts → .cache/uat-plan.js
 Composable scenario classes between page objects and specs. Each flow orchestrates multiple page objects for a business scenario.
 - `base.flow.ts` — login → navigate to module.
 - `core-hr/base-core-hr.flow.ts` — Shared base composing all core-hr page objects, with `fillCommonSections(tc)`.
-- `core-hr/` — 8 tab-specific flows + `core-hr-uat.flow.ts` for UAT Plan routing (575 tests).
-- `payroll/` — element-entry + payroll-processing flows.
+- `core-hr/` — 8 tab-specific flows (hire, rehire, add-pending, add-nonworker, pending-to-hire, create-work-rel, assignment-change, termination) + `core-hr-uat.flow.ts` for UAT Plan routing (575 tests). When field data exists, delegates to the tab-specific flow for full form filling.
+- `payroll/` — element-entry + payroll-processing flows. PayrollProcessingFlow delegates to ElementEntryFlow when field data exists.
 - `absence/` — base-absence, absence-entry, absence-approval, absence-admin flows.
 - `benefits/` — base-benefits, benefits-enrollment, benefits-admin flows.
 - `time-labor/` — base-time-labor, timecard-entry, time-approval, time-admin flows.
@@ -82,31 +82,22 @@ Composable scenario classes between page objects and specs. Each flow orchestrat
 - `oneapp/` — oneapp flow (Prepare for Hire, New Hire, Job Reclass, Payroll Change, Transfer).
 
 ### Specs (`tests/`)
-20 spec files with dynamic test generation from cached data:
+11 spec files with dynamic test generation from UAT Plan cache:
 
-| Spec File | Tests | Source |
+| Spec File | Tests | Module |
 |---|---|---|
-| core-hr/add-pending-workers.spec.ts | 27 | Test Data |
-| core-hr/add-non-worker.spec.ts | 24 | Test Data |
-| core-hr/create-work-relationship.spec.ts | 12 | Test Data |
-| core-hr/hires.spec.ts | 40 | Test Data |
-| core-hr/pending-to-hire.spec.ts | 47 | Test Data |
-| core-hr/rehires.spec.ts | 98 | Test Data |
-| core-hr/assign-change-xfr.spec.ts | 25 | Test Data |
-| core-hr/terms-ends.spec.ts | 15 | Test Data |
-| core-hr/core-hr-uat-plan.spec.ts | 575 | UAT Plan |
-| payroll/payroll.spec.ts | 136 | Test Data |
-| payroll/payroll-processing.spec.ts | 103 | UAT Plan |
-| absence/absence-management.spec.ts | 108 | UAT Plan |
-| benefits/benefits.spec.ts | 139 | UAT Plan |
-| time-labor/time-and-labor.spec.ts | 64 | UAT Plan |
-| journeys/journeys.spec.ts | 63 | UAT Plan |
-| compensation/compensation.spec.ts | 52 | UAT Plan |
-| mpdx/mpdx.spec.ts | 22 | UAT Plan |
-| saa/saa.spec.ts | 6 | UAT Plan |
-| oneapp/oneapp.spec.ts | 20 | UAT Plan |
-| other/other-functions.spec.ts | 4 | UAT Plan |
-| **Total** | **1,580** | |
+| core-hr/core-hr-uat-plan.spec.ts | 575 | Core HR |
+| payroll/payroll-processing.spec.ts | 103 | Payroll |
+| absence/absence-management.spec.ts | 108 | Absence Management |
+| benefits/benefits.spec.ts | 139 | Benefits |
+| time-labor/time-and-labor.spec.ts | 64 | Time and Labor |
+| journeys/journeys.spec.ts | 63 | Journeys |
+| compensation/compensation.spec.ts | 52 | Workforce Compensation |
+| mpdx/mpdx.spec.ts | 22 | MPDX |
+| saa/saa.spec.ts | 6 | SAA |
+| oneapp/oneapp.spec.ts | 20 | OneApp |
+| other/other-functions.spec.ts | 4 | Other Functions |
+| **Total** | **~1,155** | |
 
 ## Login Flow
 
@@ -138,7 +129,6 @@ Password with spaces must be quoted in `.env`: `ORACLE_HCM_PASSWORD="word1 word2
 
 ## Important Details
 
-- Most Oracle HCM page selectors in `core-hr/` and `payroll/` pages still have `TODO` placeholder comments — they need updating by inspecting the actual Oracle HCM UI.
 - `src/utils/oracle-hcm-helpers.ts` contains `waitForOracleJET()` which checks `oj.Context.getPageContext().getBusyContext()` — critical for Oracle JET apps.
 - `excelSerialToDate(serial)` converts Excel serial date numbers (e.g., "46054") to MM/DD/YYYY strings — used because Google Sheets returns dates as serial numbers.
 - Oracle HCM URLs: Home page = `**/fscmUI/faces/AtkHomePageWelcome**`, Pending Workers dashboard = `/fscmUI/redwood/employment-pending-workers/view/dashboard`.
@@ -149,8 +139,6 @@ Password with spaces must be quoted in `.env`: `ORACLE_HCM_PASSWORD="word1 word2
 
 1. Create page objects in `src/pages/<module>/`
 2. Create flows in `src/flows/<module>/`, extending `BaseFlow`
-3. Create specs in `tests/<module>/`:
-   - For detailed test data: import from `tests/fixtures/test-data.fixture.ts`
-   - For UAT Plan tests: import from `tests/fixtures/uat-plan.fixture.ts`
-4. For test data sheet: add the tab name to `MODULE_TABS` in `src/data/types.ts`
-5. For UAT Plan: the module name must match one in `UAT_MODULES` in `src/data/types.ts`
+3. Create specs in `tests/<module>/`, importing from `tests/fixtures/uat-plan.fixture.ts`
+4. The module name must match one in `UAT_MODULES` in `src/data/types.ts`
+5. To add field data: update `scripts/generate-test-data.ts` to generate `TestCase` objects for the module's business process types

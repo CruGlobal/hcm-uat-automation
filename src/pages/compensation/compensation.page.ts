@@ -1,5 +1,6 @@
-import { type Page, type Locator } from '@playwright/test';
+import { type Page } from '@playwright/test';
 import { BasePage } from '../base.page';
+import { HomePage } from '../home.page';
 import type { UATTestCase } from '../../data/types';
 
 /**
@@ -151,21 +152,8 @@ export class CompensationPage extends BasePage {
 
   /** Navigate to the Compensation area via the Navigator menu. */
   async navigateToCompensation(): Promise<void> {
-    const navigator = this.page.locator('a[title="Navigator"]');
-    await navigator.click();
-    await this.page.waitForTimeout(2000);
-
-    // Expand "Show More" if present
-    const showMore = this.page.locator('a:has-text("Show More")').first();
-    if (await showMore.isVisible({ timeout: 3000 }).catch(() => false)) {
-      await showMore.click();
-      await this.page.waitForTimeout(2000);
-    }
-
-    // Click Compensation link (force: true to bypass sticky header interception)
-    await this.compensationNavLink.click({ force: true });
-    await this.page.waitForLoadState('networkidle', { timeout: 60_000 });
-    await this.page.waitForTimeout(5000);
+    const home = new HomePage(this.page);
+    await home.goToWorkforceCompensation();
     await this.waitForJET();
   }
 

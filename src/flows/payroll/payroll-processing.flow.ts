@@ -1,6 +1,8 @@
 import { type Page } from '@playwright/test';
 import { BaseFlow } from '../base.flow';
 import { PayrollProcessingPage } from '../../pages/payroll/payroll-processing.page';
+import { ElementEntryFlow } from './element-entry.flow';
+import { getFieldData } from '../../data/uat-plan-provider';
 import type { UATTestCase } from '../../data/types';
 
 /**
@@ -37,6 +39,14 @@ export class PayrollProcessingFlow extends BaseFlow {
   }
 
   async execute(tc: UATTestCase): Promise<void> {
+    // If field data exists, delegate to ElementEntryFlow for form filling
+    const fieldData = getFieldData(tc.testId);
+    if (fieldData) {
+      const flow = new ElementEntryFlow(this.page);
+      await flow.execute(fieldData);
+      return;
+    }
+
     await this.loginToHCM();
 
     const script = tc.testScript;

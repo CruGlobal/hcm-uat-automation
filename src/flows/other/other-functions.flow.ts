@@ -53,13 +53,6 @@ export class OtherFunctionsFlow extends BaseFlow {
    */
   private async executeReport(tc: UATTestCase): Promise<void> {
     await this.homePage.openNavigator();
-    await this.page.waitForTimeout(2000);
-
-    const showMore = this.page.locator('a:has-text("Show More")').first();
-    if (await showMore.isVisible({ timeout: 3000 }).catch(() => false)) {
-      await showMore.click();
-      await this.page.waitForTimeout(2000);
-    }
 
     const reportsLink = this.page.locator(
       'a[title="Reports and Analytics"], a:has-text("Reports and Analytics")'
@@ -106,15 +99,8 @@ export class OtherFunctionsFlow extends BaseFlow {
    * Navigate to Setup and Maintenance for configuration.
    * Navigator > Setup and Maintenance
    */
-  private async executeConfiguration(tc: UATTestCase): Promise<void> {
+  private async executeConfiguration(_tc: UATTestCase): Promise<void> {
     await this.homePage.openNavigator();
-    await this.page.waitForTimeout(2000);
-
-    const showMore = this.page.locator('a:has-text("Show More")').first();
-    if (await showMore.isVisible({ timeout: 3000 }).catch(() => false)) {
-      await showMore.click();
-      await this.page.waitForTimeout(2000);
-    }
 
     const setupLink = this.page.locator(
       'a[title="Setup and Maintenance"], a:has-text("Setup and Maintenance")'
@@ -127,28 +113,10 @@ export class OtherFunctionsFlow extends BaseFlow {
   }
 
   /**
-   * Navigate to Workforce Structures page.
-   * Uses task search input (aria-label "Search for tasks") from workforce-structures-deep.json
-   * to find specific structural tasks (Jobs, Locations, Organizations, etc.).
+   * Navigate to Workforce Structures page via HomePage, then search for tasks.
    */
   private async executeWorkforceStructures(tc: UATTestCase): Promise<void> {
-    await this.homePage.openNavigator();
-    await this.page.waitForTimeout(2000);
-
-    const showMore = this.page.locator('a:has-text("Show More")').first();
-    if (await showMore.isVisible({ timeout: 3000 }).catch(() => false)) {
-      await showMore.click();
-      await this.page.waitForTimeout(2000);
-    }
-
-    const structuresLink = this.page.locator(
-      'a[title="Workforce Structures"], a:has-text("Workforce Structures")'
-    ).first();
-    if (await structuresLink.isVisible({ timeout: 5000 }).catch(() => false)) {
-      await structuresLink.click({ force: true });
-      await this.page.waitForLoadState('networkidle', { timeout: 60_000 });
-      await this.page.waitForTimeout(5000);
-    }
+    await this.homePage.goToWorkforceStructures();
 
     // Search for a specific task if test data provides one
     if (tc.testData) {
@@ -184,24 +152,8 @@ export class OtherFunctionsFlow extends BaseFlow {
     await homeIndicator.waitFor({ state: 'visible', timeout: 30_000 }).catch(() => {});
   }
 
-  /** Navigate to Scheduled Processes page via Navigator. */
+  /** Navigate to Scheduled Processes page via HomePage. */
   private async navigateToScheduledProcesses(): Promise<void> {
-    await this.homePage.openNavigator();
-    await this.page.waitForTimeout(2000);
-
-    const showMore = this.page.locator('a:has-text("Show More")').first();
-    if (await showMore.isVisible({ timeout: 3000 }).catch(() => false)) {
-      await showMore.click();
-      await this.page.waitForTimeout(2000);
-    }
-
-    const scheduledLink = this.page.locator(
-      'a[title="Scheduled Processes"], a:has-text("Scheduled Processes")'
-    ).first();
-    if (await scheduledLink.isVisible({ timeout: 5000 }).catch(() => false)) {
-      await scheduledLink.click({ force: true });
-    }
-    await this.page.waitForLoadState('networkidle', { timeout: 60_000 });
-    await this.page.waitForTimeout(5000);
+    await this.homePage.goToScheduledProcesses();
   }
 }

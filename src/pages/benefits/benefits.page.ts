@@ -1,4 +1,4 @@
-import { type Page, type Locator } from '@playwright/test';
+import { type Locator } from '@playwright/test';
 import { BasePage } from '../base.page';
 
 /**
@@ -174,14 +174,6 @@ export class BenefitsPage extends BasePage {
   private readonly confirmationBanner: Locator = this.page.locator(
     '[class*="confirmation"], [class*="success"], [class*="oj-message-banner"]'
   ).first();
-
-  // ===================================================================
-  // Constructor
-  // ===================================================================
-
-  constructor(page: Page) {
-    super(page);
-  }
 
   // ===================================================================
   // Navigation

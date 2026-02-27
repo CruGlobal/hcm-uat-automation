@@ -1,6 +1,7 @@
 import { type Page, type Locator } from '@playwright/test';
 import { BasePage } from '../base.page';
 import type { UATTestCase } from '../../data/types';
+import { parseTestData } from '../../utils/test-data-parser';
 
 /**
  * Absence Management page object for Oracle HCM.
@@ -829,7 +830,7 @@ export class AbsenceManagementPage extends BasePage {
    * Extracts fields from testData, businessProcess, and testScenario.
    */
   async fillFromUATTestCase(tc: UATTestCase): Promise<void> {
-    const data = this.parseTestData(tc.testData);
+    const data = parseTestData(tc.testData);
 
     const absenceType = data['absence type'] || data['type'] || '';
     const absenceReason = data['reason'] || '';
@@ -842,24 +843,6 @@ export class AbsenceManagementPage extends BasePage {
     if (end) await this.fillEndDate(end);
     if (absenceReason) await this.selectAbsenceReason(absenceReason);
     if (commentsVal) await this.fillComments(commentsVal);
-  }
-
-  /**
-   * Parse testData string into key-value pairs.
-   * Handles formats like "Key: Value" or "Key = Value", one per line or semicolon-separated.
-   */
-  private parseTestData(testData: string): Record<string, string> {
-    const result: Record<string, string> = {};
-    if (!testData) return result;
-
-    const lines = testData.split(/[\n;]+/);
-    for (const line of lines) {
-      const match = line.match(/^\s*([^:=]+?)\s*[:=]\s*(.+?)\s*$/);
-      if (match) {
-        result[match[1].toLowerCase().trim()] = match[2].trim();
-      }
-    }
-    return result;
   }
 
   /** Expect a success confirmation message to be visible. */
