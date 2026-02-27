@@ -5,24 +5,38 @@ import { excelSerialToDate } from '../../utils/oracle-hcm-helpers';
 import type { TestCase } from '../../data/types';
 
 /**
- * Person Management page — personal details, addresses, legislative info.
- * Covers the "Personal Details", "Addresses", and "Legislative" sections of the hire forms.
+ * Personal Details page — covers step 1 (Identification) personal fields
+ * and step 2 (Person Information) address/legislative fields.
+ *
+ * Step 1 personal detail field indices are DYNAMIC — they change after
+ * Legal Employer selection triggers a partial page refresh.
+ * Use stable suffixes (it20, it60, etc.) with `.first()`.
  */
 export class PersonManagementPage extends BasePage {
-  // Personal Details
-  private readonly lastName = this.page.locator('input[aria-label*="Last Name"], input[id*="LastName"]').first();
-  private readonly firstName = this.page.locator('input[aria-label*="First Name"], input[id*="FirstName"]').first();
-  private readonly birthdate = this.page.locator('input[aria-label*="Date of Birth"], input[id*="Birthdate"], input[id*="DateOfBirth"]').first();
-  private readonly nationalIdType = this.page.locator('select[aria-label*="National ID Type"], [id*="NationalIdType"]').first();
-  private readonly nationalId = this.page.locator('input[aria-label*="National ID"], input[id*="NationalId"]').first();
+  // === Step 1: Identification — Personal Details ===
+  // These suffixes are stable but the middle index (i1:N) changes after LE selection.
+  private readonly lastName = this.page.locator('input[id*="it20::content"]').first();
+  private readonly firstName = this.page.locator('input[id*="it60::content"]').first();
+  private readonly middleName = this.page.locator('input[id*="it24::content"]').first();
+  private readonly suffix = this.page.locator('input[id*="it17::content"]').first();
+  private readonly title = this.page.locator('input[id*="NewPe1"][id$="selectOneChoice4::content"]').first();
+  private readonly gender = this.page.locator('[id$="soc3::content"]');
+  private readonly dateOfBirth = this.page.locator('[id$="id3::content"]');
 
-  // Addresses
-  private readonly homeAddress = this.page.locator('[aria-label*="Home Address"], [id*="HomeAddress"]').first();
-  private readonly workAddress = this.page.locator('[aria-label*="Work Address"], [id*="WorkAddress"]').first();
+  // === Step 2: Person Information — Home Address ===
+  private readonly country = this.page.locator('[id$="countrylov::content"]');
+  private readonly addressLine1 = this.page.locator('[id$="inputText17::content"]').first();
+  private readonly addressLine2 = this.page.locator('[id$="inputText18::content"]').first();
+  private readonly zipCode = this.page.locator('[id$="inputComboboxListOfValues28::content"]').first();
+  private readonly city = this.page.locator('[id$="inputComboboxListOfValues27::content"]').first();
+  private readonly state = this.page.locator('[id$="inputComboboxListOfValues25::content"]').first();
+  private readonly county = this.page.locator('[id$="inputComboboxListOfValues26::content"]').first();
 
-  // Legislative
-  private readonly maritalStatus = this.page.locator('select[aria-label*="Marital Status"], [id*="MaritalStatus"]').first();
-  private readonly gender = this.page.locator('select[aria-label*="Gender"], [id*="Gender"]').first();
+  // === Step 2: Person Information — Legislative ===
+  private readonly maritalStatus = this.page.locator('[id$="soc2::content"]');
+  private readonly highestEducation = this.page.locator('[id$="hoc2::content"]');
+
+  // === Step 1: Fill personal details ===
 
   async fillLastName(value: string): Promise<void> {
     await this.fillField(this.lastName, value);
@@ -32,57 +46,64 @@ export class PersonManagementPage extends BasePage {
     await this.fillField(this.firstName, value);
   }
 
-  async fillBirthdate(serial: string): Promise<void> {
-    await this.fillField(this.birthdate, excelSerialToDate(serial));
+  async fillMiddleName(value: string): Promise<void> {
+    await this.fillField(this.middleName, value);
   }
 
-  async fillNationalId(type: string, id: string): Promise<void> {
-    if (type) {
-      await this.selectValue(this.nationalIdType, type);
-    }
-    if (id) {
-      await this.fillField(this.nationalId, id);
-    }
-  }
-
-  async selectMaritalStatus(value: string): Promise<void> {
-    await this.selectValue(this.maritalStatus, value);
+  async fillDateOfBirth(serial: string): Promise<void> {
+    await this.fillField(this.dateOfBirth, excelSerialToDate(serial));
   }
 
   async selectGender(value: string): Promise<void> {
-    await this.selectValue(this.gender, value);
+    await this.fillCombobox(this.gender, value);
   }
 
-  /** Fill all personal detail fields from test case data. */
-  async fillFromTestCase(tc: TestCase): Promise<void> {
+  /** Fill step 1 personal details from test case. */
+  async fillIdentificationFromTestCase(tc: TestCase): Promise<void> {
     const lastName = getField(tc, 'Last Name');
     const firstName = getField(tc, 'First Name');
-    const birthdate = getField(tc, 'Birthdate');
-    const nationalIdType = getField(tc, 'National ID Type');
-    const nationalId = getField(tc, 'National ID');
-    const maritalStatus = getField(tc, 'Marital Status');
+    const middleName = getField(tc, 'Middle Name');
     const gender = getField(tc, 'Gender');
+    const dob = getField(tc, 'Birthdate') || getField(tc, 'Date of Birth');
 
     if (lastName) await this.fillLastName(lastName);
     if (firstName) await this.fillFirstName(firstName);
-    if (birthdate) await this.fillBirthdate(birthdate);
-    if (nationalIdType || nationalId) await this.fillNationalId(nationalIdType, nationalId);
-    if (maritalStatus) await this.selectMaritalStatus(maritalStatus);
+    if (middleName) await this.fillMiddleName(middleName);
     if (gender) await this.selectGender(gender);
+    if (dob) await this.fillDateOfBirth(dob);
   }
 
-  // --- private helpers ---
+  // === Step 2: Fill address ===
 
-  private async fillField(locator: ReturnType<Page['locator']>, value: string): Promise<void> {
-    await locator.clear();
-    await locator.fill(value);
-    await locator.press('Tab');
-    await this.waitForJET();
+  async fillAddress(tc: TestCase): Promise<void> {
+    const addr1 = getField(tc, 'Address Line 1') || getField(tc, 'Address');
+    const addr2 = getField(tc, 'Address Line 2');
+    const zip = getField(tc, 'ZIP Code') || getField(tc, 'Zip');
+    const cityVal = getField(tc, 'City');
+    const stateVal = getField(tc, 'State');
+    const countyVal = getField(tc, 'County');
+
+    if (addr1) await this.fillField(this.addressLine1, addr1);
+    if (addr2) await this.fillField(this.addressLine2, addr2);
+    if (zip) await this.fillCombobox(this.zipCode, zip);
+    if (cityVal) await this.fillCombobox(this.city, cityVal);
+    if (stateVal) await this.fillCombobox(this.state, stateVal);
+    if (countyVal) await this.fillCombobox(this.county, countyVal);
   }
 
-  private async selectValue(locator: ReturnType<Page['locator']>, value: string): Promise<void> {
-    await locator.click();
-    await this.page.locator(`oj-option:has-text("${value}"), li[role="option"]:has-text("${value}")`).first().click();
-    await this.waitForJET();
+  // === Step 2: Fill legislative info ===
+
+  async fillLegislative(tc: TestCase): Promise<void> {
+    const marital = getField(tc, 'Marital Status');
+    const education = getField(tc, 'Highest Education');
+
+    if (marital) await this.fillCombobox(this.maritalStatus, marital);
+    if (education) await this.fillCombobox(this.highestEducation, education);
+  }
+
+  /** Fill all step 2 (Person Information) fields from test case. */
+  async fillPersonInfoFromTestCase(tc: TestCase): Promise<void> {
+    await this.fillAddress(tc);
+    await this.fillLegislative(tc);
   }
 }

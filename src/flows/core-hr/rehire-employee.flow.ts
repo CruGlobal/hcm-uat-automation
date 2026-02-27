@@ -14,22 +14,17 @@ export class RehireEmployeeFlow extends BaseCoreHRFlow {
   }
 
   async execute(tc: TestCase): Promise<void> {
-    await this.setup();
+    await this.loginToHCM();
+    await this.homePage.goToPersonManagement();
 
+    // TODO: Implement person search for rehire context
     // Search for existing person from "Use Person" section
     const lastName = getField(tc, 'Use Person > Last Name');
     const firstName = getField(tc, 'Use Person > First Name');
     if (lastName) {
-      // TODO: Update with actual person search in rehire context
-      const searchInput = this.page.locator('input[aria-label*="Search"], input[placeholder*="Person"]').first();
+      // TODO: Use Person Management search to find person by name
       const searchTerm = firstName ? `${lastName}, ${firstName}` : lastName;
-      await searchInput.fill(searchTerm);
-      await searchInput.press('Enter');
-      await this.person.waitForReady();
-
-      // Select the person from results
-      await this.page.locator(`text="${lastName}"`).first().click();
-      await this.person.waitForReady();
+      void searchTerm; // placeholder until search is implemented
     }
 
     // The "Use Person" section contains When/Why fields with different prefixes

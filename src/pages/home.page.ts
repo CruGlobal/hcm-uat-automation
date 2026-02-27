@@ -3,76 +3,75 @@ import { BasePage } from './base.page';
 
 /**
  * Oracle HCM Home/Springboard page.
- * Provides navigation to any HCM module via the springboard or navigator menu.
+ * Provides navigation via the Navigator hamburger menu.
  */
 export class HomePage extends BasePage {
-  // TODO: Update selectors for actual Oracle HCM springboard
-  private readonly springboardIcon = this.page.locator('[title="Home"], .oj-fwk-icon-home').first();
-  private readonly navigatorMenu = this.page.locator('[title="Navigator"], button[aria-label="Navigator"]').first();
-  private readonly searchBar = this.page.locator('input[placeholder*="Search"], input[aria-label*="Search"]').first();
+  private readonly navigator = this.page.locator('a[title="Navigator"]');
+  private readonly showMore = this.page.locator('a:has-text("Show More")').first();
 
-  /** Open the navigator/hamburger menu. */
+  // New Person task page — link IDs under My Client Groups > New Person
+  private readonly TASK_LINK_PREFIX = '_FOpt1:_FOr1:0:_FONSr2:0:_FOTsr1:0:cl01Upl:UPsp1:cl01Pce:';
+
+  /** Open the navigator/hamburger menu and expand all sections. */
   async openNavigator(): Promise<void> {
-    await this.navigatorMenu.click();
-    await this.waitForJET();
+    await this.navigator.click();
+    await this.page.waitForTimeout(2000);
+    if (await this.showMore.isVisible({ timeout: 3000 }).catch(() => false)) {
+      await this.showMore.click();
+      await this.page.waitForTimeout(2000);
+    }
   }
 
-  /** Navigate to a module via the springboard search. */
-  async navigateToModule(moduleName: string): Promise<void> {
-    await this.springboardIcon.click();
-    await this.waitForJET();
-    await this.dismissPopups();
-
-    // Use search to find the module
-    await this.searchBar.fill(moduleName);
-    await this.searchBar.press('Enter');
-    await this.waitForJET();
-
-    // Click the matching result
-    await this.page.locator(`a:has-text("${moduleName}"), [title="${moduleName}"]`).first().click();
-    await this.waitForReady();
-    await this.dismissPopups();
-  }
-
-  /** Navigate directly to Benefits. */
-  async goToBenefits(): Promise<void> {
-    await this.navigateToModule('Benefits');
-  }
-
-  /** Navigate directly to My Client Groups > Benefits. */
-  async goToMyClientGroupsBenefits(): Promise<void> {
+  /** Navigate to My Client Groups > New Person task page. */
+  async goToNewPerson(): Promise<void> {
     await this.openNavigator();
-    // TODO: Update path for actual Oracle HCM navigator structure
-    await this.page.locator('text="My Client Groups"').first().click();
-    await this.waitForJET();
-    await this.page.locator('text="Benefits"').first().click();
-    await this.waitForReady();
-    await this.dismissPopups();
+    await this.page.locator('[id$="nv_itemNode_workforce_management_new_person"]').click({ force: true });
+    await this.page.waitForLoadState('networkidle', { timeout: 60_000 });
+    await this.page.waitForTimeout(5000);
   }
 
-  /** Navigate to Compensation. */
-  async goToCompensation(): Promise<void> {
-    await this.navigateToModule('Compensation');
+  /** Click a task on the New Person page using AdfActionEvent. */
+  async clickNewPersonTask(taskIndex: number): Promise<void> {
+    const linkId = `${this.TASK_LINK_PREFIX}cl01Lv:${taskIndex}:cl01Pse:cl01Cl`;
+    await this.clickAdfLink(linkId);
+    await this.page.waitForTimeout(10_000); // ADF forms take time to render
   }
 
-  /** Navigate to Absence Management. */
-  async goToAbsenceManagement(): Promise<void> {
-    await this.navigateToModule('Absence Management');
+  /** Navigate to "Hire an Employee" form (task index 1). */
+  async goToHireEmployee(): Promise<void> {
+    await this.goToNewPerson();
+    await this.clickNewPersonTask(1);
   }
 
-  /** Navigate to Time and Labor. */
-  async goToTimeAndLabor(): Promise<void> {
-    await this.navigateToModule('Time and Labor');
+  /** Navigate to "Add a Contingent Worker" form (task index 2). */
+  async goToAddContingentWorker(): Promise<void> {
+    await this.goToNewPerson();
+    await this.clickNewPersonTask(2);
   }
 
-  /** Navigate to Payroll. */
-  async goToPayroll(): Promise<void> {
-    await this.navigateToModule('Payroll');
+  /** Navigate to "Add a Pending Worker" form (task index 3). */
+  async goToAddPendingWorker(): Promise<void> {
+    await this.goToNewPerson();
+    await this.clickNewPersonTask(3);
+  }
+
+  /** Navigate to "Add a Nonworker" form (task index 4). */
+  async goToAddNonworker(): Promise<void> {
+    await this.goToNewPerson();
+    await this.clickNewPersonTask(4);
+  }
+
+  /** Navigate to Person Management (My Client Groups > Person Management). */
+  async goToPersonManagement(): Promise<void> {
+    await this.openNavigator();
+    await this.page.locator('[id$="nv_itemNode_workforce_management_person_management"]').click({ force: true });
+    await this.page.waitForLoadState('networkidle', { timeout: 60_000 });
+    await this.page.waitForTimeout(5000);
   }
 
   /** Go to the home springboard. */
   async goHome(): Promise<void> {
-    await this.springboardIcon.click();
+    await this.page.goto('/fscmUI/faces/AtkHomePageWelcome');
     await this.waitForReady();
     await this.dismissPopups();
   }

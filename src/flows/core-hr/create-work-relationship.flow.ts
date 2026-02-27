@@ -1,7 +1,6 @@
 import { type Page } from '@playwright/test';
 import { BaseCoreHRFlow } from './base-core-hr.flow';
 import { getField } from '../../data/test-data-provider';
-import { searchPerson } from '../../utils/oracle-hcm-helpers';
 import type { TestCase } from '../../data/types';
 
 /**
@@ -15,17 +14,17 @@ export class CreateWorkRelationshipFlow extends BaseCoreHRFlow {
   }
 
   async execute(tc: TestCase): Promise<void> {
-    await this.setup();
+    await this.loginToHCM();
+    await this.homePage.goToPersonManagement();
 
-    // Search for existing person
+    // TODO: Implement Person Management search to find person
     const personSearch = getField(tc, 'Search for Person');
     if (personSearch) {
-      await searchPerson(this.page, personSearch);
+      // TODO: Use Person Management search (searchPerson helper removed)
+      void personSearch; // placeholder until search is implemented
     }
 
     // TODO: Click "Create Work Relationship" action
-    await this.page.locator('button:has-text("Create Work Relationship"), a:has-text("Create Work Relationship")').first().click();
-    await this.person.waitForReady();
 
     await this.fillCommonSections(tc);
     await this.submitAndVerify();

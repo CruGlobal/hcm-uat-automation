@@ -5,48 +5,51 @@ import { excelSerialToDate } from '../../utils/oracle-hcm-helpers';
 import type { TestCase } from '../../data/types';
 
 /**
- * "When and Why" section — date, legal employer, action, reason, business unit.
- * Field key prefixes vary per tab ("When and Why > When", "When", "Proposed Start Date", etc.).
+ * "Basic Details" / "When and Why" section — step 1 of hire/add worker wizards.
+ * Covers: date, action, reason, legal employer, worker type.
+ *
+ * Field IDs use `[id$="suffix"]` patterns since the full prefix varies per form
+ * (Hire uses `pt_r1:0:SP1:`, Add Pending Worker uses `AddPw1:0:SP1:`).
+ * The suffixes (inputDate1, selectOneChoice1..4) are stable across forms.
  */
 export class WhenAndWhyPage extends BasePage {
-  private readonly whenDate = this.page.locator('input[aria-label*="When"], input[aria-label*="Date"], input[id*="EffectiveDate"]').first();
-  private readonly legalEmployer = this.page.locator('select[aria-label*="Legal Employer"], [id*="LegalEmployer"]').first();
-  private readonly action = this.page.locator('select[aria-label*="Action"], [id*="Action"], select[aria-label*="way"]').first();
-  private readonly reason = this.page.locator('select[aria-label*="Reason"], [id*="ActionReason"], select[aria-label*="Why"]').first();
-  private readonly businessUnit = this.page.locator('select[aria-label*="Business Unit"], [id*="BusinessUnit"]').first();
-  private readonly workerType = this.page.locator('select[aria-label*="Worker Type"], [id*="WorkerType"]').first();
-  private readonly nonWorkerType = this.page.locator('select[aria-label*="Non Worker Type"], [id*="NonWorkerType"]').first();
+  // Date field — "Hire Date" or "Proposed Start Date"
+  private readonly dateInput = this.page.locator('[id$="SP1:inputDate1::content"]');
+  // Action — "Hire Action" or "Action"
+  private readonly action = this.page.locator('[id$="SP1:selectOneChoice1::content"]');
+  // Reason — "Hire Reason" or "Action Reason"
+  private readonly reason = this.page.locator('[id$="SP1:selectOneChoice2::content"]');
+  // Legal Employer (LOV combobox with autocomplete)
+  private readonly legalEmployer = this.page.locator('[id$="SP1:selectOneChoice3::content"]');
+  // Worker Type / Proposed Worker Type
+  private readonly workerType = this.page.locator('[id$="SP1:selectOneChoice4::content"]');
+  // Worker Number (appears after Legal Employer selection on Hire form)
+  private readonly workerNumber = this.page.locator('[id$="SP1:it1::content"]');
 
   async fillFromTestCase(tc: TestCase): Promise<void> {
     // Date — various field names across tabs
     const when = getField(tc, 'When') || getField(tc, 'Proposed Start Date') || getField(tc, 'Effective date');
     const legalEmployer = getField(tc, 'Legal Employer');
-    const action = getField(tc, "What's the way") || getField(tc, 'What');
-    const reason = getField(tc, 'Why');
-    const bu = getField(tc, 'Business Unit');
+    const action = getField(tc, "What's the way") || getField(tc, 'What') || getField(tc, 'Action');
+    const reason = getField(tc, 'Why') || getField(tc, 'Reason');
     const workerType = getField(tc, 'Worker Type') || getField(tc, 'Proposed Worker type');
-    const nonWorkerType = getField(tc, 'Non Worker Type');
 
     if (when) await this.fillDate(when);
-    if (legalEmployer) await this.selectValue(this.legalEmployer, legalEmployer);
-    if (action) await this.selectValue(this.action, action);
-    if (reason) await this.selectValue(this.reason, reason);
-    if (bu) await this.selectValue(this.businessUnit, bu);
-    if (workerType) await this.selectValue(this.workerType, workerType);
-    if (nonWorkerType) await this.selectValue(this.nonWorkerType, nonWorkerType);
+    // Legal Employer must be filled before other fields (triggers partial refresh)
+    if (legalEmployer) await this.selectLegalEmployer(legalEmployer);
+    if (action) await this.fillCombobox(this.action, action);
+    if (reason) await this.fillCombobox(this.reason, reason);
+    if (workerType) await this.fillCombobox(this.workerType, workerType);
   }
 
-  private async fillDate(serial: string): Promise<void> {
+  async fillDate(serial: string): Promise<void> {
     const dateStr = excelSerialToDate(serial);
-    await this.whenDate.clear();
-    await this.whenDate.fill(dateStr);
-    await this.whenDate.press('Tab');
-    await this.waitForJET();
+    await this.fillField(this.dateInput, dateStr);
   }
 
-  private async selectValue(locator: ReturnType<Page['locator']>, value: string): Promise<void> {
-    await locator.click();
-    await this.page.locator(`oj-option:has-text("${value}"), li[role="option"]:has-text("${value}")`).first().click();
-    await this.waitForJET();
+  async selectLegalEmployer(value: string): Promise<void> {
+    // Legal Employer is a LOV combobox — type + Tab to autocomplete.
+    // After selection, the form partially refreshes (field indices change).
+    await this.fillCombobox(this.legalEmployer, value, 5000);
   }
 }

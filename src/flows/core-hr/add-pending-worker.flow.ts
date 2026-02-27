@@ -6,6 +6,8 @@ import type { TestCase } from '../../data/types';
  * Flow: Add Pending Worker
  * Tab: "Core - Add Pending Workers"
  * Creates a new person with "Add Pending Worker" action.
+ *
+ * Navigation: Login → Navigator → My Client Groups > New Person → Add a Pending Worker
  */
 export class AddPendingWorkerFlow extends BaseCoreHRFlow {
   constructor(page: Page) {
@@ -13,12 +15,11 @@ export class AddPendingWorkerFlow extends BaseCoreHRFlow {
   }
 
   async execute(tc: TestCase): Promise<void> {
-    await this.setup();
+    // Login and navigate to the Add a Pending Worker form
+    await this.loginToHCM();
+    await this.homePage.goToAddPendingWorker();
 
-    // TODO: Click "Add Pending Worker" task/button in Person Management
-    await this.page.locator('button:has-text("Add"), a:has-text("Add Pending Worker")').first().click();
-    await this.person.waitForReady();
-
+    // Fill wizard steps and submit
     await this.fillCommonSections(tc);
     await this.submitAndVerify();
   }

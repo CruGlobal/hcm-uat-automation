@@ -13,11 +13,12 @@ export class TerminationFlow extends BaseCoreHRFlow {
   }
 
   async execute(tc: TestCase): Promise<void> {
-    await this.setup();
+    await this.loginToHCM();
+    await this.homePage.goToPersonManagement();
 
     // TODO: Implement termination flow when test cases are added to the sheet.
     // Expected steps:
-    // 1. Search for person
+    // 1. Search for person (Person Management search not yet implemented)
     // 2. Select termination action
     // 3. Fill effective date and reason
     // 4. Submit

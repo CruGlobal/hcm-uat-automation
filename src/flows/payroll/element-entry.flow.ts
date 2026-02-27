@@ -20,7 +20,8 @@ export class ElementEntryFlow extends BaseFlow {
   }
 
   async execute(tc: TestCase): Promise<void> {
-    await this.loginAndNavigate('Payroll');
+    await this.loginToHCM();
+    // TODO: Navigate to Payroll > Element Entries page
 
     // TODO: Navigate to Element Entries page within Payroll module
 

@@ -15,9 +15,11 @@ export class AssignmentChangeFlow extends BaseCoreHRFlow {
   }
 
   async execute(tc: TestCase): Promise<void> {
-    await this.setup();
+    await this.loginToHCM();
+    await this.homePage.goToPersonManagement();
 
-    // TODO: Navigate to person's assignment record
+    // TODO: Implement Person Management search to navigate to person's assignment record
+
     // This tab uses "When - Effective date" instead of "When"
     const effectiveDate = getField(tc, 'When - Effective date');
     const action = getField(tc, "What's the way");

@@ -3,7 +3,7 @@ import { waitForOracleJET, waitForPageReady, dismissPopups } from '../utils/orac
 
 /**
  * Base page object for all Oracle HCM pages.
- * Provides common waits, popup dismissal, and navigation helpers.
+ * Provides common waits, popup dismissal, ADF interaction helpers, and navigation.
  */
 export class BasePage {
   constructor(protected readonly page: Page) {}
@@ -30,18 +30,80 @@ export class BasePage {
     await this.dismissPopups();
   }
 
-  /** Click an element and wait for JET. */
-  async clickAndWait(selector: string): Promise<void> {
-    await this.page.locator(selector).click();
+  /** Fill an input field, Tab to trigger validation, and wait for JET. */
+  async fillField(locator: Locator | string, value: string): Promise<void> {
+    const field = typeof locator === 'string' ? this.page.locator(locator) : locator;
+    await field.clear();
+    await field.fill(value);
+    await field.press('Tab');
     await this.waitForJET();
   }
 
-  /** Fill an input and optionally trigger JET update. */
-  async fillField(selector: string, value: string): Promise<void> {
-    const field = this.page.locator(selector);
-    await field.clear();
+  /**
+   * Fill an Oracle ADF combobox (LOV autocomplete).
+   * Types the value then presses Tab to trigger autocomplete selection.
+   * After selection, waits for potential partial page refresh.
+   */
+  async fillCombobox(locator: Locator | string, value: string, waitAfter = 3000): Promise<void> {
+    const field = typeof locator === 'string' ? this.page.locator(locator) : locator;
+    await field.click();
     await field.fill(value);
-    await field.press('Tab'); // trigger JET validation
+    await this.page.waitForTimeout(1500); // Wait for autocomplete suggestions
+    await field.press('Tab');
+    await this.page.waitForTimeout(waitAfter); // Wait for partial refresh
+    await this.waitForJET();
+  }
+
+  /**
+   * Click an Oracle ADF command link/button via AdfActionEvent.
+   * Standard clicks don't work because Oracle ADF uses onclick="return false".
+   * This queues an AdfActionEvent on the ADF component to trigger server-side action.
+   */
+  async clickAdfLink(componentId: string): Promise<void> {
+    await this.page.evaluate((id: string) => {
+      const adfPage = (window as any).AdfPage?.PAGE;
+      if (!adfPage) throw new Error('AdfPage.PAGE not available');
+      const comp = adfPage.findComponentByAbsoluteId(id);
+      if (!comp) throw new Error(`ADF component not found: ${id}`);
+      const evt = new (window as any).AdfActionEvent(comp);
+      evt.queue();
+    }, componentId);
+    await this.page.waitForTimeout(2000);
+    await this.waitForJET();
+  }
+
+  /**
+   * Click an ADF wizard button (Next, Back, Submit, Cancel, Save) by its visible text.
+   * Walks up parent elements from the <a role="button"> to find the ADF component.
+   */
+  async clickAdfButton(buttonText: string): Promise<void> {
+    const componentId = await this.page.evaluate((text: string) => {
+      const adfPage = (window as any).AdfPage?.PAGE;
+      if (!adfPage) return null;
+      const links = document.querySelectorAll('a[role="button"]');
+      for (const a of Array.from(links)) {
+        if ((a as any).textContent?.trim() === text && (a as any).offsetWidth > 0) {
+          let el: any = a;
+          for (let i = 0; i < 5; i++) {
+            el = el.parentElement;
+            if (!el) break;
+            if (el.id) {
+              const comp = adfPage.findComponentByAbsoluteId(el.id);
+              if (comp) return el.id;
+            }
+          }
+        }
+      }
+      return null;
+    }, buttonText);
+
+    if (!componentId) throw new Error(`ADF button "${buttonText}" not found`);
+    await this.clickAdfLink(componentId);
+  }
+
+  /** Click an element and wait for JET. */
+  async clickAndWait(selector: string): Promise<void> {
+    await this.page.locator(selector).click();
     await this.waitForJET();
   }
 

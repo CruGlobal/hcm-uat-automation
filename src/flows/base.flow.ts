@@ -20,14 +20,8 @@ export class BaseFlow {
     await this.loginPage.fullLogin(username, password);
   }
 
-  /** Navigate to a specific module from the home page. */
-  async navigateToModule(moduleName: string): Promise<void> {
-    await this.homePage.navigateToModule(moduleName);
-  }
-
-  /** Full login and module navigation. */
-  async loginAndNavigate(moduleName: string, username?: string, password?: string): Promise<void> {
-    await this.loginToHCM(username, password);
-    await this.navigateToModule(moduleName);
+  /** Navigate to the home page. */
+  async navigateHome(): Promise<void> {
+    await this.homePage.goHome();
   }
 }
