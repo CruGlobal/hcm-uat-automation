@@ -1,16 +1,20 @@
 #!/usr/bin/env npx tsx
 
 /**
- * Upload generated test data to a NEW Google Sheet matching the UAT Test Data format.
+ * Upload generated test data to a Google Sheet matching the UAT Test Data format.
  *
- * Creates a new spreadsheet with one tab per business process,
- * using the same transposed layout as the original UAT Test Data sheet:
+ * By default, updates the existing sheet in-place (clearing old tabs, adding new
+ * ones). Pass --new to create a brand-new spreadsheet instead.
+ *
+ * Uses the same transposed layout as the original UAT Test Data sheet:
  *   - Column A: Field labels (with section headers as separate rows)
  *   - Column B: (reserved for descriptions — left blank for generated data)
  *   - Columns C+: One test case per column
  *
  * Usage:
- *   npx tsx scripts/upload-test-data-sheet.ts
+ *   npx tsx scripts/upload-test-data-sheet.ts              # Update existing sheet
+ *   npx tsx scripts/upload-test-data-sheet.ts --new        # Create new sheet
+ *   npx tsx scripts/upload-test-data-sheet.ts --sheet-id <id>  # Use a specific sheet
  */
 
 import dotenv from 'dotenv';
@@ -21,6 +25,9 @@ dotenv.config();
 
 const TOKEN_URL = 'https://oauth2.googleapis.com/token';
 const SHEETS_API = 'https://sheets.googleapis.com/v4/spreadsheets';
+
+/** Default sheet ID — the existing UAT Test Data (Migration) sheet. */
+const DEFAULT_SHEET_ID = '1zhX-jtQnBieWCo6OIv7bx2hlIAQg85l55kfzvn6qwUk';
 
 interface TestCase {
   testId: string;
@@ -60,7 +67,6 @@ function parseFieldKey(key: string): [string, string] {
 function buildFieldRows(
   testCases: TestCase[],
 ): { isHeader: boolean; label: string; compositeKey: string }[] {
-  // Collect unique composite keys in order of first appearance
   const seen = new Set<string>();
   const orderedKeys: string[] = [];
   for (const tc of testCases) {
@@ -98,19 +104,14 @@ function buildGrid(testCases: TestCase[]): string[][] {
   const fieldRows = buildFieldRows(testCases);
   const grid: string[][] = [];
 
-  // Row 0: TestCase header + IDs
   grid.push(['TestCase', '', ...testCases.map((tc) => tc.testId)]);
-
-  // Row 1: Scenario
   grid.push(['', 'Scenario', ...testCases.map((tc) => tc.scenario)]);
 
-  // Field / section-header rows
   for (const row of fieldRows) {
     if (row.isHeader) {
-      // Section header — col A only, data columns empty
       grid.push([row.label, '', ...testCases.map(() => '')]);
     } else {
-      grid.push([row.label, '', ...testCases.map((tc) => tc.fields[row.compositeKey] || '')]);
+      grid.push([row.label, '', ...testCases.map((tc) => String(tc.fields[row.compositeKey] ?? ''))]);
     }
   }
 
@@ -147,6 +148,85 @@ async function createSpreadsheet(
   }
 
   return { spreadsheetId: data.spreadsheetId, sheetIds };
+}
+
+/** Get existing tab names and sheetIds from a spreadsheet. */
+async function getExistingTabs(
+  accessToken: string,
+  spreadsheetId: string,
+): Promise<Map<string, number>> {
+  const res = await fetch(
+    `${SHEETS_API}/${spreadsheetId}?fields=sheets.properties(title,sheetId)`,
+    { headers: { Authorization: `Bearer ${accessToken}` } },
+  );
+  if (!res.ok) throw new Error(`Get tabs failed: ${res.status} ${await res.text()}`);
+  const data = await res.json();
+
+  const tabs = new Map<string, number>();
+  for (const sheet of data.sheets) {
+    tabs.set(sheet.properties.title, sheet.properties.sheetId);
+  }
+  return tabs;
+}
+
+/**
+ * Sync tabs on an existing spreadsheet: add missing tabs, remove stale tabs,
+ * clear data on tabs that will be rewritten.
+ */
+async function syncTabs(
+  accessToken: string,
+  spreadsheetId: string,
+  wantedTabs: string[],
+  existingTabs: Map<string, number>,
+): Promise<Map<string, number>> {
+  const requests: any[] = [];
+  const wantedSet = new Set(wantedTabs);
+
+  // Delete tabs that are no longer needed
+  for (const [name, sheetId] of existingTabs) {
+    if (!wantedSet.has(name)) {
+      requests.push({ deleteSheet: { sheetId } });
+    }
+  }
+
+  // Add tabs that don't exist yet
+  for (const name of wantedTabs) {
+    if (!existingTabs.has(name)) {
+      requests.push({ addSheet: { properties: { title: name } } });
+    }
+  }
+
+  if (requests.length > 0) {
+    const res = await fetch(`${SHEETS_API}/${spreadsheetId}:batchUpdate`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ requests }),
+    });
+    if (!res.ok) throw new Error(`Sync tabs failed: ${res.status} ${await res.text()}`);
+  }
+
+  // Re-fetch tabs to get the final sheetIds (new tabs get new IDs)
+  return getExistingTabs(accessToken, spreadsheetId);
+}
+
+/** Clear all data from a tab. */
+async function clearTab(
+  accessToken: string,
+  spreadsheetId: string,
+  tabName: string,
+): Promise<void> {
+  const range = encodeURIComponent(`'${tabName}'`);
+  const url = `${SHEETS_API}/${spreadsheetId}/values/${range}:clear`;
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${accessToken}` },
+  });
+  if (!res.ok) {
+    console.warn(`  Warning: clear "${tabName}" failed: ${res.status}`);
+  }
 }
 
 async function writeTabData(
@@ -189,7 +269,7 @@ async function applyFormatting(
 
     const numCols = grid[0]?.length || 0;
 
-    // Freeze first 2 rows (TestCase + Scenario) and first 2 columns (labels)
+    // Freeze first 2 rows and first 2 columns
     requests.push({
       updateSheetProperties: {
         properties: {
@@ -200,7 +280,7 @@ async function applyFormatting(
       },
     });
 
-    // Bold row 0 (TestCase header)
+    // Bold row 0
     requests.push({
       repeatCell: {
         range: { sheetId, startRowIndex: 0, endRowIndex: 1, startColumnIndex: 0, endColumnIndex: numCols },
@@ -214,7 +294,6 @@ async function applyFormatting(
       const colA = grid[r][0] || '';
       const hasData = grid[r].slice(2).some((c) => c !== '');
       if (colA && !hasData) {
-        // This is a section header row
         requests.push({
           repeatCell: {
             range: { sheetId, startRowIndex: r, endRowIndex: r + 1, startColumnIndex: 0, endColumnIndex: numCols },
@@ -230,7 +309,7 @@ async function applyFormatting(
       }
     }
 
-    // Set column A width (field labels)
+    // Column widths
     requests.push({
       updateDimensionProperties: {
         range: { sheetId, dimension: 'COLUMNS', startIndex: 0, endIndex: 1 },
@@ -238,8 +317,6 @@ async function applyFormatting(
         fields: 'pixelSize',
       },
     });
-
-    // Set column B width (descriptions)
     requests.push({
       updateDimensionProperties: {
         range: { sheetId, dimension: 'COLUMNS', startIndex: 1, endIndex: 2 },
@@ -247,8 +324,6 @@ async function applyFormatting(
         fields: 'pixelSize',
       },
     });
-
-    // Set data columns width
     if (numCols > 2) {
       requests.push({
         updateDimensionProperties: {
@@ -259,7 +334,7 @@ async function applyFormatting(
       });
     }
 
-    // Light gray header row background
+    // Light gray header rows
     requests.push({
       repeatCell: {
         range: { sheetId, startRowIndex: 0, endRowIndex: 2, startColumnIndex: 0, endColumnIndex: numCols },
@@ -276,7 +351,6 @@ async function applyFormatting(
 
   if (requests.length === 0) return;
 
-  // Batch in chunks of 100 to avoid request limits
   for (let i = 0; i < requests.length; i += 100) {
     const chunk = requests.slice(i, i + 100);
     const res = await fetch(`${SHEETS_API}/${spreadsheetId}:batchUpdate`, {
@@ -297,6 +371,11 @@ async function applyFormatting(
 // ─── Main ────────────────────────────────────────────────────────────────────
 
 async function main() {
+  const args = process.argv.slice(2);
+  const createNew = args.includes('--new');
+  const sheetIdIdx = args.indexOf('--sheet-id');
+  const targetSheetId = sheetIdIdx >= 0 ? args[sheetIdIdx + 1] : DEFAULT_SHEET_ID;
+
   const dataPath = path.join(process.cwd(), '.cache-generated', 'field-data.json');
   if (!fs.existsSync(dataPath)) {
     console.error(`No field data found at ${dataPath}`);
@@ -319,7 +398,7 @@ async function main() {
     list.sort((a, b) => a.testId.localeCompare(b.testId, undefined, { numeric: true }));
   }
 
-  // Canonical tab order
+  // Canonical tab order — Core HR tabs first, then modules alphabetically
   const TAB_ORDER = [
     'Core - Hires',
     'Core - rehires',
@@ -329,10 +408,19 @@ async function main() {
     'Core - Create Work Relationship',
     'Core - Assign Change/XFR',
     'Core - Terms/Ends',
+    'Core HR',
     'Payroll',
+    'Absence Management',
+    'Benefits',
+    'Time and Labor',
+    'Workforce Compensation',
+    'Journeys',
+    'MPDX',
+    'SAA',
+    'OneApp',
+    'Other Functions',
   ];
   const tabNames = TAB_ORDER.filter((t) => byTab.has(t));
-  // Add any unexpected tabs at the end
   for (const t of byTab.keys()) {
     if (!tabNames.includes(t)) tabNames.push(t);
   }
@@ -354,13 +442,38 @@ async function main() {
   const accessToken = await getAccessToken();
   console.log('  Authenticated.');
 
-  // Create spreadsheet
-  const today = new Date().toISOString().split('T')[0];
-  const title = `UAT Test Data (Migration) - ${today}`;
-  console.log(`\nCreating spreadsheet: "${title}"...`);
-  const { spreadsheetId, sheetIds } = await createSpreadsheet(accessToken, title, tabNames);
-  const url = `https://docs.google.com/spreadsheets/d/${spreadsheetId}`;
-  console.log(`  Created: ${url}`);
+  let spreadsheetId: string;
+  let sheetIds: Map<string, number>;
+
+  if (createNew) {
+    // Create a brand-new spreadsheet
+    const today = new Date().toISOString().split('T')[0];
+    const title = `UAT Test Data (Migration) - ${today}`;
+    console.log(`\nCreating new spreadsheet: "${title}"...`);
+    ({ spreadsheetId, sheetIds } = await createSpreadsheet(accessToken, title, tabNames));
+    console.log(`  Created: https://docs.google.com/spreadsheets/d/${spreadsheetId}`);
+  } else {
+    // Update existing spreadsheet in-place
+    spreadsheetId = targetSheetId;
+    console.log(`\nUpdating existing spreadsheet: ${spreadsheetId}`);
+
+    const existingTabs = await getExistingTabs(accessToken, spreadsheetId);
+    console.log(`  Existing tabs: ${[...existingTabs.keys()].join(', ')}`);
+
+    // Sync tabs: add new, remove stale
+    const added = tabNames.filter((t) => !existingTabs.has(t));
+    const removed = [...existingTabs.keys()].filter((t) => !tabNames.includes(t));
+    if (added.length > 0) console.log(`  Adding tabs: ${added.join(', ')}`);
+    if (removed.length > 0) console.log(`  Removing tabs: ${removed.join(', ')}`);
+
+    sheetIds = await syncTabs(accessToken, spreadsheetId, tabNames, existingTabs);
+
+    // Clear data on all tabs before rewriting
+    console.log('  Clearing existing data...');
+    for (const tabName of tabNames) {
+      await clearTab(accessToken, spreadsheetId, tabName);
+    }
+  }
 
   // Write data to each tab
   console.log('\nWriting data...');
@@ -375,9 +488,9 @@ async function main() {
   await applyFormatting(accessToken, spreadsheetId, sheetIds, tabGrids);
   console.log('  Done.');
 
+  const url = `https://docs.google.com/spreadsheets/d/${spreadsheetId}`;
   console.log('\n========================================');
-  console.log('  Share this URL with your BAs:');
-  console.log(`  ${url}`);
+  console.log(`  ${createNew ? 'New sheet' : 'Updated'}: ${url}`);
   console.log('========================================\n');
 }
 
