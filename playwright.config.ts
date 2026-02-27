@@ -14,8 +14,9 @@ export default defineConfig({
     ['html', { open: 'never' }],
     ['json', { outputFile: 'test-results/results.json' }],
     ['list'],
+    ['./src/reporters/tracking-sheet-reporter.ts'],
   ],
-  timeout: 120_000,       // 2 min per test
+  timeout: 300_000,       // 5 min per test (multi-step Oracle wizards)
   expect: { timeout: 15_000 },
   use: {
     baseURL: process.env.ORACLE_HCM_URL || 'https://placeholder.oraclecloud.com',

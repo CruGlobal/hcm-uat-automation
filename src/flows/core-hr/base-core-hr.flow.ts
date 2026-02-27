@@ -123,6 +123,12 @@ export class BaseCoreHRFlow extends BaseFlow {
 
     // Step 3: Employment Information (single scrollable page)
     await this.fillStep3(tc);
+    await this.clickNext();
+
+    // Step 4: Compensation and Other Information (skip — no fields to fill)
+    await this.clickNext();
+
+    // Now on Step 5: Review — Submit should be enabled
   }
 
   /** Submit and verify success. */

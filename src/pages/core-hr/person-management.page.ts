@@ -94,15 +94,30 @@ export class PersonManagementPage extends BasePage {
     const addr2 = getField(tc, 'Address Line 2');
     const zip = getField(tc, 'ZIP Code') || getField(tc, 'Zip');
     const cityVal = getField(tc, 'City');
-    const stateVal = getField(tc, 'State');
     const countyVal = getField(tc, 'County');
 
     if (addr1) await this.fillField(this.addressLine1, addr1);
     if (addr2) await this.fillField(this.addressLine2, addr2);
-    if (zip) await this.fillCombobox(this.zipCode, zip);
-    if (cityVal) await this.fillCombobox(this.city, cityVal);
-    if (stateVal) await this.fillCombobox(this.state, stateVal);
-    if (countyVal) await this.fillCombobox(this.county, countyVal);
+
+    // ZIP Code is a LOV field — opens "Search and Select" dialog when multiple matches.
+    // Selecting a ZIP auto-populates City, State, and County, so fill ZIP first.
+    if (zip) {
+      // Use city+county to pick the right ZIP match when the dialog appears
+      const matchHint = cityVal && countyVal ? `${cityVal}, ${countyVal}` : cityVal || '';
+      await this.fillLovField(this.zipCode, zip, matchHint || undefined);
+
+      // After ZIP selection, City/State/County may be auto-populated.
+      // Only fill them if they're still empty.
+      await this.page.waitForTimeout(1000);
+    }
+
+    const cityEmpty = !(await this.city.inputValue().catch(() => ''));
+    const countyEmpty = !(await this.county.inputValue().catch(() => ''));
+    const stateEmpty = !(await this.state.inputValue().catch(() => ''));
+
+    if (cityVal && cityEmpty) await this.fillLovField(this.city, cityVal);
+    if (getField(tc, 'State') && stateEmpty) await this.fillLovField(this.state, getField(tc, 'State')!);
+    if (countyVal && countyEmpty) await this.fillLovField(this.county, countyVal);
   }
 
   // === Step 2: Fill legislative info ===

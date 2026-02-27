@@ -62,6 +62,14 @@ export class LoginPage extends BasePage {
   /** Full login flow: navigate to Oracle → SSO → Okta → MFA → HCM home. */
   async fullLogin(username?: string, password?: string): Promise<void> {
     await this.navigate();
+
+    // If an existing session redirected us to HCM, skip login
+    if (this.page.url().includes('fscmUI')) {
+      await this.waitForReady();
+      await this.dismissPopups();
+      return;
+    }
+
     await this.login(username, password);
   }
 }

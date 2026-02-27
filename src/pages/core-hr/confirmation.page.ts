@@ -11,9 +11,10 @@ import { BasePage } from '../base.page';
  * The confirmation dialog uses ADF confirmation components.
  */
 export class ConfirmationPage extends BasePage {
-  // Confirmation message — appears after successful submission
+  // Confirmation message — appears after successful submission.
+  // Oracle HCM may show this as a dialog, overlay, or inline message.
   private readonly confirmationMessage = this.page.locator(
-    '.af_dialog_content, [class*="confirmation"], [class*="FndOverlayBody"], .oj-message-summary'
+    '.af_dialog_content, [class*="confirmation"], [class*="FndOverlayBody"], .oj-message-summary, [class*="AFNote"], [id*="confirmDialog"]'
   ).first();
 
   // Warning/info messages that may appear
@@ -23,13 +24,44 @@ export class ConfirmationPage extends BasePage {
   private readonly personNumberText = this.page.locator('text=/\\d{8,}/').first();
 
   async clickSubmit(): Promise<void> {
-    await this.clickAdfButton('Submit');
-    await this.page.waitForTimeout(15000); // ADF submission is slow
+    // Try ADF button first (a[role="button"]), fall back to regular button click
+    try {
+      await this.clickAdfButton('Submit');
+    } catch {
+      const submitBtn = this.page.getByRole('button', { name: 'Submit' }).first();
+      await submitBtn.click();
+    }
+    await this.page.waitForTimeout(5000);
     await this.waitForJET();
+
+    // Handle "Do you want to continue?" confirmation dialog
+    const yesButton = this.page.getByRole('button', { name: 'Yes' }).first();
+    const hasConfirmDialog = await yesButton.isVisible({ timeout: 5000 }).catch(() => false);
+    if (hasConfirmDialog) {
+      console.log('[Submit] Clicking Yes on confirmation dialog');
+      await yesButton.click();
+      await this.page.waitForTimeout(15000); // Wait for server-side processing
+      await this.waitForJET();
+    } else {
+      // No dialog — wait for regular submission
+      await this.page.waitForTimeout(10000);
+      await this.waitForJET();
+    }
   }
 
   async expectSuccess(): Promise<void> {
-    // Assert that a confirmation message is visible
+    // Check for error dialog first
+    const errorDialog = this.page.locator('.af_dialog_content, [id*="msgDlg"], .x24d').first();
+    const errorVisible = await errorDialog.isVisible({ timeout: 5000 }).catch(() => false);
+    if (errorVisible) {
+      const errorText = await errorDialog.textContent().catch(() => '') || '';
+      // If it contains "Error" or "required", this is a validation failure
+      if (errorText.toLowerCase().includes('error') || errorText.toLowerCase().includes('required')) {
+        throw new Error(`Submission failed with validation errors: ${errorText.substring(0, 500)}`);
+      }
+    }
+
+    // Wait for confirmation/success message
     await expect(this.confirmationMessage, 'Expected confirmation/success message to appear after submission')
       .toBeVisible({ timeout: 30_000 });
 
