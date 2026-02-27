@@ -16,9 +16,6 @@ export default defineConfig({
   ],
   timeout: 120_000,       // 2 min per test
   expect: { timeout: 15_000 },
-
-  globalSetup: './src/data/global-setup.ts',
-
   use: {
     baseURL: process.env.ORACLE_HCM_URL || 'https://placeholder.oraclecloud.com',
     headless: process.env.HEADLESS !== 'false',
