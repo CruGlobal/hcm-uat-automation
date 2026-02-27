@@ -206,45 +206,65 @@ export class BasePage {
       }
     }
 
-    // No autocomplete — press Tab to trigger LOV resolution
+    // No autocomplete — press Tab to trigger LOV resolution (primary approach).
+    // This works for most LOV fields (ZIP, City, State, County on Step 2).
     await field.press('Tab');
     await this.page.waitForTimeout(3000);
 
-    // Check if a modal "Search and Select" dialog appeared
+    let dialogFoundRows = true; // assume resolved unless dialog says otherwise
     const glassPane = this.page.locator('div.AFModalGlassPane');
     const hasDialog = await glassPane.isVisible({ timeout: 2000 }).catch(() => false);
     if (hasDialog) {
-      await this.handleLovDialog(matchText || value);
-
-      // Check if value was resolved after dialog
-      const afterDialog = await field.inputValue().catch(() => '');
-      if (afterDialog) return;
+      dialogFoundRows = await this.handleLovDialog(matchText || value);
     }
 
-    // Check if Tab resolved the value without dialog
-    const afterTab = await field.inputValue().catch(() => '');
-    if (afterTab) {
+    // If the Tab-triggered dialog found real ADF data rows and selected one,
+    // the value is resolved. If not, we need to try the LOV icon.
+    if (dialogFoundRows) {
       await this.waitForJET();
       return;
     }
 
-    // Value still empty — try LOV search icon to force a proper search dialog.
+    // Tab-triggered dialog had 0 ADF data rows — value was NOT resolved.
+    // Try opening the LOV dialog via the search icon or ADF launchPopup().
+    // The icon opens a properly initialized "Search and Select" dialog
+    // where server-side search actually works.
+    console.log(`[LOV] Tab dialog had 0 data rows for "${value}", trying LOV icon fallback`);
+
     const fieldId = await field.getAttribute('id').catch(() => '');
     if (fieldId) {
-      const lovIconId = fieldId.replace('::content', '::lovIconId');
-      const lovIcon = this.page.locator(`[id="${lovIconId}"]`);
-      const iconVisible = await lovIcon.isVisible({ timeout: 2000 }).catch(() => false);
-      if (iconVisible) {
-        await field.click({ force: true });
-        await field.pressSequentially(value, { delay: 50 });
-        await this.page.waitForTimeout(1000);
-        console.log(`[LOV] Clicking search icon for: "${value}"`);
-        await lovIcon.click();
-        await this.page.waitForTimeout(3000);
-        await this.waitForJET();
-        await this.handleLovDialog(matchText || value);
-        return;
+      const componentId = fieldId.replace('::content', '');
+
+      // Clear the field first so the dialog opens fresh
+      await field.click({ force: true });
+      await field.clear();
+      await this.page.waitForTimeout(500);
+
+      // Try ADF launchPopup() to open the LOV dialog programmatically
+      const launched = await this.page.evaluate((cid: string) => {
+        const adfPage = (window as any).AdfPage?.PAGE;
+        if (!adfPage) return false;
+        const comp = adfPage.findComponentByAbsoluteId(cid);
+        if (!comp) return false;
+        if (comp.launchPopup) { comp.launchPopup(); return true; }
+        return false;
+      }, componentId);
+
+      if (!launched) {
+        // Fallback: click the LOV search icon
+        const iconSelector = `[id="${fieldId.replace('::content', '::lovIconId')}"]`;
+        const lovIcon = this.page.locator(iconSelector);
+        const iconVisible = await lovIcon.isVisible({ timeout: 2000 }).catch(() => false);
+        if (iconVisible) {
+          await lovIcon.click({ force: true });
+        }
       }
+
+      await this.page.waitForTimeout(5000);
+      await this.waitForJET();
+
+      // Handle the LOV icon dialog (different from Tab-triggered dialog)
+      await this.handleLovIconDialog(value, matchText || value);
     }
 
     await this.waitForJET();
@@ -270,14 +290,14 @@ export class BasePage {
    * Uses force:true for all clicks since the AFModalGlassPane sits between
    * the background page and the dialog, intercepting normal click routing.
    */
-  private async handleLovDialog(matchText?: string): Promise<void> {
+  private async handleLovDialog(matchText?: string): Promise<boolean> {
     // Check if a modal glass pane appeared (indicates a dialog is open)
     const glassPane = this.page.locator('div.AFModalGlassPane');
     const hasDialog = await glassPane.isVisible({ timeout: 2000 }).catch(() => false);
     if (!hasDialog) {
       await this.clearGlassPane();
       await this.waitForJET();
-      return;
+      return true; // No dialog = Tab resolved the value directly
     }
 
     // Wait for the dialog content to render.
@@ -309,8 +329,33 @@ export class BasePage {
           console.log(`[LOV] Typed "${searchValue}" in dialog search`);
         }
 
-        console.log('[LOV] Clicking Search button');
-        await searchBtn.click({ force: true });
+        // Click Search button via ADF action event (force:true click may not
+        // trigger the server-side search when glass pane is present).
+        const searchBtnId = await searchBtn.getAttribute('id').catch(() => '');
+        if (searchBtnId) {
+          const parentId = searchBtnId.replace(/::content$/, '');
+          const fired = await this.page.evaluate((id: string) => {
+            const adfPage = (window as any).AdfPage?.PAGE;
+            if (!adfPage) return false;
+            // Try multiple ID variations to find the ADF component
+            for (const tryId of [id, id.replace(/-/g, ':')]) {
+              const comp = adfPage.findComponentByAbsoluteId(tryId);
+              if (comp) {
+                const evt = new (window as any).AdfActionEvent(comp);
+                evt.queue();
+                return true;
+              }
+            }
+            return false;
+          }, parentId);
+          if (!fired) {
+            // Fallback: use force click
+            await searchBtn.click({ force: true });
+          }
+        } else {
+          await searchBtn.click({ force: true });
+        }
+        console.log('[LOV] Fired Search action');
         await this.page.waitForTimeout(5000);
         await this.waitForJET();
         rowCount = await resultRows.count();
@@ -329,17 +374,23 @@ export class BasePage {
       }
     }
 
-    console.log(`[LOV] Dialog has ${rowCount} result rows`);
+    // Determine which row selector to use
+    const adfRows = dialogLayer.locator('[_afrrk]');
+    const adfRowCount = await adfRows.count();
+    const rows = adfRowCount > 0 ? adfRows : dialogLayer.locator('table tbody tr').filter({ hasNot: this.page.locator('th') });
+    const actualRowCount = adfRowCount > 0 ? adfRowCount : rowCount;
+    console.log(`[LOV] Dialog has ${actualRowCount} rows (adf=${adfRowCount})`);
 
-    if (rowCount > 0) {
-      const rows = rowCount > 0 ? dialogLayer.locator('[_afrrk]') : dialogLayer.locator('table tbody tr');
-      if (matchText && rowCount > 1) {
-        const matchRow = dialogLayer.locator(`[_afrrk]:has-text("${matchText}")`).first();
+    if (actualRowCount > 0) {
+      if (matchText && actualRowCount > 1) {
+        // Try to find a row matching the search text
+        const matchRow = rows.filter({ hasText: matchText }).first();
         const matchVisible = await matchRow.isVisible({ timeout: 2000 }).catch(() => false);
         if (matchVisible) {
           console.log(`[LOV] Clicking row matching: "${matchText}"`);
           await matchRow.click({ force: true });
         } else {
+          console.log('[LOV] No text match, clicking first row');
           await rows.first().click({ force: true });
         }
       } else {
@@ -356,6 +407,110 @@ export class BasePage {
     } else {
       const cancelButton = dialogLayer.getByRole('button', { name: 'Cancel' }).first();
       await cancelButton.click({ force: true }).catch(() => {});
+    }
+
+    await this.page.waitForTimeout(3000);
+    await this.clearGlassPane();
+    await this.waitForJET();
+    return adfRowCount > 0; // True only if we found real ADF data rows
+  }
+
+  /**
+   * Handle an LOV dialog opened via the LOV search icon or launchPopup().
+   * Unlike Tab-triggered dialogs, icon-triggered dialogs are properly
+   * initialized by ADF and support server-side search.
+   */
+  private async handleLovIconDialog(searchTerm: string, matchText: string): Promise<void> {
+    const glassPane = this.page.locator('div.AFModalGlassPane');
+    const hasDialog = await glassPane.isVisible({ timeout: 3000 }).catch(() => false);
+    if (!hasDialog) {
+      console.log('[LOV] No dialog appeared after LOV icon click');
+      return;
+    }
+
+    await this.page.waitForTimeout(2000);
+    const dialogLayer = this.page.locator('#DhtmlZOrderManagerLayerContainer');
+
+    // Check for existing data rows first
+    const resultRows = dialogLayer.locator('[_afrrk]');
+    let rowCount = await resultRows.count();
+    console.log(`[LOV-icon] Initial rows: ${rowCount}`);
+
+    // Type search term in the dialog's search field and submit
+    if (rowCount === 0 || rowCount > 10) {
+      const searchInputs = dialogLayer.locator('input[type="text"]');
+      const inputCount = await searchInputs.count();
+      console.log(`[LOV-icon] Dialog has ${inputCount} search inputs`);
+
+      if (inputCount > 0) {
+        // Fill only the first search input (Name field, not Code field)
+        const nameInput = searchInputs.first();
+        // Remove glass pane temporarily so the click goes through to ADF
+        await this.clearGlassPane();
+        await nameInput.click();
+        await nameInput.fill(searchTerm);
+        await this.page.waitForTimeout(500);
+        console.log(`[LOV-icon] Typed "${searchTerm}" in dialog search`);
+
+        // Submit search by clicking the Search button
+        const searchBtn = dialogLayer.getByRole('button', { name: /search/i }).first();
+        const searchBtnVisible = await searchBtn.isVisible({ timeout: 2000 }).catch(() => false);
+        if (searchBtnVisible) {
+          await searchBtn.click();
+          console.log('[LOV-icon] Clicked Search button');
+        } else {
+          // Fallback: press Enter to submit the search form
+          await nameInput.press('Enter');
+          console.log('[LOV-icon] Pressed Enter to search');
+        }
+
+        await this.page.waitForTimeout(5000);
+        await this.waitForJET();
+        rowCount = await resultRows.count();
+        console.log(`[LOV-icon] After search: ${rowCount} rows`);
+
+        // Debug: log alt row content if no ADF rows found
+        if (rowCount === 0) {
+          const altRows = dialogLayer.locator('table tbody tr');
+          const altCount = await altRows.count();
+          for (let i = 0; i < Math.min(altCount, 3); i++) {
+            const text = await altRows.nth(i).textContent().catch(() => 'N/A');
+            console.log(`[LOV-icon] Row ${i}: "${text?.trim().substring(0, 120)}"`);
+          }
+        }
+      }
+    }
+
+    // Select matching row
+    if (rowCount > 0) {
+      if (rowCount > 1 && matchText) {
+        const matchRow = resultRows.filter({ hasText: matchText }).first();
+        const vis = await matchRow.isVisible({ timeout: 2000 }).catch(() => false);
+        if (vis) {
+          console.log(`[LOV-icon] Selecting row matching "${matchText}"`);
+          await matchRow.click();
+        } else {
+          console.log('[LOV-icon] No text match, selecting first row');
+          await resultRows.first().click();
+        }
+      } else {
+        console.log('[LOV-icon] Selecting first row');
+        await resultRows.first().click();
+      }
+      await this.page.waitForTimeout(1000);
+    }
+
+    // Click OK to close — remove glass pane first for clean click
+    await this.clearGlassPane();
+    const okBtn = dialogLayer.getByRole('button', { name: 'OK' }).first();
+    const okVisible = await okBtn.isVisible({ timeout: 3000 }).catch(() => false);
+    if (okVisible) {
+      await okBtn.click();
+      console.log('[LOV-icon] Clicked OK');
+    } else {
+      const cancelBtn = dialogLayer.getByRole('button', { name: 'Cancel' }).first();
+      await cancelBtn.click().catch(() => {});
+      console.log('[LOV-icon] No OK button, clicked Cancel');
     }
 
     await this.page.waitForTimeout(3000);

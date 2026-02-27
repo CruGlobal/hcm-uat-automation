@@ -13,6 +13,16 @@ import type { TestCase } from '../../data/types';
  * Selector patterns use `[id$="suffix"]` for stability across form variants.
  */
 export class AssignmentPage extends BasePage {
+  /**
+   * Migration DB values that don't match Oracle HCM LOV values.
+   * The migration DB uses codes/placeholders; the LOV expects display names.
+   */
+  private readonly lovValueMapping: Record<string, Record<string, string>> = {
+    'Location': {
+      'CRU_HQ': 'Cru World Headquarters',
+    },
+  };
+
   // === Work Relationship / Assignment Details ===
   private readonly businessUnit = this.page.locator('[id$="NewPe1:0:businessUnitId::content"]');
   private readonly personType = this.page.locator('[id$="NewPe1:0:selectOneChoice1::content"]');
@@ -52,8 +62,14 @@ export class AssignmentPage extends BasePage {
     ];
 
     for (const [locator, key] of lovFields) {
-      const value = getField(tc, key);
+      let value = getField(tc, key);
       if (value) {
+        // Apply value mapping for migration→HCM translations
+        const mapped = this.lovValueMapping[key]?.[value];
+        if (mapped) {
+          console.log(`[Assignment] Mapped LOV ${key}: "${value}" → "${mapped}"`);
+          value = mapped;
+        }
         console.log(`[Assignment] Filling LOV ${key} = "${value}"`);
         await this.fillLovField(locator, value);
         const afterValue = await locator.inputValue().catch(() => '(no value)');
