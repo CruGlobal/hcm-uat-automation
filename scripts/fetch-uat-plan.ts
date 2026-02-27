@@ -154,9 +154,20 @@ function parseTab(tabName: string, rows: string[][]): UATTestCase[] {
     const testId = (row[testIdCol] || '').trim();
     if (!testId) continue; // Skip empty rows
 
+    // Infer module from tab name when the module column is empty
+    const rawModule = moduleCol >= 0 ? (row[moduleCol] || '') : '';
+    const TAB_MODULE: Record<string, string> = {
+      'Core HR': 'Core HR', 'Payroll': 'Payroll',
+      'Absence Management': 'Absence Management', 'Benefits': 'Benefits',
+      'Time and Labor': 'Time and Labor', 'Journeys': 'Journeys',
+      'Workforce Compensation': 'Workforce Compensation', 'MPDX': 'MPDX',
+      'OneApp': 'OneApp', 'SAA': 'SAA', 'Other Functions': 'Other Functions',
+    };
+    const inferredModule = rawModule || TAB_MODULE[tabName] || '';
+
     cases.push({
       testId,
-      module: moduleCol >= 0 ? (row[moduleCol] || '') : '',
+      module: inferredModule,
       businessProcess: bpCol >= 0 ? (row[bpCol] || '') : '',
       testScenario: scenarioCol >= 0 ? (row[scenarioCol] || '') : '',
       transactionCategory: categoryCol >= 0 ? (row[categoryCol] || '') : '',

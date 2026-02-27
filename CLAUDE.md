@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What This Is
 
-Oracle HCM UAT automation framework using Playwright + TypeScript. ~1,155 tests across 11 spec files covering 12 modules. Tests are dynamically generated from the **UAT Plan spreadsheet** (the single source of test cases). Field-level form data is generated from the **migration database** and matched to UAT Plan test IDs.
+Oracle HCM UAT automation framework using Playwright + TypeScript. 1,201 tests across 11 spec files covering 12 modules. Tests are dynamically generated from the **UAT Plan spreadsheet** (the single source of test cases). Field-level form data is generated from the **migration database** and matched to UAT Plan test IDs.
 
 ## Project Location
 
@@ -32,7 +32,7 @@ Three-layer pattern: **Page Objects → Flows → Specs**, with a shared data la
 
 Two complementary data sources:
 
-**1. UAT Plan Sheet (test case definitions, ~1,155 cases):**
+**1. UAT Plan Sheet (test case definitions, 1,201 cases):**
 ```
 UAT Plan Sheet (11 modules) → scripts/fetch-uat-plan.ts → .cache/uat-plan.json → uat-plan.fixture.ts → all 11 spec files
 ```
@@ -86,18 +86,18 @@ Composable scenario classes between page objects and specs. Each flow orchestrat
 
 | Spec File | Tests | Module |
 |---|---|---|
-| core-hr/core-hr-uat-plan.spec.ts | 575 | Core HR |
-| payroll/payroll-processing.spec.ts | 103 | Payroll |
-| absence/absence-management.spec.ts | 108 | Absence Management |
+| core-hr/core-hr-uat-plan.spec.ts | 600 | Core HR |
+| payroll/payroll-processing.spec.ts | 113 | Payroll |
+| absence/absence-management.spec.ts | 111 | Absence Management |
 | benefits/benefits.spec.ts | 139 | Benefits |
-| time-labor/time-and-labor.spec.ts | 64 | Time and Labor |
-| journeys/journeys.spec.ts | 63 | Journeys |
+| time-labor/time-and-labor.spec.ts | 67 | Time and Labor |
+| journeys/journeys.spec.ts | 66 | Journeys |
 | compensation/compensation.spec.ts | 52 | Workforce Compensation |
-| mpdx/mpdx.spec.ts | 22 | MPDX |
+| mpdx/mpdx.spec.ts | 24 | MPDX |
 | saa/saa.spec.ts | 6 | SAA |
-| oneapp/oneapp.spec.ts | 20 | OneApp |
+| oneapp/oneapp.spec.ts | 19 | OneApp |
 | other/other-functions.spec.ts | 4 | Other Functions |
-| **Total** | **~1,155** | |
+| **Total** | **1,201** | |
 
 ## Login Flow
 

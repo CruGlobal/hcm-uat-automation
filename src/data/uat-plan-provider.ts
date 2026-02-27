@@ -19,30 +19,46 @@ export function loadUATPlan(): UATTestCase[] {
   return _cachedPlan!;
 }
 
-/** Load UAT Plan cases filtered by module, deduplicated by testId. */
+/** Tab names to skip (summary/meta tabs, not real test sources). */
+const SKIP_TABS = new Set(['UAT_DATA', 'Instructions and Index', 'Sample Scenarios']);
+
+/** Tab-name-to-module mapping for rows with empty module field. */
+const TAB_TO_MODULE: Record<string, string> = {
+  'Core HR': 'Core HR',
+  'Payroll': 'Payroll',
+  'Absence Management': 'Absence Management',
+  'Benefits': 'Benefits',
+  'Time and Labor': 'Time and Labor',
+  'Journeys': 'Journeys',
+  'Workforce Compensation': 'Workforce Compensation',
+  'MPDX': 'MPDX',
+  'OneApp': 'OneApp',
+  'SAA': 'SAA',
+  'Other Functions': 'Other Functions',
+};
+
+/**
+ * Load UAT Plan cases filtered by module.
+ * Keeps all rows from module tabs (including duplicate testIds with
+ * different business processes — these are distinct test scenarios).
+ * Only skips summary/meta tabs.
+ */
 export function loadUATModule(module: string): UATTestCase[] {
   const all = loadUATPlan();
-  const seen = new Set<string>();
   return all.filter(tc => {
-    if (tc.module !== module) return false;
-    // Deduplicate (UAT_DATA tab duplicates module tabs)
-    if (tc.tabName === 'UAT_DATA' || tc.tabName === 'Instructions and Index' || tc.tabName === 'Sample Scenarios') return false;
-    if (seen.has(tc.testId)) return false;
-    seen.add(tc.testId);
-    return true;
+    if (SKIP_TABS.has(tc.tabName)) return false;
+    // Infer module from tab name when module field is empty
+    const effectiveModule = tc.module || TAB_TO_MODULE[tc.tabName] || '';
+    return effectiveModule === module;
   });
 }
 
 /** Load UAT Plan cases filtered by test script pattern. */
 export function loadByTestScript(scriptPattern: string): UATTestCase[] {
   const all = loadUATPlan();
-  const seen = new Set<string>();
   return all.filter(tc => {
-    if (!tc.testScript.includes(scriptPattern)) return false;
-    if (tc.tabName === 'UAT_DATA') return false;
-    if (seen.has(tc.testId)) return false;
-    seen.add(tc.testId);
-    return true;
+    if (SKIP_TABS.has(tc.tabName)) return false;
+    return tc.testScript.includes(scriptPattern);
   });
 }
 
@@ -53,9 +69,21 @@ export function loadByCategory(module: string, category: string): UATTestCase[] 
   );
 }
 
-/** Get a unique test title for a UAT Plan test case. */
+/**
+ * Get a unique test title for a UAT Plan test case.
+ * Includes businessProcess and testScenario to disambiguate duplicate
+ * testIds that represent different test scenarios (e.g. PY-009-03
+ * appears 3x with different off-cycle payroll types, and AB-012.00
+ * appears 3x with the same businessProcess but different scenarios).
+ */
 export function uatTestTitle(tc: UATTestCase): string {
-  const desc = tc.businessProcess || tc.testScenario || 'test';
+  const bp = tc.businessProcess || '';
+  const sc = tc.testScenario || '';
+  // Use businessProcess + scenario snippet for uniqueness
+  if (bp && sc) {
+    return `${tc.testId}: ${bp.substring(0, 50)} — ${sc.substring(0, 40)}`;
+  }
+  const desc = bp || sc || 'test';
   return `${tc.testId}: ${desc.substring(0, 80)}`;
 }
 
