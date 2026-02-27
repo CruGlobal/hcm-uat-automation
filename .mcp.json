@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "oraclemcp": {
+      "type": "stdio",
+      "command": "sql",
+      "args": [
+        "-mcp"
+      ],
+      "env": {}
+    }
+  }
+}
