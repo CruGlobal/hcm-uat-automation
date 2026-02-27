@@ -5,14 +5,28 @@ import { excelSerialToDate } from '../../utils/oracle-hcm-helpers';
 import type { TestCase } from '../../data/types';
 
 /**
- * Personal Details page — covers step 1 (Identification) personal fields
- * and step 2 (Person Information) address/legislative fields.
+ * Personal Details page — covers step 1 (Identification) personal fields,
+ * step 2 (Person Information) address/legislative fields, and also the
+ * Person Management search page for finding existing persons.
  *
  * Step 1 personal detail field indices are DYNAMIC — they change after
  * Legal Employer selection triggers a partial page refresh.
  * Use stable suffixes (it20, it60, etc.) with `.first()`.
+ *
+ * Person Management Search selectors:
+ *   Name:          [id$="q1:value00::content"]
+ *   Person Number: [id$="q1:value10::content"]
+ *   National ID:   [id$="q1:value20::content"]
+ *   Search btn:    [id$="q1::search"]
  */
 export class PersonManagementPage extends BasePage {
+  // === Person Management Search Page ===
+  private readonly searchName = this.page.locator('[id$="q1:value00::content"]');
+  private readonly searchPersonNumber = this.page.locator('[id$="q1:value10::content"]');
+  private readonly searchNationalId = this.page.locator('[id$="q1:value20::content"]');
+  private readonly searchButton = this.page.locator('[id$="q1::search"]');
+  private readonly searchReset = this.page.locator('[id$="q1::reset"]');
+
   // === Step 1: Identification — Personal Details ===
   // These suffixes are stable but the middle index (i1:N) changes after LE selection.
   private readonly lastName = this.page.locator('input[id*="it20::content"]').first();
@@ -105,5 +119,55 @@ export class PersonManagementPage extends BasePage {
   async fillPersonInfoFromTestCase(tc: TestCase): Promise<void> {
     await this.fillAddress(tc);
     await this.fillLegislative(tc);
+  }
+
+  // === Person Management Search ===
+
+  /** Search by name or number (convenience wrapper). */
+  async searchPerson(query: string): Promise<void> {
+    // If it looks like a number, search by person number; otherwise by name
+    if (/^\d+$/.test(query.trim())) {
+      await this.searchByPersonNumber(query.trim());
+    } else {
+      await this.searchByName(query.trim());
+    }
+  }
+
+  /** Search by person name and click the first result. */
+  async searchByName(name: string): Promise<void> {
+    await this.searchName.fill(name);
+    await this.searchButton.click();
+    await this.page.waitForTimeout(8000);
+    await this.waitForJET();
+    await this.clickFirstSearchResult();
+  }
+
+  /** Search by person number and click the first result. */
+  async searchByPersonNumber(personNumber: string): Promise<void> {
+    await this.searchPersonNumber.fill(personNumber);
+    await this.searchButton.click();
+    await this.page.waitForTimeout(8000);
+    await this.waitForJET();
+    await this.clickFirstSearchResult();
+  }
+
+  /** Click the first person in search results table. */
+  private async clickFirstSearchResult(): Promise<void> {
+    // Search results are in a table — the first data row contains a clickable name link
+    const resultLink = this.page.locator('table[id*="resId1"] tbody tr:first-child a, [id*="resId1"] [role="row"] a').first();
+    const isVisible = await resultLink.isVisible({ timeout: 10000 }).catch(() => false);
+    if (isVisible) {
+      await resultLink.click();
+      await this.page.waitForTimeout(8000);
+      await this.waitForJET();
+    } else {
+      // Try ADF table approach
+      const firstRow = this.page.locator('[id*="resId1"] tr[_afrrk]').first();
+      if (await firstRow.isVisible({ timeout: 5000 }).catch(() => false)) {
+        await firstRow.click();
+        await this.page.waitForTimeout(8000);
+        await this.waitForJET();
+      }
+    }
   }
 }

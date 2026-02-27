@@ -1,4 +1,4 @@
-import { type Page } from '@playwright/test';
+import { type Page, type Locator } from '@playwright/test';
 import { BasePage } from '../base.page';
 import { getField } from '../../data/test-data-provider';
 import { excelSerialToDate } from '../../utils/oracle-hcm-helpers';
@@ -6,67 +6,91 @@ import type { TestCase } from '../../data/types';
 
 /**
  * Element Entry page — payroll element entry management.
+ *
+ * The Element Entries page is a Redwood-style page in Oracle HCM.
+ * Selectors here are best-guess patterns and will need refinement
+ * after inspecting the live page.
  */
 export class ElementEntryPage extends BasePage {
-  private readonly searchFor = this.page.locator('input[aria-label*="Search"], input[placeholder*="Search"], [id*="PersonSearch"]').first();
-  private readonly effectiveDate = this.page.locator('input[aria-label*="Effective"], input[id*="EffectiveDate"]').first();
-  private readonly elementName = this.page.locator('input[aria-label*="Element"], select[aria-label*="Element"], [id*="ElementName"]').first();
-  private readonly separateTaxCode = this.page.locator('select[aria-label*="Separate Tax"], [id*="SeparateTaxCode"]').first();
-  private readonly reason = this.page.locator('input[aria-label*="Reason"], [id*="Reason"]').first();
-  private readonly amount = this.page.locator('input[aria-label*="Amount"], [id*="Amount"]').first();
-  private readonly overrideCheckbox = this.page.locator('input[type="checkbox"][aria-label*="Override"], [id*="OverrideEntry"]').first();
-  private readonly createButton = this.page.locator('button:has-text("Create"), [id*="Create"]').first();
-  private readonly assignmentDropdown = this.page.locator('select[aria-label*="Assignment"], [id*="Assignment"]').first();
+  // Search for employee
+  private readonly searchFor = this.page.locator(
+    'input[aria-label*="Search"], input[placeholder*="Search"], [id*="PersonSearch"], [role="searchbox"]'
+  ).first();
+
+  // Effective date
+  private readonly effectiveDate = this.page.locator(
+    'input[aria-label*="Effective"], input[id*="EffectiveDate"], input[id*="effectiveDate"]'
+  ).first();
+
+  // Element name (LOV or dropdown)
+  private readonly elementName = this.page.locator(
+    'input[aria-label*="Element"], select[aria-label*="Element"], [id*="ElementName"], [id*="elementName"]'
+  ).first();
+
+  // Separate Tax Code
+  private readonly separateTaxCode = this.page.locator(
+    'select[aria-label*="Separate Tax"], [id*="SeparateTaxCode"], [id*="separateTax"]'
+  ).first();
+
+  // Reason field
+  private readonly reason = this.page.locator(
+    'input[aria-label*="Reason"], textarea[aria-label*="Reason"], [id*="Reason"]'
+  ).first();
+
+  // Amount
+  private readonly amount = this.page.locator(
+    'input[aria-label*="Amount"], [id*="Amount"], [id*="amount"]'
+  ).first();
+
+  // Create / Submit button
+  private readonly createButton = this.page.locator(
+    'button:has-text("Create"), button:has-text("Submit"), [id*="Create"]'
+  ).first();
 
   async fillFromTestCase(tc: TestCase): Promise<void> {
     const searchFor = getField(tc, 'Search For');
     const effDate = getField(tc, 'Effective date');
     const element = getField(tc, 'Element name');
     const taxCode = getField(tc, 'Separate Tax Code');
-    const reason = getField(tc, 'Reason');
-    const amount = getField(tc, 'Amount');
-    const override = getField(tc, 'Override Entry');
-    const assignment = getField(tc, 'Assignment');
+    const reasonVal = getField(tc, 'Reason');
+    const amountVal = getField(tc, 'Amount');
 
+    // Search for employee first
     if (searchFor) {
-      await this.searchFor.clear();
-      await this.searchFor.fill(searchFor);
-      await this.searchFor.press('Enter');
-      await this.waitForReady();
+      await this.fillField(this.searchFor, searchFor);
+      await this.page.waitForTimeout(5000);
+      await this.waitForJET();
+      // Click first search result if visible
+      const firstResult = this.page.locator(
+        '[role="option"]:first-child, [role="row"]:first-child a, [class*="result"] a'
+      ).first();
+      if (await firstResult.isVisible({ timeout: 3000 }).catch(() => false)) {
+        await firstResult.click();
+        await this.page.waitForTimeout(3000);
+        await this.waitForJET();
+      }
     }
 
     if (effDate) {
       const dateStr = excelSerialToDate(effDate);
-      await this.fillInput(this.effectiveDate, dateStr);
+      await this.fillField(this.effectiveDate, dateStr);
     }
 
-    if (element) await this.fillInput(this.elementName, element);
-    if (taxCode) await this.selectValue(this.separateTaxCode, taxCode);
-    if (reason) await this.fillInput(this.reason, reason);
-    if (amount) await this.fillInput(this.amount, amount);
-    if (assignment) await this.selectValue(this.assignmentDropdown, assignment);
-
-    if (override && override.toLowerCase() === 'y') {
-      const checked = await this.overrideCheckbox.isChecked();
-      if (!checked) await this.overrideCheckbox.check();
-    }
+    if (element) await this.fillCombobox(this.elementName, element);
+    if (taxCode) await this.fillCombobox(this.separateTaxCode, taxCode);
+    if (reasonVal) await this.fillField(this.reason, reasonVal);
+    if (amountVal) await this.fillField(this.amount, amountVal);
   }
 
   async clickCreate(): Promise<void> {
-    await this.createButton.click();
-    await this.waitForReady();
-  }
-
-  private async selectValue(locator: ReturnType<Page['locator']>, value: string): Promise<void> {
-    await locator.click();
-    await this.page.locator(`oj-option:has-text("${value}"), li[role="option"]:has-text("${value}")`).first().click();
-    await this.waitForJET();
-  }
-
-  private async fillInput(locator: ReturnType<Page['locator']>, value: string): Promise<void> {
-    await locator.clear();
-    await locator.fill(value);
-    await locator.press('Tab');
-    await this.waitForJET();
+    const isVisible = await this.createButton.isVisible({ timeout: 5000 }).catch(() => false);
+    if (isVisible) {
+      await this.createButton.click();
+      await this.page.waitForTimeout(10000);
+      await this.waitForJET();
+    } else {
+      // Try ADF button approach
+      await this.clickAdfButton('Submit');
+    }
   }
 }

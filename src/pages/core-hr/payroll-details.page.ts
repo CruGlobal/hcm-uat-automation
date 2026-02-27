@@ -4,38 +4,75 @@ import { getField } from '../../data/test-data-provider';
 import type { TestCase } from '../../data/types';
 
 /**
- * Payroll Details section — payroll frequency, tax unit, time card, overtime.
+ * Payroll Details section — part of Employment Information step (Step 3).
+ *
+ * Contains: Tax Reporting Unit, Payroll, Time Card, Overtime Period.
+ * Tax Reporting Unit is under `r1:0:soc1` (readonly).
+ * Payroll details are within the "Payroll Relationship Details" header area.
+ *
+ * Note: The Payroll section on the Hire wizard is embedded in the Employment
+ * Information step, not on a separate wizard page.
  */
 export class PayrollDetailsPage extends BasePage {
-  private readonly payrollFrequency = this.page.locator('select[aria-label*="Payroll"], input[aria-label*="Payroll"], [id*="PayrollName"]').first();
-  private readonly taxReportingUnit = this.page.locator('select[aria-label*="Tax"], input[aria-label*="Tax reporting"], [id*="TaxReportingUnit"]').first();
-  private readonly timeCardPayroll = this.page.locator('select[aria-label*="Time Card required for pay"], [id*="TimeCardRequired"]').first();
-  private readonly timeCardAssignment = this.page.locator('select[aria-label*="Time Card required for Assignment"], [id*="TimeCardAssignment"]').first();
-  private readonly overtimePeriodPayroll = this.page.locator('[aria-label*="Overtime Period for Payroll"], [id*="OvertimePeriodPayroll"]').first();
-  private readonly overtimePeriodAssignment = this.page.locator('[aria-label*="Overtime Period for Assginment"], [id*="OvertimePeriodAssignment"]').first();
+  // Tax Reporting Unit — readonly combobox
+  private readonly taxReportingUnit = this.page.locator('[id$="r1:0:soc1::content"]');
+
+  // Payroll-related fields within the embedded payroll section
+  // These are typically under "Payroll Relationship Details" heading
+  private readonly payrollName = this.page.locator('[id*="PayrollName"], [id*="payrollId"]').first();
+  private readonly timeCardRequired = this.page.locator('[id*="TimeCard"], [id*="timeCard"]').first();
+  private readonly overtimePeriod = this.page.locator('[id*="OvertimePeriod"], [id*="overtimePeriod"]').first();
 
   async fillFromTestCase(tc: TestCase): Promise<void> {
-    const payrollFreq = getField(tc, 'Payroll Frequency');
+    // Tax Reporting Unit (readonly)
     const taxUnit = getField(tc, 'Tax reporting Unit');
-    const timeCardPay = getField(tc, 'Time Card required for pay');
-    const timeCardAssign = getField(tc, 'Time Card required for Assignment');
+    if (taxUnit) {
+      await this.setReadonlyCombobox(this.taxReportingUnit, taxUnit);
+    }
 
-    if (payrollFreq) await this.fillInput(this.payrollFrequency, payrollFreq);
-    if (taxUnit) await this.fillInput(this.taxReportingUnit, taxUnit);
-    if (timeCardPay) await this.selectValue(this.timeCardPayroll, timeCardPay);
-    if (timeCardAssign) await this.selectValue(this.timeCardAssignment, timeCardAssign);
+    // Payroll Frequency
+    const payrollFreq = getField(tc, 'Payroll Frequency') || getField(tc, 'Frequency');
+    if (payrollFreq && payrollFreq !== getField(tc, 'Working hours Frequency')) {
+      const payrollField = this.payrollName;
+      const isVisible = await payrollField.isVisible({ timeout: 3000 }).catch(() => false);
+      if (isVisible) {
+        const isReadonly = await payrollField.getAttribute('readonly');
+        if (isReadonly !== null) {
+          await this.setReadonlyCombobox(payrollField, payrollFreq);
+        } else {
+          await this.fillCombobox(payrollField, payrollFreq);
+        }
+      }
+    }
+
+    // Time Card Required
+    const timeCard = getField(tc, 'Time Card required');
+    if (timeCard) {
+      const tcField = this.timeCardRequired;
+      const isVisible = await tcField.isVisible({ timeout: 3000 }).catch(() => false);
+      if (isVisible) {
+        await this.setReadonlyCombobox(tcField, timeCard === 'Y' ? 'Yes' : timeCard === 'N' ? 'No' : timeCard);
+      }
+    }
   }
 
-  private async selectValue(locator: ReturnType<Page['locator']>, value: string): Promise<void> {
-    await locator.click();
-    await this.page.locator(`oj-option:has-text("${value}"), li[role="option"]:has-text("${value}")`).first().click();
-    await this.waitForJET();
-  }
-
-  private async fillInput(locator: ReturnType<Page['locator']>, value: string): Promise<void> {
-    await locator.clear();
-    await locator.fill(value);
-    await locator.press('Tab');
-    await this.waitForJET();
+  /** Set value on a readonly ADF combobox via ADF API */
+  private async setReadonlyCombobox(locator: ReturnType<Page['locator']>, value: string): Promise<void> {
+    const fieldId = await locator.getAttribute('id');
+    if (!fieldId) return;
+    const isReadonly = await locator.getAttribute('readonly');
+    if (isReadonly !== null) {
+      const parentId = fieldId.replace('::content', '');
+      await this.page.evaluate(({ pid, val }: { pid: string; val: string }) => {
+        const adfPage = (window as any).AdfPage?.PAGE;
+        if (!adfPage) return;
+        const comp = adfPage.findComponentByAbsoluteId(pid);
+        if (comp && comp.setValue) comp.setValue(val);
+      }, { pid: parentId, val: value });
+      await this.page.waitForTimeout(2000);
+      await this.waitForJET();
+    } else {
+      await this.fillCombobox(locator, value);
+    }
   }
 }

@@ -4,36 +4,58 @@ import { getField } from '../../data/test-data-provider';
 import type { TestCase } from '../../data/types';
 
 /**
- * Salary section — salary basis and amount.
+ * Salary section — may appear as part of Employment Information step or
+ * as a separate section depending on the form.
+ *
+ * Fields: Salary Basis (combobox) and Salary Amount (input).
+ * The salary section may not appear until after assignment fields are filled.
  */
 export class SalaryPage extends BasePage {
-  private readonly salaryBasis = this.page.locator('select[aria-label*="Salary Basis"], input[aria-label*="Salary Basis"], [id*="SalaryBasis"]').first();
-  private readonly salaryAmount = this.page.locator('input[aria-label*="Salary Amount"], input[aria-label*="Salary"], [id*="SalaryAmount"]').first();
+  // These selectors try multiple patterns since salary may appear in different contexts
+  private readonly salaryBasis = this.page.locator('[id*="SalaryBasis"], [id*="salaryBasis"], input[aria-label*="Salary Basis"]').first();
+  private readonly salaryAmount = this.page.locator('[id*="SalaryAmount"], [id*="salaryAmount"], input[aria-label*="Amount"]').first();
 
   async fillFromTestCase(tc: TestCase): Promise<void> {
     const basis = getField(tc, 'Salary Basis');
-    const amount = getField(tc, 'Salary');
-    // "Salary" partial match could match "Salary Basis" too — use specific key
-    const salaryAmount = this.getSalaryAmount(tc);
+    const amount = this.getSalaryAmount(tc);
 
-    if (basis) await this.fillInput(this.salaryBasis, basis);
-    if (salaryAmount) await this.fillInput(this.salaryAmount, salaryAmount);
+    if (basis) {
+      const basisVisible = await this.salaryBasis.isVisible({ timeout: 5000 }).catch(() => false);
+      if (basisVisible) {
+        const isReadonly = await this.salaryBasis.getAttribute('readonly');
+        if (isReadonly !== null) {
+          // Readonly — use ADF setValue
+          const fieldId = await this.salaryBasis.getAttribute('id');
+          if (fieldId) {
+            const parentId = fieldId.replace('::content', '');
+            await this.page.evaluate(({ pid, val }: { pid: string; val: string }) => {
+              const adfPage = (window as any).AdfPage?.PAGE;
+              if (!adfPage) return;
+              const comp = adfPage.findComponentByAbsoluteId(pid);
+              if (comp && comp.setValue) comp.setValue(val);
+            }, { pid: parentId, val: basis });
+            await this.page.waitForTimeout(2000);
+          }
+        } else {
+          await this.fillCombobox(this.salaryBasis, basis);
+        }
+      }
+    }
+
+    if (amount) {
+      const amountVisible = await this.salaryAmount.isVisible({ timeout: 5000 }).catch(() => false);
+      if (amountVisible) {
+        await this.fillField(this.salaryAmount, amount);
+      }
+    }
   }
 
   /** Get salary amount specifically (not salary basis). */
   private getSalaryAmount(tc: TestCase): string {
-    // Look for exact "Salary > Salary" key or just "Salary" without "Basis"
     for (const [key, val] of Object.entries(tc.fields)) {
       const lower = key.toLowerCase();
-      if (lower.endsWith('> salary') || (lower === 'salary')) return val;
+      if (lower.endsWith('> salary') || lower === 'salary') return val;
     }
     return '';
-  }
-
-  private async fillInput(locator: ReturnType<Page['locator']>, value: string): Promise<void> {
-    await locator.clear();
-    await locator.fill(value);
-    await locator.press('Tab');
-    await this.waitForJET();
   }
 }

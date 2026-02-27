@@ -19,6 +19,8 @@
     "typescript": "^5.7.0"
   },
   "dependencies": {
-    "otpauth": "^9.5.0"
+    "oracledb": "^6.10.0",
+    "otpauth": "^9.5.0",
+    "xlsx": "^0.18.5"
   }
 }

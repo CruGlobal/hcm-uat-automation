@@ -4,36 +4,47 @@ import { getField } from '../../data/test-data-provider';
 import type { TestCase } from '../../data/types';
 
 /**
- * Managers section — manager search and type.
+ * Manager Details section — part of Employment Information step (Step 3).
+ *
+ * Located under `r3:0:i1:0:` prefix in the ADF component tree.
+ * Manager Name is a LOV combobox, Manager Type is readonly (defaults to "Line manager").
  */
 export class ManagersPage extends BasePage {
-  private readonly managerSearch = this.page.locator('input[aria-label*="Manager"], input[id*="ManagerName"]').first();
-  private readonly managerType = this.page.locator('select[aria-label*="Manager Type"], [id*="ManagerType"]').first();
+  // Manager Name — LOV combobox (search by name)
+  private readonly managerName = this.page.locator('[id$="r3:0:i1:0:ManagerNameId::content"]');
+  // Manager Type — readonly combobox, defaults to "Line manager"
+  private readonly managerType = this.page.locator('[id$="r3:0:i1:0:selectOneChoice1::content"]');
 
   async fillFromTestCase(tc: TestCase): Promise<void> {
-    const manager = getField(tc, 'Manager');
-    const managerType = getField(tc, 'Manager Type');
-
-    // "Manager" partial matches both — get them specifically
     const mgr = this.getManagerName(tc);
+    const mgrType = getField(tc, 'Manager Type');
 
     if (mgr) {
-      await this.managerSearch.clear();
-      await this.managerSearch.fill(mgr);
-      await this.managerSearch.press('Tab');
-      await this.waitForJET();
-      // Select from search results if a dropdown appears
-      const option = this.page.locator(`li[role="option"]:has-text("${mgr}")`).first();
-      if (await option.isVisible({ timeout: 3000 }).catch(() => false)) {
-        await option.click();
-        await this.waitForJET();
-      }
+      await this.fillCombobox(this.managerName, mgr);
     }
 
-    if (managerType) {
-      await this.managerType.click();
-      await this.page.locator(`oj-option:has-text("${managerType}"), li[role="option"]:has-text("${managerType}")`).first().click();
-      await this.waitForJET();
+    if (mgrType) {
+      // Manager Type is typically readonly with "Line manager" default
+      const isReadonly = await this.managerType.getAttribute('readonly');
+      if (isReadonly !== null) {
+        // Already set to default — only change if different
+        const currentVal = await this.managerType.inputValue().catch(() => '');
+        if (currentVal.toLowerCase() !== mgrType.toLowerCase()) {
+          const fieldId = await this.managerType.getAttribute('id');
+          if (fieldId) {
+            const parentId = fieldId.replace('::content', '');
+            await this.page.evaluate(({ pid, val }: { pid: string; val: string }) => {
+              const adfPage = (window as any).AdfPage?.PAGE;
+              if (!adfPage) return;
+              const comp = adfPage.findComponentByAbsoluteId(pid);
+              if (comp && comp.setValue) comp.setValue(val);
+            }, { pid: parentId, val: mgrType });
+            await this.page.waitForTimeout(2000);
+          }
+        }
+      } else {
+        await this.fillCombobox(this.managerType, mgrType);
+      }
     }
   }
 

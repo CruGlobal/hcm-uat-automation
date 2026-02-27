@@ -1,76 +1,152 @@
-import { type Page } from '@playwright/test';
+import { type Page, type Locator } from '@playwright/test';
 import { BasePage } from '../base.page';
 import { getField } from '../../data/test-data-provider';
 import type { TestCase } from '../../data/types';
 
 /**
- * Assignment section — status, person type, job, department, location, schedule, etc.
- * Covers ~18 assignment-related fields from the "Assignment >" section of the sheet.
+ * Assignment section — part of the Employment Information step (Step 3) in the hire wizard.
+ *
+ * This page handles the Job, Work Relationship, and assignment-level fields.
+ * Many fields are READONLY ADF comboboxes that need special handling.
+ * All IDs live under the `NewPe3:0:` and `JobDe1:0:` prefixes.
+ *
+ * Selector patterns use `[id$="suffix"]` for stability across form variants.
  */
 export class AssignmentPage extends BasePage {
-  private readonly assignmentStatus = this.page.locator('select[aria-label*="Assignment Status"], [id*="AssignmentStatus"]').first();
-  private readonly personType = this.page.locator('select[aria-label*="Person Type"], [id*="PersonType"]').first();
-  private readonly proposedPersonType = this.page.locator('select[aria-label*="Proposed Person"], [id*="ProposedPersonType"]').first();
-  private readonly job = this.page.locator('input[aria-label*="Job"], [id*="JobName"]').first();
-  private readonly grade = this.page.locator('input[aria-label*="Grade"], [id*="GradeName"]').first();
-  private readonly department = this.page.locator('input[aria-label*="Department"], [id*="DepartmentName"]').first();
-  private readonly location = this.page.locator('input[aria-label*="Location"], [id*="LocationName"]').first();
-  private readonly workFromHome = this.page.locator('select[aria-label*="Working at Home"], [id*="WorkAtHome"], select[aria-label*="Work from Home"]').first();
-  private readonly assignmentCategory = this.page.locator('select[aria-label*="Assignment Category"], [id*="AssignmentCategory"]').first();
-  private readonly regTemp = this.page.locator('select[aria-label*="Reg"], [id*="RegularTemporary"]').first();
-  private readonly fullPartTime = this.page.locator('select[aria-label*="Full time"], [id*="FullPartTime"]').first();
-  private readonly hourlySalaried = this.page.locator('select[aria-label*="Hourly"], [id*="HourlySalaried"]').first();
-  private readonly workingHours = this.page.locator('input[aria-label*="Working hours"], input[aria-label*="Working Hours"], [id*="NormalHours"]').first();
-  private readonly frequency = this.page.locator('select[aria-label*="Frequency"], [id*="Frequency"]').first();
-  private readonly supportType = this.page.locator('select[aria-label*="Support Type"], [id*="SupportType"]').first();
-  private readonly secaStatus = this.page.locator('select[aria-label*="Seca"], [id*="SecaStatus"]').first();
+  // === Work Relationship / Assignment Details ===
+  private readonly businessUnit = this.page.locator('[id$="NewPe1:0:businessUnitId::content"]');
+  private readonly personType = this.page.locator('[id$="NewPe1:0:selectOneChoice1::content"]');
+  private readonly assignmentStatus = this.page.locator('[id$="NewPe1:0:selectOneChoice2::content"]');
+
+  // === Job Details ===
+  private readonly job = this.page.locator('[id$="JobDe1:0:jobId::content"]');
+  private readonly grade = this.page.locator('[id$="JobDe1:0:gradeId::content"]');
+  private readonly department = this.page.locator('[id$="JobDe1:0:departmentId::content"]');
+  private readonly location = this.page.locator('[id$="JobDe1:0:locationId::content"]');
+  private readonly position = this.page.locator('[id$="JobDe1:0:positionId::content"]');
+  private readonly reportingEstablishment = this.page.locator('[id$="JobDe1:0:selectOneChoice7::content"]');
+
+  // === Schedule / Category ===
+  private readonly workingAtHome = this.page.locator('[id$="JobDe1:0:selectOneRadio1::content"]');
+  private readonly workerCategory = this.page.locator('[id$="JobDe1:0:selectOneChoice1::content"]');
+  private readonly assignmentCategory = this.page.locator('[id$="JobDe1:0:selectOneChoice3::content"]');
+  private readonly regOrTemp = this.page.locator('[id$="JobDe1:0:soc2::content"]');
+  private readonly fullOrPartTime = this.page.locator('[id$="JobDe1:0:soc1::content"]');
+  private readonly workingAsManager = this.page.locator('[id$="JobDe1:0:selectOneRadio2::content"]');
+  private readonly hourlyOrSalaried = this.page.locator('[id$="JobDe1:0:selectOneChoice2::content"]');
+  private readonly workingHours = this.page.locator('[id$="JobDe1:0:inputText1::content"]');
+  private readonly frequency = this.page.locator('[id$="JobDe1:0:selectOneChoice6::content"]');
+
+  // === People Group (key flex field) ===
+  private readonly peopleGroup = this.page.locator('[id$="JobDe1:0:kf2CS::content"]');
 
   async fillFromTestCase(tc: TestCase): Promise<void> {
-    const fields: [ReturnType<Page['locator']>, string, 'select' | 'input'][] = [
-      [this.assignmentStatus, 'Assignment Status', 'select'],
-      [this.personType, 'Person Type', 'select'],
-      [this.job, 'Job', 'input'],
-      [this.grade, 'Grade', 'input'],
-      [this.department, 'Department', 'input'],
-      [this.location, 'Location', 'input'],
-      [this.assignmentCategory, 'Assignment Category', 'select'],
-      [this.regTemp, 'Reg/Temp', 'select'],
-      [this.fullPartTime, 'Full time or Part Time', 'select'],
-      [this.hourlySalaried, 'Hourly Salary', 'select'],
-      [this.workingHours, 'Working hours', 'input'],
-      [this.frequency, 'Frequency', 'select'],
-      [this.supportType, 'Support Type', 'select'],
-      [this.secaStatus, 'Seca Status', 'select'],
+    // LOV combobox fields (type + Tab)
+    const comboFields: [Locator, string][] = [
+      [this.businessUnit, 'Business Unit'],
+      [this.job, 'Job'],
+      [this.grade, 'Grade'],
+      [this.department, 'Department'],
+      [this.location, 'Location'],
     ];
 
-    // Proposed Person Type is only on some tabs
-    const proposed = getField(tc, 'Proposed Person type');
-    if (proposed) await this.selectValue(this.proposedPersonType, proposed);
-
-    const workHome = getField(tc, 'Working at Home') || getField(tc, 'Work from Home');
-    if (workHome) await this.selectValue(this.workFromHome, workHome);
-
-    for (const [locator, key, type] of fields) {
+    for (const [locator, key] of comboFields) {
       const value = getField(tc, key);
-      if (!value) continue;
-      if (type === 'select') {
-        await this.selectValue(locator, value);
-      } else {
-        await this.fillInput(locator, value);
-      }
+      if (value) await this.fillCombobox(locator, value);
+    }
+
+    // Readonly ADF comboboxes — use ADF setValue
+    const readonlyFields: [Locator, string][] = [
+      [this.personType, 'Person Type'],
+      [this.assignmentStatus, 'Assignment Status'],
+      [this.assignmentCategory, 'Assignment Category'],
+      [this.regOrTemp, 'Reg/Temp'],
+      [this.fullOrPartTime, 'Full time or Part Time'],
+      [this.hourlyOrSalaried, 'Hourly Salary'],
+      [this.frequency, 'Frequency'],
+    ];
+
+    for (const [locator, key] of readonlyFields) {
+      const value = getField(tc, key);
+      if (value) await this.setReadonlyCombobox(locator, value);
+    }
+
+    // Working at Home
+    const workHome = getField(tc, 'Working at Home') || getField(tc, 'Work from Home');
+    if (workHome) await this.setReadonlyCombobox(this.workingAtHome, workHome);
+
+    // Working Hours (regular input)
+    const hours = getField(tc, 'Working hours') || getField(tc, 'Working Hours');
+    if (hours) await this.fillField(this.workingHours, hours);
+
+    // People Group (Support Type + Seca Status are segments within this flex field)
+    const supportType = getField(tc, 'Support Type') || getField(tc, 'PeopleGroup - Support Type');
+    if (supportType) {
+      // People Group is a key flex field — needs special click to expand
+      // then fill individual segments
+      await this.fillPeopleGroup(tc);
     }
   }
 
-  private async selectValue(locator: ReturnType<Page['locator']>, value: string): Promise<void> {
-    await locator.click();
-    await this.page.locator(`oj-option:has-text("${value}"), li[role="option"]:has-text("${value}")`).first().click();
-    await this.waitForJET();
+  /** Set value on a readonly ADF combobox via ADF API */
+  private async setReadonlyCombobox(locator: Locator, value: string): Promise<void> {
+    const fieldId = await locator.getAttribute('id');
+    if (!fieldId) return;
+    const isReadonly = await locator.getAttribute('readonly');
+    if (isReadonly !== null) {
+      // Use ADF API to set value
+      const parentId = fieldId.replace('::content', '');
+      await this.page.evaluate(({ pid, val }: { pid: string; val: string }) => {
+        const adfPage = (window as any).AdfPage?.PAGE;
+        if (!adfPage) return;
+        const comp = adfPage.findComponentByAbsoluteId(pid);
+        if (comp && comp.setValue) comp.setValue(val);
+      }, { pid: parentId, val: value });
+      await this.page.waitForTimeout(2000);
+      await this.waitForJET();
+    } else {
+      // Not readonly — use normal combobox
+      await this.fillCombobox(locator, value);
+    }
   }
 
-  private async fillInput(locator: ReturnType<Page['locator']>, value: string): Promise<void> {
-    await locator.clear();
-    await locator.fill(value);
-    await locator.press('Tab');
-    await this.waitForJET();
+  /** Fill People Group flex field segments */
+  private async fillPeopleGroup(tc: TestCase): Promise<void> {
+    // Click the People Group field to open the key flex dialog
+    const pgField = this.peopleGroup;
+    const isVisible = await pgField.isVisible({ timeout: 3000 }).catch(() => false);
+    if (!isVisible) return;
+
+    // The People Group field opens a dialog with segment fields
+    // For now, we'll try to click and fill
+    const supportType = getField(tc, 'Support Type') || getField(tc, 'PeopleGroup - Support Type');
+    const secaStatus = getField(tc, 'Seca Status') || getField(tc, 'PeopleGroup - Seca Status');
+
+    if (supportType || secaStatus) {
+      await pgField.click();
+      await this.page.waitForTimeout(2000);
+
+      // The dialog should open with segment fields
+      // These are typically in a popup/dialog
+      if (supportType) {
+        const supportField = this.page.locator('[id*="kf2"][id*="supportType"], [id*="kf2"][id*="segment1"]').first();
+        if (await supportField.isVisible({ timeout: 3000 }).catch(() => false)) {
+          await this.fillCombobox(supportField, supportType);
+        }
+      }
+      if (secaStatus) {
+        const secaField = this.page.locator('[id*="kf2"][id*="secaStatus"], [id*="kf2"][id*="segment2"]').first();
+        if (await secaField.isVisible({ timeout: 3000 }).catch(() => false)) {
+          await this.fillCombobox(secaField, secaStatus);
+        }
+      }
+
+      // Click OK to close the flex field dialog
+      try {
+        await this.clickAdfButton('OK');
+      } catch {
+        // Dialog may auto-close
+      }
+    }
   }
 }

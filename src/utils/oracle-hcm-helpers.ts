@@ -29,12 +29,14 @@ export async function waitForPageReady(page: Page): Promise<void> {
 /** Dismiss any Oracle HCM notification popups or walkme guides. */
 export async function dismissPopups(page: Page): Promise<void> {
   const dismissSelectors = [
-    // TODO: Update with actual Oracle HCM popup selectors
-    '[data-testid="notification-dismiss"]',
     '.walkme-click-and-hover',
     '.walkme-custom-balloon-close-button',
     'button[aria-label="Close"]',
     '.oj-dialog-close-icon',
+    '.x1o6[role="button"]',
+    '[id*="WalkMe"]',
+    'div.oj-popup-close',
+    'a[aria-label="Close notification"]',
   ];
 
   for (const selector of dismissSelectors) {
@@ -47,8 +49,8 @@ export async function dismissPopups(page: Page): Promise<void> {
 
 /** Search and select a person in Oracle HCM person search. */
 export async function searchPerson(page: Page, personName: string): Promise<void> {
-  // TODO: Update selectors for actual Oracle HCM person search
-  const searchInput = page.locator('input[placeholder*="Search"], input[aria-label*="Person"]').first();
+  // Person Management search uses ADF form with q1:value00 (Name) and q1::search (Search button)
+  const searchInput = page.locator('[id$="q1:value00::content"], input[placeholder*="Search"], input[aria-label*="Person"]').first();
   await searchInput.fill(personName);
   await searchInput.press('Enter');
   await waitForOracleJET(page);

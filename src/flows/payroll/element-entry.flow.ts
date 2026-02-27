@@ -7,7 +7,13 @@ import type { TestCase } from '../../data/types';
 /**
  * Flow: Payroll Element Entry
  * Tab: "Payroll"
- * Creates element entries (Bonus, allowances, etc.) for employees.
+ *
+ * Steps:
+ * 1. Login to HCM
+ * 2. Navigate to Element Entries page
+ * 3. Search for employee
+ * 4. Fill element entry details (effective date, element name, tax code, etc.)
+ * 5. Submit/Create the entry
  */
 export class ElementEntryFlow extends BaseFlow {
   protected elementEntry: ElementEntryPage;
@@ -21,9 +27,7 @@ export class ElementEntryFlow extends BaseFlow {
 
   async execute(tc: TestCase): Promise<void> {
     await this.loginToHCM();
-    // TODO: Navigate to Payroll > Element Entries page
-
-    // TODO: Navigate to Element Entries page within Payroll module
+    await this.homePage.goToElementEntries();
 
     await this.elementEntry.fillFromTestCase(tc);
     await this.elementEntry.clickCreate();

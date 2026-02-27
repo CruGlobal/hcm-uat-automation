@@ -43,12 +43,11 @@ export class StaffDesignationPage extends BasePage {
     const statuses = status.split(',').map((s) => s.trim());
 
     for (let i = 0; i < types.length; i++) {
-      // TODO: Update with actual Oracle HCM training row selectors
-      // Each training row needs Type, Course, and Status filled
-      const rowSelector = `[data-row-index="${i}"]`;
-      const typeInput = this.page.locator(`${rowSelector} [aria-label*="Type"]`).first();
-      const courseInput = this.page.locator(`${rowSelector} [aria-label*="Course"]`).first();
-      const statusInput = this.page.locator(`${rowSelector} [aria-label*="Status"]`).first();
+      // ADF table rows use _afrrk attribute for row keys; training rows are in a table with id containing "TrainingStatus"
+      const rowLocator = this.page.locator(`table[id*="TrainingStatus"] tbody tr:nth-child(${i + 1}), [id*="training"] tr[_afrrk="${i}"]`).first();
+      const typeInput = rowLocator.locator('select, [id*="Type"]').first();
+      const courseInput = rowLocator.locator('input[id*="Course"], [id*="course"]').first();
+      const statusInput = rowLocator.locator('select[id*="Status"], [id*="status"]').first();
 
       if (types[i]) await this.selectValue(typeInput, types[i]);
       if (courses[i]) await this.selectValue(courseInput, courses[i]);

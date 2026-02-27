@@ -19,6 +19,6 @@
       "@utils/*": ["src/utils/*"]
     }
   },
-  "include": ["src/**/*.ts", "tests/**/*.ts", "scripts/**/*.ts", "playwright.config.ts"],
+  "include": ["src/**/*.ts", "tests/**/*.ts", "playwright.config.ts"],
   "exclude": ["node_modules", "dist"]
 }

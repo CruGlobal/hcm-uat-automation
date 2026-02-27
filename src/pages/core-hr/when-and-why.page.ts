@@ -47,6 +47,11 @@ export class WhenAndWhyPage extends BasePage {
     await this.fillField(this.dateInput, dateStr);
   }
 
+  /** Fill effective date directly (already converted to MM/DD/YYYY). */
+  async fillEffectiveDate(dateStr: string): Promise<void> {
+    await this.fillField(this.dateInput, dateStr);
+  }
+
   async selectLegalEmployer(value: string): Promise<void> {
     // Legal Employer is a LOV combobox — type + Tab to autocomplete.
     // After selection, the form partially refreshes (field indices change).

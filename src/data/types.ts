@@ -42,6 +42,47 @@ export const MODULE_TABS = [
 
 export type ModuleTab = (typeof MODULE_TABS)[number];
 
+/**
+ * UAT Plan test case — from the UAT Plan spreadsheet (normal row-per-test layout).
+ * Contains test metadata, expected results, and references to test scripts.
+ */
+export interface UATTestCase {
+  testId: string;
+  module: string;
+  businessProcess: string;
+  testScenario: string;
+  transactionCategory: string;
+  testScript: string;
+  preConditions: string;
+  testData: string;
+  expectedResult: string;
+  status: string;
+  actualResult: string;
+  testerName: string;
+  alithyaContact: string;
+  comments: string;
+  testWeek: string;
+  testDate: string;
+  tabName: string;
+}
+
+/** All UAT Plan modules. */
+export const UAT_MODULES = [
+  'Core HR',
+  'Benefits',
+  'Absence Management',
+  'Payroll',
+  'Time and Labor',
+  'Journeys',
+  'Workforce Compensation',
+  'MPDX',
+  'OneApp',
+  'SAA',
+  'Other Functions',
+] as const;
+
+export type UATModule = (typeof UAT_MODULES)[number];
+
 /** Normalize a tab name to a safe filename (lowercase, hyphens, collapsed). */
 export function tabToFilename(tab: string): string {
   return tab

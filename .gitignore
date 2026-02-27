@@ -1,6 +1,7 @@
 node_modules/
 dist/
 .cache/
+.cache-generated/
 playwright-report/
 test-results/
 blob-report/

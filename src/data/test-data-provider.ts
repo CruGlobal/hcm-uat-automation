@@ -3,18 +3,34 @@ import path from 'path';
 import { type TestCase, tabToFilename } from './types';
 
 const CACHE_DIR = path.resolve(process.cwd(), '.cache');
+const GENERATED_DIR = path.resolve(process.cwd(), '.cache-generated');
 
 /**
  * Load cached test cases for a tab.
  * Reads from .cache/<tab-name>.json (written by global-setup).
+ * Also loads generated test data from .cache-generated/ and merges both sources.
  */
 export function loadCachedTestCases(tabName: string): TestCase[] {
-  const filePath = path.join(CACHE_DIR, `${tabToFilename(tabName)}.json`);
-  if (!fs.existsSync(filePath)) {
-    console.warn(`Cache miss for "${tabName}" at ${filePath}. Run global-setup first.`);
-    return [];
+  const filename = `${tabToFilename(tabName)}.json`;
+  const cases: TestCase[] = [];
+
+  // Load from Google Sheets cache
+  const sheetPath = path.join(CACHE_DIR, filename);
+  if (fs.existsSync(sheetPath)) {
+    cases.push(...JSON.parse(fs.readFileSync(sheetPath, 'utf-8')));
   }
-  return JSON.parse(fs.readFileSync(filePath, 'utf-8'));
+
+  // Load from generated cache (migration DB)
+  const genPath = path.join(GENERATED_DIR, filename);
+  if (fs.existsSync(genPath)) {
+    cases.push(...JSON.parse(fs.readFileSync(genPath, 'utf-8')));
+  }
+
+  if (cases.length === 0) {
+    console.warn(`No test data for "${tabName}". Run global-setup or generate-test-data first.`);
+  }
+
+  return cases;
 }
 
 /** Get a single test case by ID (e.g. "HR-001", "PY-001-01"). */

@@ -6,7 +6,14 @@ import type { TestCase } from '../../data/types';
 /**
  * Flow: Create Work Relationship
  * Tab: "Core - Create Work Relationship"
- * Searches for an existing person, then creates a new work relationship.
+ *
+ * Steps:
+ * 1. Navigate to Person Management
+ * 2. Search for existing person (field: "Search for Person" — format: "Name - PersonNumber")
+ * 3. Open the person's record
+ * 4. Initiate "Create Work Relationship" action
+ * 5. Fill wizard (When/Why, Assignment, Managers, Payroll)
+ * 6. Submit
  */
 export class CreateWorkRelationshipFlow extends BaseCoreHRFlow {
   constructor(page: Page) {
@@ -17,16 +24,47 @@ export class CreateWorkRelationshipFlow extends BaseCoreHRFlow {
     await this.loginToHCM();
     await this.homePage.goToPersonManagement();
 
-    // TODO: Implement Person Management search to find person
+    // Search for person — field format is "Name - PersonNumber" (e.g. "Ella Crockett - 10449952")
     const personSearch = getField(tc, 'Search for Person');
     if (personSearch) {
-      // TODO: Use Person Management search (searchPerson helper removed)
-      void personSearch; // placeholder until search is implemented
+      // Extract just the name part before the dash, or use the whole string
+      const namePart = personSearch.includes(' - ')
+        ? personSearch.split(' - ')[0].trim()
+        : personSearch;
+      await this.person.searchByName(namePart);
     }
 
-    // TODO: Click "Create Work Relationship" action
+    // Initiate Create Work Relationship action
+    await this.initiateCreateWorkRelationship();
 
-    await this.fillCommonSections(tc);
+    // Fill the wizard
+    await this.whenAndWhy.fillFromTestCase(tc);
+    await this.assignment.fillFromTestCase(tc);
+    await this.managers.fillFromTestCase(tc);
+    await this.payrollDetails.fillFromTestCase(tc);
+    await this.salary.fillFromTestCase(tc);
+
     await this.submitAndVerify();
+  }
+
+  private async initiateCreateWorkRelationship(): Promise<void> {
+    const actionsButton = this.page.locator(
+      'button:has-text("Actions"), [id*="Actions"], a[role="button"]:has-text("Actions")'
+    ).first();
+
+    const isVisible = await actionsButton.isVisible({ timeout: 5000 }).catch(() => false);
+    if (isVisible) {
+      await actionsButton.click();
+      await this.page.waitForTimeout(2000);
+
+      const cwrOption = this.page.locator(
+        'td:has-text("Create Work Relationship"), li:has-text("Create Work Relationship"), [role="menuitem"]:has-text("Create Work Relationship")'
+      ).first();
+      if (await cwrOption.isVisible({ timeout: 3000 }).catch(() => false)) {
+        await cwrOption.click();
+        await this.page.waitForTimeout(10000);
+        await this.person.waitForJET();
+      }
+    }
   }
 }
