@@ -1,0 +1,23 @@
+{
+  "name": "uat-automation",
+  "version": "1.0.0",
+  "description": "Oracle HCM UAT Automation Framework — Playwright + TypeScript",
+  "scripts": {
+    "test": "playwright test",
+    "test:benefits": "playwright test tests/benefits/",
+    "test:benefits-102": "playwright test tests/benefits/benefits-102/",
+    "test:list": "playwright test --list",
+    "report": "playwright show-report",
+    "fetch-data": "tsx scripts/fetch-test-data.ts"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.50.0",
+    "csv-parse": "^5.6.0",
+    "dotenv": "^16.4.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.7.0"
+  },
+  "dependencies": {
+    "otpauth": "^9.5.0"
+  }
+}
