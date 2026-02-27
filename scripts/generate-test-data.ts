@@ -280,37 +280,431 @@ async function fetchWorkRelationships(conn: oracledb.Connection, personNums: str
 }
 
 // ============================================================
+// New data interfaces for extended modules
+// ============================================================
+
+interface AbsenceEntryRow {
+  PERSON_NUM: string;
+  ABSENCE_TYPE: string;
+  ABSENCE_REASON: string;
+  ABSENCE_STATUS: string;
+  START_DATE: string;
+  END_DATE: string;
+  DURATION: string;
+}
+
+interface AbsenceBalanceRow {
+  PERSON_NUM: string;
+  PLAN_NAME: string;
+  ACCRUAL_TYPE: string;
+  VALUE: string;
+}
+
+interface ParticipantRow {
+  PERSON_NUM: string;
+  FIRST_NAME: string;
+  LAST_NAME: string;
+  PROGRAMNAME: string;
+  PLANNAME: string;
+  OPTIONNAME: string;
+  COVERAGEAMOUNT: string;
+  ORIGINALENROLLMENTDATE: string;
+}
+
+interface DependentRow {
+  PERSONNUMBER: string;
+  PROGRAMNAME: string;
+  PLANNAME: string;
+  OPTIONNAME: string;
+  DEPENDENTFIRSTNAME: string;
+  DEPENDENTLASTNAME: string;
+}
+
+interface BeneficiaryRow {
+  PERSONNUMBER: string;
+  PROGRAMNAME: string;
+  PLANNAME: string;
+  OPTIONNAME: string;
+  BENEFICIARYFIRSTNAME: string;
+  BENEFICIARYLASTNAME: string;
+  BENEFICIARYPERCENTAGES: string;
+  BENEFCIARYTYPES: string;
+}
+
+interface TimeEntryRow {
+  PERSON_NUMBER: string;
+  ASSIGNMENT_NUMBER: string;
+  TIME_TYPE: string;
+  START_TIME: string;
+  STOP_TIME: string;
+  WORKDATE: string;
+}
+
+interface SalaryFullRow {
+  PERSONNUMBER: string;
+  ASSIGNMENTNUMBER: string;
+  ACTIONCODE: string;
+  ACTIONREASONCODE: string;
+  DATEFROM: string;
+  SALARYBASISNAME: string;
+  SALARYAMOUNT: string;
+}
+
+interface MHARow {
+  PERSON_NUM: string;
+  EFFECTIVE_START_DT: string;
+  CERTIFICATION_TYPE: string;
+  CERTIFICATION_DATE: string;
+  BOARD_APPROVED: string;
+  AMOUNT: string;
+}
+
+interface StaffGroupRow {
+  PERSON_NUMBER: string;
+  EFFECTIVE_START_DATE: string;
+  GROUP_ID: string;
+}
+
+interface TrainingStatusRow {
+  PERSON_NUMBER: string;
+  TYPE: string;
+  SESSION_NUMBER: string;
+  COURSE_NUMBER: string;
+  STATUS: string;
+}
+
+interface TeamStructureRow {
+  PERSON_NUM: string;
+  TEAM_NAME: string;
+  PRIMARY_TEAM: string;
+  LEADER: string;
+}
+
+interface CareGiverRow {
+  PERSON_NUM: string;
+  CARE_GIVER_TYPE: string;
+  HOURS: string;
+}
+
+interface CrisisManagementRow {
+  PERSON_NUMBER: string;
+  SECURE_HOME_ADDRESS: string;
+  SECURE_HOME_CITY: string;
+  SECURE_PHONE: string;
+  SECURE_EMAIL: string;
+}
+
+interface DeptRow {
+  ORACLE_DEPARTMENT: string;
+  MINISTRY: string;
+  SUB_MINISTRY: string;
+  DEPT_DESCR: string;
+}
+
+interface EthnicMinistryRow {
+  PERSON_NUMBER: string;
+  PROGRAM_ID: string;
+  TOTAL_AMOUNT_RECEIVED: string;
+}
+
+interface ServiceRecognitionRow {
+  PERSON_NUMBER: string;
+  AWARD_YEAR: string;
+  AWARD_DESCRIPTION: string;
+}
+
+// ============================================================
+// New data fetch functions for extended modules
+// ============================================================
+
+async function fetchInBatches<T>(
+  conn: oracledb.Connection, personNums: string[],
+  buildQuery: (placeholders: string) => string,
+  personField?: string
+): Promise<T[]> {
+  if (personNums.length === 0) return [];
+  const results: T[] = [];
+  for (let i = 0; i < personNums.length; i += 100) {
+    const batch = personNums.slice(i, i + 100);
+    const placeholders = batch.map((_, j) => `:p${j}`).join(',');
+    const binds: Record<string, string> = {};
+    batch.forEach((pn, j) => { binds[`p${j}`] = pn; });
+    const result = await conn.execute<T>(
+      buildQuery(placeholders), binds, { outFormat: oracledb.OUT_FORMAT_OBJECT }
+    );
+    results.push(...(result.rows || []) as T[]);
+  }
+  return results;
+}
+
+async function fetchAbsenceEntries(conn: oracledb.Connection, personNums: string[]): Promise<AbsenceEntryRow[]> {
+  return fetchInBatches<AbsenceEntryRow>(conn, personNums, (ph) =>
+    `SELECT PERSON_NUM, ABSENCE_TYPE, ABSENCE_REASON, ABSENCE_STATUS, START_DATE, END_DATE, DURATION
+     FROM ABSENCE_ENTRIES WHERE PERSON_NUM IN (${ph})`
+  );
+}
+
+async function fetchAbsenceBalances(conn: oracledb.Connection, personNums: string[]): Promise<AbsenceBalanceRow[]> {
+  return fetchInBatches<AbsenceBalanceRow>(conn, personNums, (ph) =>
+    `SELECT PERSON_NUM, PLAN_NAME, ACCRUAL_TYPE, VALUE
+     FROM ABSENCE_BALANCES WHERE PERSON_NUM IN (${ph})`
+  );
+}
+
+async function fetchParticipants(conn: oracledb.Connection, personNums: string[]): Promise<ParticipantRow[]> {
+  return fetchInBatches<ParticipantRow>(conn, personNums, (ph) =>
+    `SELECT PERSON_NUM, FIRST_NAME, LAST_NAME, PROGRAMNAME, PLANNAME, OPTIONNAME, COVERAGEAMOUNT, ORIGINALENROLLMENTDATE
+     FROM PARTICIPANT WHERE PERSON_NUM IN (${ph})`
+  );
+}
+
+async function fetchDependents(conn: oracledb.Connection, personNums: string[]): Promise<DependentRow[]> {
+  return fetchInBatches<DependentRow>(conn, personNums, (ph) =>
+    `SELECT PERSONNUMBER, PROGRAMNAME, PLANNAME, OPTIONNAME, DEPENDENTFIRSTNAME, DEPENDENTLASTNAME
+     FROM DEPENDENT WHERE PERSONNUMBER IN (${ph})`
+  );
+}
+
+async function fetchBeneficiaries(conn: oracledb.Connection, personNums: string[]): Promise<BeneficiaryRow[]> {
+  return fetchInBatches<BeneficiaryRow>(conn, personNums, (ph) =>
+    `SELECT PERSONNUMBER, PROGRAMNAME, PLANNAME, OPTIONNAME, BENEFICIARYFIRSTNAME, BENEFICIARYLASTNAME, BENEFICIARYPERCENTAGES, BENEFCIARYTYPES
+     FROM BENEFICIARY WHERE PERSONNUMBER IN (${ph})`
+  );
+}
+
+async function fetchTimeEntries(conn: oracledb.Connection, personNums: string[]): Promise<TimeEntryRow[]> {
+  return fetchInBatches<TimeEntryRow>(conn, personNums, (ph) =>
+    `SELECT PERSON_NUMBER, ASSIGNMENT_NUMBER, TIME_TYPE, START_TIME, STOP_TIME, WORKDATE
+     FROM TIME_ENTRIES WHERE PERSON_NUMBER IN (${ph})`
+  );
+}
+
+async function fetchSalaryFull(conn: oracledb.Connection, personNums: string[]): Promise<SalaryFullRow[]> {
+  return fetchInBatches<SalaryFullRow>(conn, personNums, (ph) =>
+    `SELECT PERSONNUMBER, ASSIGNMENTNUMBER, ACTIONCODE, ACTIONREASONCODE, DATEFROM, SALARYBASISNAME, SALARYAMOUNT
+     FROM SALARY WHERE PERSONNUMBER IN (${ph})`
+  );
+}
+
+async function fetchMHA(conn: oracledb.Connection, personNums: string[]): Promise<MHARow[]> {
+  return fetchInBatches<MHARow>(conn, personNums, (ph) =>
+    `SELECT PERSON_NUM, EFFECTIVE_START_DT, CERTIFICATION_TYPE, CERTIFICATION_DATE, BOARD_APPROVED, AMOUNT
+     FROM PERSON_MHA WHERE PERSON_NUM IN (${ph})`
+  );
+}
+
+async function fetchStaffGroups(conn: oracledb.Connection, personNums: string[]): Promise<StaffGroupRow[]> {
+  return fetchInBatches<StaffGroupRow>(conn, personNums, (ph) =>
+    `SELECT PERSON_NUMBER, EFFECTIVE_START_DATE, GROUP_ID
+     FROM PERSON_STAFF_GROUPS WHERE PERSON_NUMBER IN (${ph})`
+  );
+}
+
+async function fetchTrainingStatus(conn: oracledb.Connection, personNums: string[]): Promise<TrainingStatusRow[]> {
+  return fetchInBatches<TrainingStatusRow>(conn, personNums, (ph) =>
+    `SELECT PERSON_NUMBER, TYPE, SESSION_NUMBER, COURSE_NUMBER, STATUS
+     FROM PERSON_TRAINING_STATUS WHERE PERSON_NUMBER IN (${ph})`
+  );
+}
+
+async function fetchTeamStructure(conn: oracledb.Connection, personNums: string[]): Promise<TeamStructureRow[]> {
+  return fetchInBatches<TeamStructureRow>(conn, personNums, (ph) =>
+    `SELECT PERSON_NUM, TEAM_NAME, PRIMARY_TEAM, LEADER
+     FROM PERSON_TEAM_STRUCTURE WHERE PERSON_NUM IN (${ph})`
+  );
+}
+
+async function fetchCareGivers(conn: oracledb.Connection, personNums: string[]): Promise<CareGiverRow[]> {
+  return fetchInBatches<CareGiverRow>(conn, personNums, (ph) =>
+    `SELECT PERSON_NUM, CARE_GIVER_TYPE, HOURS
+     FROM PERSON_CARE_GIVER WHERE PERSON_NUM IN (${ph})`
+  );
+}
+
+async function fetchCrisisManagement(conn: oracledb.Connection, personNums: string[]): Promise<CrisisManagementRow[]> {
+  return fetchInBatches<CrisisManagementRow>(conn, personNums, (ph) =>
+    `SELECT PERSON_NUMBER, SECURE_HOME_ADDRESS, SECURE_HOME_CITY, SECURE_PHONE, SECURE_EMAIL
+     FROM PERSON_CRISIS_MANAGEMENT WHERE PERSON_NUMBER IN (${ph})`
+  );
+}
+
+async function fetchDeptMapping(conn: oracledb.Connection): Promise<DeptRow[]> {
+  const result = await conn.execute<DeptRow>(
+    `SELECT ORACLE_DEPARTMENT, MINISTRY, SUB_MINISTRY, DEPT_DESCR
+     FROM CONV_DEPT_MAPPING_TBL WHERE ROWNUM <= 253`,
+    {}, { outFormat: oracledb.OUT_FORMAT_OBJECT }
+  );
+  return (result.rows || []) as DeptRow[];
+}
+
+async function fetchEthnicMinistry(conn: oracledb.Connection, personNums: string[]): Promise<EthnicMinistryRow[]> {
+  return fetchInBatches<EthnicMinistryRow>(conn, personNums, (ph) =>
+    `SELECT PERSON_NUMBER, PROGRAM_ID, TOTAL_AMOUNT_RECEIVED
+     FROM PERSON_ETHNIC_MINISTRY_FUND WHERE PERSON_NUMBER IN (${ph})`
+  );
+}
+
+async function fetchServiceRecognition(conn: oracledb.Connection, personNums: string[]): Promise<ServiceRecognitionRow[]> {
+  return fetchInBatches<ServiceRecognitionRow>(conn, personNums, (ph) =>
+    `SELECT PERSON_NUMBER, AWARD_YEAR, AWARD_DESCRIPTION
+     FROM PERSON_SERVICE_RECOGNITION WHERE PERSON_NUMBER IN (${ph}) AND ROWNUM <= 500`
+  );
+}
+
+// ============================================================
 // UAT Plan loading and grouping
 // ============================================================
 
 type ProcessType = 'hire' | 'add_pending' | 'add_nonworker' | 'rehire' | 'pending_to_hire' |
-  'create_work_rel' | 'assignment_change' | 'termination' | 'transfer' | 'payroll_element' | 'other';
+  'create_work_rel' | 'assignment_change' | 'termination' | 'transfer' | 'payroll_element' |
+  // Module-specific types
+  'absence_entry' | 'absence_approval' | 'absence_admin' |
+  'benefits_enrollment' | 'benefits_admin' |
+  'time_entry' | 'time_approval' | 'time_admin' |
+  'compensation' | 'journeys' | 'mpdx' | 'saa' | 'oneapp_other' | 'other_functions' |
+  // Core HR extended types
+  'salary_change' | 'bonus' | 'leave_management' | 'additional_assignment' |
+  'end_additional_job' | 'document_management' | 'personal_info' | 'person_eit' |
+  'workforce_structure' | 'manager_change' | 'security_role' | 'approval_delegation' |
+  'mass_change' | 'vsa' | 'name_change' | 'seniority_dates' |
+  'other';
 
 function classifyBusinessProcess(tc: UATTestCase): ProcessType {
   const p = tc.businessProcess.toLowerCase();
   const cat = tc.transactionCategory.toLowerCase();
   const script = (tc.testScript || '').toLowerCase();
+  const mod = (tc.module || '').toLowerCase();
 
+  // --- Module-based routing for non-Core-HR modules ---
+  if (mod === 'absence management') {
+    if (p.includes('approval') || p.includes('hr specialist')) return 'absence_approval';
+    if (p.includes('accrual') || p.includes('balance') || p.includes('enrollment') ||
+        p.includes('evaluate') || p.includes('process') || p.includes('withdraw') ||
+        p.includes('disburse') || p.includes('configuration') || p.includes('review')) return 'absence_admin';
+    return 'absence_entry';
+  }
+  if (mod === 'benefits') {
+    if (p.includes('view') || p.includes('specialist') || p.includes('confirmation') ||
+        p.includes('reprocess') || p.includes('correct')) return 'benefits_admin';
+    return 'benefits_enrollment';
+  }
+  if (mod === 'time and labor') {
+    if (p.includes('approval')) return 'time_approval';
+    if (p.includes('calculation') || p.includes('processing') || p.includes('configuration') ||
+        p.includes('report') || p.includes('notification') || p.includes('specialist') ||
+        p.includes('validation')) return 'time_admin';
+    return 'time_entry';
+  }
+  if (mod === 'workforce compensation') return 'compensation';
+  if (mod === 'journeys') return 'journeys';
+  if (mod === 'mpdx') return 'mpdx';
+  if (mod === 'saa') return 'saa';
+  if (mod === 'other functions') return 'other_functions';
+
+  // --- Existing Core HR / Payroll classification ---
   if (p.includes('pending') && p.includes('hire') && !p.includes('add pending'))
     return 'pending_to_hire';
   if (p.includes('add pending') || p.includes('pending worker'))
     return 'add_pending';
-  if (p.includes('non worker') || p.includes('nonworker') || p.includes('add non'))
+  if (p.includes('non worker') || p.includes('nonworker') || p.includes('add non') ||
+      p.includes('as non-employee') || p.includes('as a non-employee') ||
+      p.includes('continuing coverage'))
     return 'add_nonworker';
   if (p.includes('rehire'))
     return 'rehire';
-  if (p.includes('hire') || p.includes('new person'))
-    return 'hire';
-  if (p.includes('create work relationship'))
+  if (p.includes('create work relationship') || p.includes('staff emeritus') ||
+      p.includes('retired hourly') || p.includes('self supported'))
     return 'create_work_rel';
-  if (p.includes('terminat') || p.includes('end assignment') || p.includes('end work'))
+  if (p.includes('terminat') || p.includes('end assignment') || p.includes('end work') ||
+      p.includes('remove non') || p.includes('remove affiliate') || p.includes('withdraw') ||
+      p.includes('term ptfs') || p.includes('term intern'))
     return 'termination';
   if (p.includes('transfer') || p.includes('company change') || p.includes('global transfer'))
     return 'transfer';
-  if (p.includes('assignment change') || p.includes('change assignment') || p.includes('strategy change'))
+  if (p.includes('assignment change') || p.includes('change assignment') || p.includes('strategy change') ||
+      p.includes('working hours') || p.includes('location change'))
     return 'assignment_change';
-  if (script.includes('pay.') || cat.includes('element entr') || cat.includes('payroll'))
+  if (script.includes('pay.') || cat.includes('element entr') || cat.includes('payroll') ||
+      p.includes('w-2') || p.includes('short term disability') || p.includes('job change mid pay') ||
+      p.includes('ess tax') || (p.includes('configuration') && mod === 'payroll'))
     return 'payroll_element';
+
+  // --- OneApp module (check after hire/pending patterns) ---
+  if (mod === 'oneapp') return 'oneapp_other';
+
+  // --- Core HR extended classification (keyword matching) ---
+  if (p.includes('hire') || p.includes('new person') || p.includes('hiring') ||
+      p.includes('applies to come on') || p.includes('applied to come on'))
+    return 'hire';
+
+  // Salary / Pay changes
+  if (p.includes('pay change') || p.includes('change salary') || p.includes('pay rate'))
+    return 'salary_change';
+  if (p.includes('bonus'))
+    return 'bonus';
+
+  // Leave management
+  if (p.includes('leave') || p.includes('sabbatical') || p.includes('return from'))
+    return 'leave_management';
+
+  // Additional assignment / end additional job
+  if (p.includes('additional job') && p.includes('end'))
+    return 'end_additional_job';
+  if (p.includes('additional job') || p.includes('add assignment') || p.includes('add assig'))
+    return 'additional_assignment';
+
+  // Document management
+  if (p.includes('document') || p.includes('payroll options form'))
+    return 'document_management';
+
+  // Personal info
+  if (p.includes('personal information') || p.includes('deceased') ||
+      p.includes('verification') || p.includes('legacy employee'))
+    return 'personal_info';
+  if (p.includes('name change'))
+    return 'name_change';
+
+  // Manager change
+  if (p.includes('supervisor') || p.includes('manager change'))
+    return 'manager_change';
+
+  // Seniority / service dates
+  if (p.includes('seniority') || p.includes('service date') || p.includes('start date') ||
+      p.includes('accrual rate') || p.includes('employment start'))
+    return 'seniority_dates';
+
+  // VSA
+  if (p.includes('volunteer') || p.includes('vsa'))
+    return 'vsa';
+
+  // Security roles
+  if (p.includes('security') || p.includes('aor'))
+    return 'security_role';
+
+  // Approval delegation
+  if (p.includes('approval delegation'))
+    return 'approval_delegation';
+
+  // Mass changes
+  if (p.includes('mass change') || p.includes('mass upload'))
+    return 'mass_change';
+
+  // Workforce structure (depts, jobs, locations, grades, EITs at org level)
+  if (p.includes('workforce structure') || p.includes('dept') || p.includes('job code') ||
+      p.includes('location code') || p.includes('eit value') || p.includes('salary grade') ||
+      p.includes('creating job') || p.includes('error one app') || p.includes('update values on') ||
+      p.includes('update roles') || p.includes('processes to update'))
+    return 'workforce_structure';
+
+  // Person EITs (staff groups, training, team, care giver, MHA, etc.)
+  if (p.includes('staff group') || p.includes('training status') || p.includes('course student') ||
+      p.includes('team membership') || p.includes('care giver') || p.includes('crisis') ||
+      p.includes('mha') || p.includes('minister') || p.includes('service recognition') ||
+      p.includes('ethnic ministry') || p.includes('acknowledgement') || p.includes('salary calculation form') ||
+      p.includes('work location') || p.includes('staff account') || p.includes('designation') ||
+      p.includes('securing') || p.includes('staff secure') || p.includes('merging') ||
+      p.includes('splitting') || p.includes('staff member role'))
+    return 'person_eit';
 
   return 'other';
 }
@@ -688,6 +1082,511 @@ function buildPayrollFields(
 }
 
 // ============================================================
+// New builder functions for extended modules
+// ============================================================
+
+function buildAbsenceFields(
+  index: number, testId: string, person: PersonRow, asg: AssignmentRow,
+  absEntry?: AbsenceEntryRow, absBalance?: AbsenceBalanceRow
+): TestCase {
+  const fields: Record<string, string> = {
+    'Person Name': `${person.LAST_NAME}, ${person.FIRST_NAME}`,
+    'Person Number': person.PERSON_NUMBER,
+  };
+
+  if (absEntry) {
+    fields['Absence Type'] = absEntry.ABSENCE_TYPE || '';
+    fields['Reason'] = absEntry.ABSENCE_REASON || '';
+    fields['Start Date'] = absEntry.START_DATE || futureDate(7 + index);
+    fields['End Date'] = absEntry.END_DATE || futureDate(14 + index);
+    fields['Duration'] = absEntry.DURATION || '8';
+    fields['Status'] = absEntry.ABSENCE_STATUS || 'Submitted';
+  } else {
+    fields['Start Date'] = futureDate(7 + index);
+    fields['End Date'] = futureDate(14 + index);
+    fields['Duration'] = '8';
+  }
+
+  if (absBalance) {
+    fields['Plan Name'] = absBalance.PLAN_NAME || '';
+    fields['Accrual Type'] = absBalance.ACCRUAL_TYPE || '';
+    fields['Balance'] = absBalance.VALUE || '0';
+  }
+
+  const scenario = absEntry?.ABSENCE_TYPE || 'Absence Entry';
+  return { testId, tab: 'Absence Management', scenario, fields, columnIndex: index + 2 };
+}
+
+function buildAbsenceApprovalFields(
+  index: number, testId: string, person: PersonRow
+): TestCase {
+  const fields: Record<string, string> = {
+    'Person Name': `${person.LAST_NAME}, ${person.FIRST_NAME}`,
+    'Person Number': person.PERSON_NUMBER,
+    'Action': 'Approve',
+  };
+  return { testId, tab: 'Absence Management', scenario: 'Absence Approval', fields, columnIndex: index + 2 };
+}
+
+function buildAbsenceAdminFields(
+  index: number, testId: string, person: PersonRow, absBalance?: AbsenceBalanceRow
+): TestCase {
+  const fields: Record<string, string> = {
+    'Person Name': `${person.LAST_NAME}, ${person.FIRST_NAME}`,
+    'Person Number': person.PERSON_NUMBER,
+  };
+  if (absBalance) {
+    fields['Plan Name'] = absBalance.PLAN_NAME || '';
+    fields['Accrual Type'] = absBalance.ACCRUAL_TYPE || '';
+    fields['Balance'] = absBalance.VALUE || '0';
+  }
+  return { testId, tab: 'Absence Management', scenario: 'Absence Admin', fields, columnIndex: index + 2 };
+}
+
+function buildBenefitsFields(
+  index: number, testId: string, person: PersonRow, asg: AssignmentRow,
+  participant?: ParticipantRow, dependent?: DependentRow, beneficiary?: BeneficiaryRow
+): TestCase {
+  const fields: Record<string, string> = {
+    'Person Name': `${person.LAST_NAME}, ${person.FIRST_NAME}`,
+    'Person Number': person.PERSON_NUMBER,
+  };
+
+  if (participant) {
+    fields['Program'] = participant.PROGRAMNAME || '';
+    fields['Plan'] = participant.PLANNAME || '';
+    fields['Option'] = participant.OPTIONNAME || '';
+    fields['Coverage Amount'] = participant.COVERAGEAMOUNT || '';
+    fields['Enrollment Date'] = participant.ORIGINALENROLLMENTDATE || '';
+  }
+
+  if (dependent) {
+    fields['Dependent Name'] = `${dependent.DEPENDENTFIRSTNAME || ''} ${dependent.DEPENDENTLASTNAME || ''}`.trim();
+    fields['Dependent Plan'] = dependent.PLANNAME || '';
+  }
+
+  if (beneficiary) {
+    fields['Beneficiary Name'] = `${beneficiary.BENEFICIARYFIRSTNAME || ''} ${beneficiary.BENEFICIARYLASTNAME || ''}`.trim();
+    fields['Beneficiary Percentage'] = beneficiary.BENEFICIARYPERCENTAGES || '100';
+    fields['Beneficiary Type'] = beneficiary.BENEFCIARYTYPES || 'Primary';
+  }
+
+  // Assignment context for reclass tests
+  if (asg) {
+    fields['Assignment Category'] = ASSIGNMENT_CATEGORY_MAP[asg.ASSIGNMENT_CATEGORY] || 'Full-time regular';
+    fields['Person Type'] = asg.PERSON_TYPE || 'Employee - Staff';
+    fields['Job'] = asg.JOB || '';
+  }
+
+  const scenario = participant?.PLANNAME || 'Benefits Enrollment';
+  return { testId, tab: 'Benefits', scenario, fields, columnIndex: index + 2 };
+}
+
+function buildBenefitsAdminFields(
+  index: number, testId: string, person: PersonRow
+): TestCase {
+  const fields: Record<string, string> = {
+    'Person Name': `${person.LAST_NAME}, ${person.FIRST_NAME}`,
+    'Person Number': person.PERSON_NUMBER,
+  };
+  return { testId, tab: 'Benefits', scenario: 'Benefits Admin', fields, columnIndex: index + 2 };
+}
+
+function buildTimeLaborFields(
+  index: number, testId: string, person: PersonRow, asg: AssignmentRow,
+  timeEntry?: TimeEntryRow
+): TestCase {
+  const fields: Record<string, string> = {
+    'Person Name': `${person.LAST_NAME}, ${person.FIRST_NAME}`,
+    'Person Number': person.PERSON_NUMBER,
+  };
+
+  if (timeEntry) {
+    fields['Time Type'] = timeEntry.TIME_TYPE || '';
+    fields['Start Time'] = timeEntry.START_TIME || '';
+    fields['Stop Time'] = timeEntry.STOP_TIME || '';
+    fields['Work Date'] = timeEntry.WORKDATE || '';
+    fields['Assignment Number'] = timeEntry.ASSIGNMENT_NUMBER || '';
+  } else {
+    fields['Work Date'] = futureDate(index);
+  }
+
+  if (asg) {
+    fields['Assignment Category'] = ASSIGNMENT_CATEGORY_MAP[asg.ASSIGNMENT_CATEGORY] || '';
+    fields['Hourly Salary'] = HOURLY_SALARY_MAP[asg.HOURLY_PAID_OR_SALARIED] || '';
+  }
+
+  const scenario = timeEntry?.TIME_TYPE || 'Timecard Entry';
+  return { testId, tab: 'Time and Labor', scenario, fields, columnIndex: index + 2 };
+}
+
+function buildTimeAdminFields(
+  index: number, testId: string, person: PersonRow
+): TestCase {
+  const fields: Record<string, string> = {
+    'Person Name': `${person.LAST_NAME}, ${person.FIRST_NAME}`,
+    'Person Number': person.PERSON_NUMBER,
+  };
+  return { testId, tab: 'Time and Labor', scenario: 'Time Admin', fields, columnIndex: index + 2 };
+}
+
+function buildCompensationFields(
+  index: number, testId: string, person: PersonRow, asg: AssignmentRow,
+  salaryFull?: SalaryFullRow
+): TestCase {
+  const fields: Record<string, string> = {
+    'Person Name': `${person.LAST_NAME}, ${person.FIRST_NAME}`,
+    'Person Number': person.PERSON_NUMBER,
+  };
+
+  if (salaryFull) {
+    fields['Salary Amount'] = salaryFull.SALARYAMOUNT || '';
+    fields['Salary Basis'] = SALARY_BASIS_MAP[salaryFull.SALARYBASISNAME] || salaryFull.SALARYBASISNAME || '';
+    fields['Action Code'] = ACTION_MAP[salaryFull.ACTIONCODE] || salaryFull.ACTIONCODE || '';
+    fields['Effective Date'] = salaryFull.DATEFROM || '';
+  }
+
+  if (asg) {
+    fields['Job'] = asg.JOB || '';
+    fields['Grade'] = asg.GRADE || '';
+    fields['Department'] = asg.DEPARTMENT || '';
+    fields['Assignment Category'] = ASSIGNMENT_CATEGORY_MAP[asg.ASSIGNMENT_CATEGORY] || '';
+  }
+
+  const scenario = salaryFull?.ACTIONCODE || 'Compensation';
+  return { testId, tab: 'Workforce Compensation', scenario, fields, columnIndex: index + 2 };
+}
+
+function buildJourneysFields(
+  index: number, testId: string, person: PersonRow, asg: AssignmentRow,
+  businessProcess: string
+): TestCase {
+  const fields: Record<string, string> = {
+    'Person Name': `${person.LAST_NAME}, ${person.FIRST_NAME}`,
+    'Person Number': person.PERSON_NUMBER,
+    'Journey Template': businessProcess || 'Onboarding',
+    'Effective Date': futureDate(index),
+  };
+
+  if (asg) {
+    fields['Person Type'] = asg.PERSON_TYPE || '';
+    fields['Department'] = asg.DEPARTMENT || '';
+    fields['Job'] = asg.JOB || '';
+    fields['Legal Employer'] = asg.LEGAL_EMPLOYER || 'Campus Crusade for Christ, Inc.';
+  }
+
+  return { testId, tab: 'Journeys', scenario: businessProcess || 'Journey', fields, columnIndex: index + 2 };
+}
+
+function buildMPDXFields(
+  index: number, testId: string, person: PersonRow, asg: AssignmentRow,
+  mha?: MHARow, salaryFull?: SalaryFullRow
+): TestCase {
+  const fields: Record<string, string> = {
+    'Person Name': `${person.LAST_NAME}, ${person.FIRST_NAME}`,
+    'Person Number': person.PERSON_NUMBER,
+  };
+
+  if (mha) {
+    fields['MHA Amount'] = mha.AMOUNT || '';
+    fields['Certification Type'] = mha.CERTIFICATION_TYPE || '';
+    fields['Certification Date'] = mha.CERTIFICATION_DATE || '';
+    fields['Board Approved'] = mha.BOARD_APPROVED || '';
+  }
+
+  if (salaryFull) {
+    fields['Salary Amount'] = salaryFull.SALARYAMOUNT || '';
+    fields['Salary Basis'] = SALARY_BASIS_MAP[salaryFull.SALARYBASISNAME] || salaryFull.SALARYBASISNAME || '';
+  }
+
+  if (asg) {
+    fields['Person Type'] = asg.PERSON_TYPE || '';
+    fields['Legal Employer'] = asg.LEGAL_EMPLOYER || 'Campus Crusade for Christ, Inc.';
+  }
+
+  return { testId, tab: 'MPDX', scenario: 'MPDX', fields, columnIndex: index + 2 };
+}
+
+function buildSAAFields(
+  index: number, testId: string, person: PersonRow, asg: AssignmentRow
+): TestCase {
+  const fields: Record<string, string> = {
+    'Person Name': `${person.LAST_NAME}, ${person.FIRST_NAME}`,
+    'Person Number': person.PERSON_NUMBER,
+  };
+  if (asg) {
+    fields['Person Type'] = asg.PERSON_TYPE || '';
+    fields['Legal Employer'] = asg.LEGAL_EMPLOYER || 'Campus Crusade for Christ, Inc.';
+    fields['Department'] = asg.DEPARTMENT || '';
+  }
+  return { testId, tab: 'SAA', scenario: 'SAA', fields, columnIndex: index + 2 };
+}
+
+function buildSalaryChangeFields(
+  index: number, testId: string, person: PersonRow, asg: AssignmentRow,
+  salary?: SalaryRow
+): TestCase {
+  const fields: Record<string, string> = {
+    'Person Name': `${person.LAST_NAME}, ${person.FIRST_NAME}`,
+    'Person Number': person.PERSON_NUMBER,
+    'When - Effective date': futureDate(14 + index),
+    "What's the way": 'Change Salary',
+    'Why': 'Pay Adjustment',
+  };
+  if (salary) {
+    fields['Salary > Salary Basis'] = SALARY_BASIS_MAP[salary.SALARYBASISNAME] || salary.SALARYBASISNAME;
+    fields['Salary > Salary'] = salary.SALARYAMOUNT || '50000';
+  } else {
+    fields['Salary > Salary Basis'] = asg.HOURLY_PAID_OR_SALARIED === 'H' ? 'US Hourly' : 'US Salaried';
+    fields['Salary > Salary'] = asg.HOURLY_PAID_OR_SALARIED === 'H' ? '18' : '55000';
+  }
+  const scenario = asg.HOURLY_PAID_OR_SALARIED === 'H' ? 'Hourly Pay Change' : 'Salaried Pay Change';
+  return { testId, tab: 'Core HR', scenario, fields, columnIndex: index + 2 };
+}
+
+function buildBonusFields(
+  index: number, testId: string, person: PersonRow, asg: AssignmentRow
+): TestCase {
+  const fields: Record<string, string> = {
+    'Person Name': `${person.LAST_NAME}, ${person.FIRST_NAME}`,
+    'Person Number': person.PERSON_NUMBER,
+    'Effective Date': futureDate(index),
+    'Element Name': 'Bonus',
+    'Amount': index % 2 === 0 ? '250' : '750',
+  };
+  if (asg) {
+    fields['Assignment Category'] = ASSIGNMENT_CATEGORY_MAP[asg.ASSIGNMENT_CATEGORY] || '';
+    fields['Hourly Salary'] = HOURLY_SALARY_MAP[asg.HOURLY_PAID_OR_SALARIED] || '';
+  }
+  const scenario = 'Bonus';
+  return { testId, tab: 'Core HR', scenario, fields, columnIndex: index + 2 };
+}
+
+function buildLeaveFields(
+  index: number, testId: string, person: PersonRow, asg: AssignmentRow,
+  businessProcess: string
+): TestCase {
+  const fields: Record<string, string> = {
+    'Person Name': `${person.LAST_NAME}, ${person.FIRST_NAME}`,
+    'Person Number': person.PERSON_NUMBER,
+    'When - Effective date': futureDate(14 + index),
+    "What's the way": businessProcess.includes('Return') ? 'Return from Leave' :
+      businessProcess.includes('Unpaid') ? 'Unpaid Leave' : 'Paid Leave',
+    'Why': businessProcess.includes('Sabbatical') ? 'Sabbatical' :
+      businessProcess.includes('Medical') ? 'Medical Leave' :
+      businessProcess.includes('Military') ? 'Military Leave' : 'Personal',
+  };
+  if (asg) {
+    fields['Person Type'] = asg.PERSON_TYPE || '';
+    fields['Assignment Category'] = ASSIGNMENT_CATEGORY_MAP[asg.ASSIGNMENT_CATEGORY] || '';
+  }
+  return { testId, tab: 'Core HR', scenario: businessProcess || 'Leave', fields, columnIndex: index + 2 };
+}
+
+function buildAdditionalAssignmentFields(
+  index: number, testId: string, person: PersonRow, asg: AssignmentRow
+): TestCase {
+  const fields: Record<string, string> = {
+    'Person Name': `${person.LAST_NAME}, ${person.FIRST_NAME}`,
+    'Person Number': person.PERSON_NUMBER,
+    'When - Effective date': futureDate(14 + index),
+    "What's the way": 'Add Assignment',
+    'Assignment > Job': asg.JOB || 'Field Staff',
+    'Assignment > Grade': asg.GRADE || 'Not Graded',
+    'Assignment > Department': asg.DEPARTMENT || 'Conversion Department',
+    'Assignment > Location': asg.LOCATION || 'CRU_HQ',
+    'Assignment > Assignment Category': ASSIGNMENT_CATEGORY_MAP[asg.ASSIGNMENT_CATEGORY] || 'Full-time regular',
+    'Assignment > Full time or Part Time': FULL_PART_MAP[asg.FULL_TIME_OR_PART_TIME] || 'Full Time',
+    'Assignment > Hourly Salary': HOURLY_SALARY_MAP[asg.HOURLY_PAID_OR_SALARIED] || 'Hourly',
+    'Assignment > Working hours': asg.WORKING_HOURS || '40',
+  };
+  return { testId, tab: 'Core HR', scenario: 'Additional Assignment', fields, columnIndex: index + 2 };
+}
+
+function buildEndAdditionalJobFields(
+  index: number, testId: string, person: PersonRow, asg: AssignmentRow
+): TestCase {
+  const fields: Record<string, string> = {
+    'Person Name': `${person.LAST_NAME}, ${person.FIRST_NAME}`,
+    'Person Number': person.PERSON_NUMBER,
+    'When - Effective date': futureDate(7 + index),
+    "What's the way": 'End Assignment',
+    'Why': 'End Additional Job',
+  };
+  if (asg) {
+    fields['Person Type'] = asg.PERSON_TYPE || '';
+    fields['Assignment Category'] = ASSIGNMENT_CATEGORY_MAP[asg.ASSIGNMENT_CATEGORY] || '';
+  }
+  return { testId, tab: 'Core HR', scenario: 'End Additional Job', fields, columnIndex: index + 2 };
+}
+
+function buildDocumentFields(
+  index: number, testId: string, person: PersonRow, businessProcess: string
+): TestCase {
+  const fields: Record<string, string> = {
+    'Person Name': `${person.LAST_NAME}, ${person.FIRST_NAME}`,
+    'Person Number': person.PERSON_NUMBER,
+    'Document Type': businessProcess.includes('Edit') ? 'Edit' :
+      businessProcess.includes('Delete') ? 'Delete' :
+      businessProcess.includes('Maintain') ? 'Maintain Types' : 'Submit',
+  };
+  return { testId, tab: 'Core HR', scenario: 'Document Management', fields, columnIndex: index + 2 };
+}
+
+function buildPersonalInfoFields(
+  index: number, testId: string, person: PersonRow
+): TestCase {
+  const fields: Record<string, string> = {
+    'Person Name': `${person.LAST_NAME}, ${person.FIRST_NAME}`,
+    'Person Number': person.PERSON_NUMBER,
+    'Birthdate': dateToExcelSerial(person.DATE_OF_BIRTH),
+    'Gender': GENDER_MAP[person.GENDER] || '',
+    'Marital Status': MARITAL_MAP[person.MARITAL_STATUS] || '',
+  };
+  return { testId, tab: 'Core HR', scenario: 'Personal Info', fields, columnIndex: index + 2 };
+}
+
+function buildNameChangeFields(
+  index: number, testId: string, person: PersonRow
+): TestCase {
+  const fields: Record<string, string> = {
+    'Person Name': `${person.LAST_NAME}, ${person.FIRST_NAME}`,
+    'Person Number': person.PERSON_NUMBER,
+    'New Last Name': `Test-${testId}`,
+    'Effective Date': futureDate(index),
+  };
+  return { testId, tab: 'Core HR', scenario: 'Name Change', fields, columnIndex: index + 2 };
+}
+
+function buildManagerChangeFields(
+  index: number, testId: string, person: PersonRow, asg: AssignmentRow,
+  managerName: string
+): TestCase {
+  const fields: Record<string, string> = {
+    'Person Name': `${person.LAST_NAME}, ${person.FIRST_NAME}`,
+    'Person Number': person.PERSON_NUMBER,
+    'When - Effective date': futureDate(14 + index),
+    "What's the way": 'Manager Change',
+    'Managers > Manager': managerName || 'Kelly Murray',
+    'Managers > Manager Type': 'Line Manager',
+  };
+  return { testId, tab: 'Core HR', scenario: 'Manager Change', fields, columnIndex: index + 2 };
+}
+
+function buildSeniorityFields(
+  index: number, testId: string, person: PersonRow
+): TestCase {
+  const fields: Record<string, string> = {
+    'Person Name': `${person.LAST_NAME}, ${person.FIRST_NAME}`,
+    'Person Number': person.PERSON_NUMBER,
+    'Effective Date': futureDate(index),
+  };
+  return { testId, tab: 'Core HR', scenario: 'Seniority Dates', fields, columnIndex: index + 2 };
+}
+
+function buildVSAFields(
+  index: number, testId: string, person: PersonRow
+): TestCase {
+  const fields: Record<string, string> = {
+    'Person Name': `${person.LAST_NAME}, ${person.FIRST_NAME}`,
+    'Person Number': person.PERSON_NUMBER,
+    'Effective Date': futureDate(index),
+    'VSA Type': index % 2 === 0 ? 'Initial' : 'Renewal',
+  };
+  return { testId, tab: 'Core HR', scenario: 'VSA', fields, columnIndex: index + 2 };
+}
+
+function buildSecurityRoleFields(
+  index: number, testId: string, person: PersonRow, businessProcess: string
+): TestCase {
+  const fields: Record<string, string> = {
+    'Person Name': `${person.LAST_NAME}, ${person.FIRST_NAME}`,
+    'Person Number': person.PERSON_NUMBER,
+    'Role Action': businessProcess.includes('Add') ? 'Add' :
+      businessProcess.includes('Remove') || businessProcess.includes('Inactivate') ? 'Remove' : 'Update',
+  };
+  return { testId, tab: 'Core HR', scenario: 'Security Role', fields, columnIndex: index + 2 };
+}
+
+function buildApprovalDelegationFields(
+  index: number, testId: string, person: PersonRow
+): TestCase {
+  const fields: Record<string, string> = {
+    'Person Name': `${person.LAST_NAME}, ${person.FIRST_NAME}`,
+    'Person Number': person.PERSON_NUMBER,
+  };
+  return { testId, tab: 'Core HR', scenario: 'Approval Delegation', fields, columnIndex: index + 2 };
+}
+
+function buildMassChangeFields(
+  index: number, testId: string, person: PersonRow, businessProcess: string
+): TestCase {
+  const fields: Record<string, string> = {
+    'Person Name': `${person.LAST_NAME}, ${person.FIRST_NAME}`,
+    'Person Number': person.PERSON_NUMBER,
+    'Change Type': businessProcess.includes('Job') ? 'Job Change' :
+      businessProcess.includes('Dept') ? 'Department Change' :
+      businessProcess.includes('Pay') ? 'Pay Change' : 'Mass Change',
+  };
+  return { testId, tab: 'Core HR', scenario: 'Mass Change', fields, columnIndex: index + 2 };
+}
+
+function buildWorkforceStructureFields(
+  index: number, testId: string, dept?: DeptRow, businessProcess?: string
+): TestCase {
+  const fields: Record<string, string> = {
+    'Effective Date': futureDate(index),
+  };
+  if (dept) {
+    fields['Department'] = dept.ORACLE_DEPARTMENT || '';
+    fields['Ministry'] = dept.MINISTRY || '';
+    fields['Sub Ministry'] = dept.SUB_MINISTRY || '';
+    fields['Description'] = dept.DEPT_DESCR || '';
+  }
+  if (businessProcess) {
+    fields['Structure Type'] = businessProcess.includes('Job') ? 'Job' :
+      businessProcess.includes('Dept') || businessProcess.includes('dept') ? 'Department' :
+      businessProcess.includes('Location') || businessProcess.includes('location') ? 'Location' :
+      businessProcess.includes('EIT') || businessProcess.includes('eit') ? 'EIT' :
+      businessProcess.includes('Grade') || businessProcess.includes('grade') ? 'Grade' : 'Other';
+  }
+  return { testId, tab: 'Core HR', scenario: 'Workforce Structure', fields, columnIndex: index + 2 };
+}
+
+function buildPersonEITFields(
+  index: number, testId: string, person: PersonRow,
+  eitType: string, eitData?: Record<string, string>
+): TestCase {
+  const fields: Record<string, string> = {
+    'Person Name': `${person.LAST_NAME}, ${person.FIRST_NAME}`,
+    'Person Number': person.PERSON_NUMBER,
+    'EIT Type': eitType,
+    'Effective Date': futureDate(index),
+  };
+  if (eitData) {
+    Object.assign(fields, eitData);
+  }
+  return { testId, tab: 'Core HR', scenario: eitType, fields, columnIndex: index + 2 };
+}
+
+function buildMinimalPersonFields(
+  index: number, testId: string, person: PersonRow, asg: AssignmentRow,
+  tab: string
+): TestCase {
+  const fields: Record<string, string> = {
+    'Person Name': `${person.LAST_NAME}, ${person.FIRST_NAME}`,
+    'Person Number': person.PERSON_NUMBER,
+  };
+  if (asg) {
+    fields['Person Type'] = asg.PERSON_TYPE || '';
+    fields['Legal Employer'] = asg.LEGAL_EMPLOYER || 'Campus Crusade for Christ, Inc.';
+    fields['Department'] = asg.DEPARTMENT || '';
+    fields['Job'] = asg.JOB || '';
+  }
+  return { testId, tab, scenario: tab, fields, columnIndex: index + 2 };
+}
+
+// ============================================================
 // Main generator
 // ============================================================
 async function generate(): Promise<void> {
@@ -824,6 +1723,126 @@ async function generate(): Promise<void> {
   for (const row of (asgNumResult.rows || [])) {
     asgNumToPersonNum.set(row.ASSIGNMENT_NUMBER, row.PERSON_NUM);
   }
+
+  // --- Fetch module-specific data for new builders ---
+  console.log('Fetching absence entries...');
+  const allAbsenceEntries = await fetchAbsenceEntries(conn, personNums);
+  const absenceByPerson = new Map<string, AbsenceEntryRow[]>();
+  for (const a of allAbsenceEntries) {
+    if (!absenceByPerson.has(a.PERSON_NUM)) absenceByPerson.set(a.PERSON_NUM, []);
+    absenceByPerson.get(a.PERSON_NUM)!.push(a);
+  }
+  console.log(`  Got ${allAbsenceEntries.length} absence entries`);
+
+  console.log('Fetching absence balances...');
+  const allAbsenceBalances = await fetchAbsenceBalances(conn, personNums);
+  const absBalByPerson = new Map<string, AbsenceBalanceRow[]>();
+  for (const a of allAbsenceBalances) {
+    if (!absBalByPerson.has(a.PERSON_NUM)) absBalByPerson.set(a.PERSON_NUM, []);
+    absBalByPerson.get(a.PERSON_NUM)!.push(a);
+  }
+  console.log(`  Got ${allAbsenceBalances.length} absence balances`);
+
+  console.log('Fetching benefits participants...');
+  const allParticipants = await fetchParticipants(conn, personNums);
+  const participantByPerson = new Map<string, ParticipantRow[]>();
+  for (const p of allParticipants) {
+    if (!participantByPerson.has(p.PERSON_NUM)) participantByPerson.set(p.PERSON_NUM, []);
+    participantByPerson.get(p.PERSON_NUM)!.push(p);
+  }
+  console.log(`  Got ${allParticipants.length} participants`);
+
+  console.log('Fetching dependents...');
+  const allDependents = await fetchDependents(conn, personNums);
+  const dependentByPerson = new Map<string, DependentRow[]>();
+  for (const d of allDependents) {
+    if (!dependentByPerson.has(d.PERSONNUMBER)) dependentByPerson.set(d.PERSONNUMBER, []);
+    dependentByPerson.get(d.PERSONNUMBER)!.push(d);
+  }
+  console.log(`  Got ${allDependents.length} dependents`);
+
+  console.log('Fetching beneficiaries...');
+  const allBeneficiaries = await fetchBeneficiaries(conn, personNums);
+  const beneficiaryByPerson = new Map<string, BeneficiaryRow[]>();
+  for (const b of allBeneficiaries) {
+    if (!beneficiaryByPerson.has(b.PERSONNUMBER)) beneficiaryByPerson.set(b.PERSONNUMBER, []);
+    beneficiaryByPerson.get(b.PERSONNUMBER)!.push(b);
+  }
+  console.log(`  Got ${allBeneficiaries.length} beneficiaries`);
+
+  console.log('Fetching time entries...');
+  const allTimeEntries = await fetchTimeEntries(conn, personNums);
+  const timeByPerson = new Map<string, TimeEntryRow[]>();
+  for (const t of allTimeEntries) {
+    if (!timeByPerson.has(t.PERSON_NUMBER)) timeByPerson.set(t.PERSON_NUMBER, []);
+    timeByPerson.get(t.PERSON_NUMBER)!.push(t);
+  }
+  console.log(`  Got ${allTimeEntries.length} time entries`);
+
+  console.log('Fetching full salary history...');
+  const allSalaryFull = await fetchSalaryFull(conn, personNums);
+  const salaryFullByPerson = new Map<string, SalaryFullRow[]>();
+  for (const s of allSalaryFull) {
+    if (!salaryFullByPerson.has(s.PERSONNUMBER)) salaryFullByPerson.set(s.PERSONNUMBER, []);
+    salaryFullByPerson.get(s.PERSONNUMBER)!.push(s);
+  }
+  console.log(`  Got ${allSalaryFull.length} salary records`);
+
+  console.log('Fetching MHA data...');
+  const allMHA = await fetchMHA(conn, personNums);
+  const mhaByPerson = new Map<string, MHARow[]>();
+  for (const m of allMHA) {
+    if (!mhaByPerson.has(m.PERSON_NUM)) mhaByPerson.set(m.PERSON_NUM, []);
+    mhaByPerson.get(m.PERSON_NUM)!.push(m);
+  }
+  console.log(`  Got ${allMHA.length} MHA records`);
+
+  console.log('Fetching EIT data (staff groups, training, teams, care givers, crisis mgmt)...');
+  const allStaffGroups = await fetchStaffGroups(conn, personNums);
+  const staffGroupByPerson = new Map<string, StaffGroupRow[]>();
+  for (const s of allStaffGroups) {
+    if (!staffGroupByPerson.has(s.PERSON_NUMBER)) staffGroupByPerson.set(s.PERSON_NUMBER, []);
+    staffGroupByPerson.get(s.PERSON_NUMBER)!.push(s);
+  }
+
+  const allTraining = await fetchTrainingStatus(conn, personNums);
+  const trainingByPerson = new Map<string, TrainingStatusRow[]>();
+  for (const t of allTraining) {
+    if (!trainingByPerson.has(t.PERSON_NUMBER)) trainingByPerson.set(t.PERSON_NUMBER, []);
+    trainingByPerson.get(t.PERSON_NUMBER)!.push(t);
+  }
+
+  const allTeams = await fetchTeamStructure(conn, personNums);
+  const teamByPerson = new Map<string, TeamStructureRow[]>();
+  for (const t of allTeams) {
+    if (!teamByPerson.has(t.PERSON_NUM)) teamByPerson.set(t.PERSON_NUM, []);
+    teamByPerson.get(t.PERSON_NUM)!.push(t);
+  }
+
+  const allCareGivers = await fetchCareGivers(conn, personNums);
+  const careGiverByPerson = new Map<string, CareGiverRow[]>();
+  for (const c of allCareGivers) {
+    if (!careGiverByPerson.has(c.PERSON_NUM)) careGiverByPerson.set(c.PERSON_NUM, []);
+    careGiverByPerson.get(c.PERSON_NUM)!.push(c);
+  }
+
+  const allCrisis = await fetchCrisisManagement(conn, personNums);
+  const crisisByPerson = new Map<string, CrisisManagementRow>();
+  for (const c of allCrisis) crisisByPerson.set(c.PERSON_NUMBER, c);
+
+  const allEthnic = await fetchEthnicMinistry(conn, personNums);
+  const ethnicByPerson = new Map<string, EthnicMinistryRow>();
+  for (const e of allEthnic) ethnicByPerson.set(e.PERSON_NUMBER, e);
+
+  const allServiceRec = await fetchServiceRecognition(conn, personNums);
+  const serviceRecByPerson = new Map<string, ServiceRecognitionRow>();
+  for (const s of allServiceRec) serviceRecByPerson.set(s.PERSON_NUMBER, s);
+
+  console.log(`  Got ${allStaffGroups.length} staff groups, ${allTraining.length} training, ${allTeams.length} teams, ${allCareGivers.length} care givers, ${allCrisis.length} crisis mgmt`);
+
+  console.log('Fetching department mapping...');
+  const allDepts = await fetchDeptMapping(conn);
+  console.log(`  Got ${allDepts.length} departments`);
 
   // ============================================================
   // Generate field data keyed by UAT Plan testId
@@ -975,12 +1994,441 @@ async function generate(): Promise<void> {
     const entry = payrollEntries[i % payrollEntries.length];
     if (!entry) continue;
     const personNum = asgNumToPersonNum.get(entry.ASSIGNMENT_NUMBER);
-    const person = personNum ? personMap.get(personNum) : allPersons[i % allPersons.length];
+    const person = (personNum ? personMap.get(personNum) : undefined) || allPersons[i % allPersons.length];
     if (!person) continue;
     fieldData[tc.testId] = buildPayrollFields(
       i, tc.testId, person, entry.ELEMENT_NAME, entry.EFFECTIVE_START_DATE
     );
     totalGenerated++;
+  }
+
+  // --- ABSENCE ENTRY tests ---
+  const absenceEntryCases = grouped.get('absence_entry') || [];
+  console.log(`Generating field data for ${absenceEntryCases.length} absence entry tests...`);
+  const personsWithAbsence = allPersons.filter(p => absenceByPerson.has(p.PERSON_NUMBER));
+  const absencePool = personsWithAbsence.length > 0 ? personsWithAbsence : allPersons;
+  for (let i = 0; i < absenceEntryCases.length; i++) {
+    const tc = absenceEntryCases[i];
+    const person = absencePool[i % absencePool.length];
+    const asg = (asgByPerson.get(person.PERSON_NUMBER) || [])[0] || hirePool[0];
+    const entries = absenceByPerson.get(person.PERSON_NUMBER) || [];
+    const balances = absBalByPerson.get(person.PERSON_NUMBER) || [];
+    fieldData[tc.testId] = buildAbsenceFields(
+      i, tc.testId, person, asg, entries[i % Math.max(entries.length, 1)], balances[0]
+    );
+    totalGenerated++;
+  }
+
+  // --- ABSENCE APPROVAL tests ---
+  const absenceApprovalCases = grouped.get('absence_approval') || [];
+  console.log(`Generating field data for ${absenceApprovalCases.length} absence approval tests...`);
+  for (let i = 0; i < absenceApprovalCases.length; i++) {
+    const tc = absenceApprovalCases[i];
+    const person = absencePool[i % absencePool.length];
+    fieldData[tc.testId] = buildAbsenceApprovalFields(i, tc.testId, person);
+    totalGenerated++;
+  }
+
+  // --- ABSENCE ADMIN tests ---
+  const absenceAdminCases = grouped.get('absence_admin') || [];
+  console.log(`Generating field data for ${absenceAdminCases.length} absence admin tests...`);
+  for (let i = 0; i < absenceAdminCases.length; i++) {
+    const tc = absenceAdminCases[i];
+    const person = absencePool[i % absencePool.length];
+    const balances = absBalByPerson.get(person.PERSON_NUMBER) || [];
+    fieldData[tc.testId] = buildAbsenceAdminFields(i, tc.testId, person, balances[0]);
+    totalGenerated++;
+  }
+
+  // --- BENEFITS ENROLLMENT tests ---
+  const benefitsEnrollCases = grouped.get('benefits_enrollment') || [];
+  console.log(`Generating field data for ${benefitsEnrollCases.length} benefits enrollment tests...`);
+  const personsWithBenefits = allPersons.filter(p => participantByPerson.has(p.PERSON_NUMBER));
+  const benefitsPool = personsWithBenefits.length > 0 ? personsWithBenefits : allPersons;
+  for (let i = 0; i < benefitsEnrollCases.length; i++) {
+    const tc = benefitsEnrollCases[i];
+    const person = benefitsPool[i % benefitsPool.length];
+    const asg = (asgByPerson.get(person.PERSON_NUMBER) || [])[0] || hirePool[0];
+    const parts = participantByPerson.get(person.PERSON_NUMBER) || [];
+    const deps = dependentByPerson.get(person.PERSON_NUMBER) || [];
+    const bens = beneficiaryByPerson.get(person.PERSON_NUMBER) || [];
+    fieldData[tc.testId] = buildBenefitsFields(
+      i, tc.testId, person, asg,
+      parts[i % Math.max(parts.length, 1)],
+      deps[i % Math.max(deps.length, 1)],
+      bens[i % Math.max(bens.length, 1)]
+    );
+    totalGenerated++;
+  }
+
+  // --- BENEFITS ADMIN tests ---
+  const benefitsAdminCases = grouped.get('benefits_admin') || [];
+  console.log(`Generating field data for ${benefitsAdminCases.length} benefits admin tests...`);
+  for (let i = 0; i < benefitsAdminCases.length; i++) {
+    const tc = benefitsAdminCases[i];
+    const person = benefitsPool[i % benefitsPool.length];
+    fieldData[tc.testId] = buildBenefitsAdminFields(i, tc.testId, person);
+    totalGenerated++;
+  }
+
+  // --- TIME ENTRY tests ---
+  const timeEntryCases = grouped.get('time_entry') || [];
+  console.log(`Generating field data for ${timeEntryCases.length} time entry tests...`);
+  const personsWithTime = allPersons.filter(p => timeByPerson.has(p.PERSON_NUMBER));
+  const timePool = personsWithTime.length > 0 ? personsWithTime : allPersons;
+  for (let i = 0; i < timeEntryCases.length; i++) {
+    const tc = timeEntryCases[i];
+    const person = timePool[i % timePool.length];
+    const asg = (asgByPerson.get(person.PERSON_NUMBER) || [])[0] || hirePool[0];
+    const entries = timeByPerson.get(person.PERSON_NUMBER) || [];
+    fieldData[tc.testId] = buildTimeLaborFields(
+      i, tc.testId, person, asg, entries[i % Math.max(entries.length, 1)]
+    );
+    totalGenerated++;
+  }
+
+  // --- TIME APPROVAL tests ---
+  const timeApprovalCases = grouped.get('time_approval') || [];
+  console.log(`Generating field data for ${timeApprovalCases.length} time approval tests...`);
+  for (let i = 0; i < timeApprovalCases.length; i++) {
+    const tc = timeApprovalCases[i];
+    const person = timePool[i % timePool.length];
+    const asg = (asgByPerson.get(person.PERSON_NUMBER) || [])[0] || hirePool[0];
+    fieldData[tc.testId] = buildTimeLaborFields(i, tc.testId, person, asg);
+    totalGenerated++;
+  }
+
+  // --- TIME ADMIN tests ---
+  const timeAdminCases = grouped.get('time_admin') || [];
+  console.log(`Generating field data for ${timeAdminCases.length} time admin tests...`);
+  for (let i = 0; i < timeAdminCases.length; i++) {
+    const tc = timeAdminCases[i];
+    const person = timePool[i % timePool.length];
+    fieldData[tc.testId] = buildTimeAdminFields(i, tc.testId, person);
+    totalGenerated++;
+  }
+
+  // --- COMPENSATION tests ---
+  const compCases = grouped.get('compensation') || [];
+  console.log(`Generating field data for ${compCases.length} compensation tests...`);
+  const personsWithSalary = allPersons.filter(p => salaryFullByPerson.has(p.PERSON_NUMBER));
+  const compPool = personsWithSalary.length > 0 ? personsWithSalary : allPersons;
+  for (let i = 0; i < compCases.length; i++) {
+    const tc = compCases[i];
+    const person = compPool[i % compPool.length];
+    const asg = (asgByPerson.get(person.PERSON_NUMBER) || [])[0] || hirePool[0];
+    const sals = salaryFullByPerson.get(person.PERSON_NUMBER) || [];
+    fieldData[tc.testId] = buildCompensationFields(
+      i, tc.testId, person, asg, sals[i % Math.max(sals.length, 1)]
+    );
+    totalGenerated++;
+  }
+
+  // --- JOURNEYS tests ---
+  const journeysCases = grouped.get('journeys') || [];
+  console.log(`Generating field data for ${journeysCases.length} journeys tests...`);
+  for (let i = 0; i < journeysCases.length; i++) {
+    const tc = journeysCases[i];
+    const person = allPersons[i % allPersons.length];
+    const asg = (asgByPerson.get(person.PERSON_NUMBER) || [])[0] || hirePool[0];
+    fieldData[tc.testId] = buildJourneysFields(i, tc.testId, person, asg, tc.businessProcess);
+    totalGenerated++;
+  }
+
+  // --- MPDX tests ---
+  const mpdxCases = grouped.get('mpdx') || [];
+  console.log(`Generating field data for ${mpdxCases.length} MPDX tests...`);
+  const personsWithMHA = allPersons.filter(p => mhaByPerson.has(p.PERSON_NUMBER));
+  const mpdxPool = personsWithMHA.length > 0 ? personsWithMHA : allPersons;
+  for (let i = 0; i < mpdxCases.length; i++) {
+    const tc = mpdxCases[i];
+    const person = mpdxPool[i % mpdxPool.length];
+    const asg = (asgByPerson.get(person.PERSON_NUMBER) || [])[0] || hirePool[0];
+    const mhas = mhaByPerson.get(person.PERSON_NUMBER) || [];
+    const sals = salaryFullByPerson.get(person.PERSON_NUMBER) || [];
+    fieldData[tc.testId] = buildMPDXFields(
+      i, tc.testId, person, asg, mhas[0], sals[0]
+    );
+    totalGenerated++;
+  }
+
+  // --- SAA tests ---
+  const saaCases = grouped.get('saa') || [];
+  console.log(`Generating field data for ${saaCases.length} SAA tests...`);
+  for (let i = 0; i < saaCases.length; i++) {
+    const tc = saaCases[i];
+    const person = allPersons[i % allPersons.length];
+    const asg = (asgByPerson.get(person.PERSON_NUMBER) || [])[0] || hirePool[0];
+    fieldData[tc.testId] = buildSAAFields(i, tc.testId, person, asg);
+    totalGenerated++;
+  }
+
+  // --- ONEAPP OTHER tests ---
+  const oneappCases = grouped.get('oneapp_other') || [];
+  console.log(`Generating field data for ${oneappCases.length} OneApp tests...`);
+  for (let i = 0; i < oneappCases.length; i++) {
+    const tc = oneappCases[i];
+    const person = allPersons[i % allPersons.length];
+    const asg = (asgByPerson.get(person.PERSON_NUMBER) || [])[0] || hirePool[0];
+    fieldData[tc.testId] = buildMinimalPersonFields(i, tc.testId, person, asg, 'OneApp');
+    totalGenerated++;
+  }
+
+  // --- OTHER FUNCTIONS tests ---
+  const otherFuncCases = grouped.get('other_functions') || [];
+  console.log(`Generating field data for ${otherFuncCases.length} Other Functions tests...`);
+  for (let i = 0; i < otherFuncCases.length; i++) {
+    const tc = otherFuncCases[i];
+    const person = allPersons[i % allPersons.length];
+    const asg = (asgByPerson.get(person.PERSON_NUMBER) || [])[0] || hirePool[0];
+    fieldData[tc.testId] = buildMinimalPersonFields(i, tc.testId, person, asg, 'Other Functions');
+    totalGenerated++;
+  }
+
+  // --- SALARY CHANGE tests ---
+  const salaryChangeCases = grouped.get('salary_change') || [];
+  console.log(`Generating field data for ${salaryChangeCases.length} salary change tests...`);
+  for (let i = 0; i < salaryChangeCases.length; i++) {
+    const tc = salaryChangeCases[i];
+    const pick = pickAssignment(hirePool, i);
+    if (!pick) continue;
+    fieldData[tc.testId] = buildSalaryChangeFields(
+      i, tc.testId, pick.person, pick.asg, salaryByPerson.get(pick.asg.PERSON_NUM)
+    );
+    totalGenerated++;
+  }
+
+  // --- BONUS tests ---
+  const bonusCases = grouped.get('bonus') || [];
+  console.log(`Generating field data for ${bonusCases.length} bonus tests...`);
+  for (let i = 0; i < bonusCases.length; i++) {
+    const tc = bonusCases[i];
+    const pick = pickAssignment(hirePool, i);
+    if (!pick) continue;
+    fieldData[tc.testId] = buildBonusFields(i, tc.testId, pick.person, pick.asg);
+    totalGenerated++;
+  }
+
+  // --- LEAVE MANAGEMENT tests ---
+  const leaveCases = grouped.get('leave_management') || [];
+  console.log(`Generating field data for ${leaveCases.length} leave management tests...`);
+  for (let i = 0; i < leaveCases.length; i++) {
+    const tc = leaveCases[i];
+    const pick = pickAssignment(hirePool, i);
+    if (!pick) continue;
+    fieldData[tc.testId] = buildLeaveFields(i, tc.testId, pick.person, pick.asg, tc.businessProcess);
+    totalGenerated++;
+  }
+
+  // --- ADDITIONAL ASSIGNMENT tests ---
+  const addAsgCases = grouped.get('additional_assignment') || [];
+  console.log(`Generating field data for ${addAsgCases.length} additional assignment tests...`);
+  for (let i = 0; i < addAsgCases.length; i++) {
+    const tc = addAsgCases[i];
+    const pick = pickAssignment(hirePool, i);
+    if (!pick) continue;
+    fieldData[tc.testId] = buildAdditionalAssignmentFields(i, tc.testId, pick.person, pick.asg);
+    totalGenerated++;
+  }
+
+  // --- END ADDITIONAL JOB tests ---
+  const endAsgCases = grouped.get('end_additional_job') || [];
+  console.log(`Generating field data for ${endAsgCases.length} end additional job tests...`);
+  for (let i = 0; i < endAsgCases.length; i++) {
+    const tc = endAsgCases[i];
+    const pick = pickAssignment(hirePool, i);
+    if (!pick) continue;
+    fieldData[tc.testId] = buildEndAdditionalJobFields(i, tc.testId, pick.person, pick.asg);
+    totalGenerated++;
+  }
+
+  // --- DOCUMENT MANAGEMENT tests ---
+  const docCases = grouped.get('document_management') || [];
+  console.log(`Generating field data for ${docCases.length} document management tests...`);
+  for (let i = 0; i < docCases.length; i++) {
+    const tc = docCases[i];
+    const person = allPersons[i % allPersons.length];
+    fieldData[tc.testId] = buildDocumentFields(i, tc.testId, person, tc.businessProcess);
+    totalGenerated++;
+  }
+
+  // --- PERSONAL INFO tests ---
+  const personalInfoCases = grouped.get('personal_info') || [];
+  console.log(`Generating field data for ${personalInfoCases.length} personal info tests...`);
+  for (let i = 0; i < personalInfoCases.length; i++) {
+    const tc = personalInfoCases[i];
+    const person = allPersons[i % allPersons.length];
+    fieldData[tc.testId] = buildPersonalInfoFields(i, tc.testId, person);
+    totalGenerated++;
+  }
+
+  // --- NAME CHANGE tests ---
+  const nameChangeCases = grouped.get('name_change') || [];
+  console.log(`Generating field data for ${nameChangeCases.length} name change tests...`);
+  for (let i = 0; i < nameChangeCases.length; i++) {
+    const tc = nameChangeCases[i];
+    const person = allPersons[i % allPersons.length];
+    fieldData[tc.testId] = buildNameChangeFields(i, tc.testId, person);
+    totalGenerated++;
+  }
+
+  // --- MANAGER CHANGE tests ---
+  const mgrChangeCases = grouped.get('manager_change') || [];
+  console.log(`Generating field data for ${mgrChangeCases.length} manager change tests...`);
+  for (let i = 0; i < mgrChangeCases.length; i++) {
+    const tc = mgrChangeCases[i];
+    const pick = pickAssignment(hirePool, i);
+    if (!pick) continue;
+    const mgrName = managerNames.get(pick.asg.MANAGER_PERSON_NUMBER) || 'Kelly Murray';
+    fieldData[tc.testId] = buildManagerChangeFields(i, tc.testId, pick.person, pick.asg, mgrName);
+    totalGenerated++;
+  }
+
+  // --- SENIORITY DATES tests ---
+  const seniorCases = grouped.get('seniority_dates') || [];
+  console.log(`Generating field data for ${seniorCases.length} seniority dates tests...`);
+  for (let i = 0; i < seniorCases.length; i++) {
+    const tc = seniorCases[i];
+    const person = allPersons[i % allPersons.length];
+    fieldData[tc.testId] = buildSeniorityFields(i, tc.testId, person);
+    totalGenerated++;
+  }
+
+  // --- VSA tests ---
+  const vsaCases = grouped.get('vsa') || [];
+  console.log(`Generating field data for ${vsaCases.length} VSA tests...`);
+  for (let i = 0; i < vsaCases.length; i++) {
+    const tc = vsaCases[i];
+    const person = allPersons[i % allPersons.length];
+    fieldData[tc.testId] = buildVSAFields(i, tc.testId, person);
+    totalGenerated++;
+  }
+
+  // --- SECURITY ROLE tests ---
+  const securityCases = grouped.get('security_role') || [];
+  console.log(`Generating field data for ${securityCases.length} security role tests...`);
+  for (let i = 0; i < securityCases.length; i++) {
+    const tc = securityCases[i];
+    const person = allPersons[i % allPersons.length];
+    fieldData[tc.testId] = buildSecurityRoleFields(i, tc.testId, person, tc.businessProcess);
+    totalGenerated++;
+  }
+
+  // --- APPROVAL DELEGATION tests ---
+  const approvalDelCases = grouped.get('approval_delegation') || [];
+  console.log(`Generating field data for ${approvalDelCases.length} approval delegation tests...`);
+  for (let i = 0; i < approvalDelCases.length; i++) {
+    const tc = approvalDelCases[i];
+    const person = allPersons[i % allPersons.length];
+    fieldData[tc.testId] = buildApprovalDelegationFields(i, tc.testId, person);
+    totalGenerated++;
+  }
+
+  // --- MASS CHANGE tests ---
+  const massChangeCases = grouped.get('mass_change') || [];
+  console.log(`Generating field data for ${massChangeCases.length} mass change tests...`);
+  for (let i = 0; i < massChangeCases.length; i++) {
+    const tc = massChangeCases[i];
+    const person = allPersons[i % allPersons.length];
+    fieldData[tc.testId] = buildMassChangeFields(i, tc.testId, person, tc.businessProcess);
+    totalGenerated++;
+  }
+
+  // --- WORKFORCE STRUCTURE tests ---
+  const wfStructCases = grouped.get('workforce_structure') || [];
+  console.log(`Generating field data for ${wfStructCases.length} workforce structure tests...`);
+  for (let i = 0; i < wfStructCases.length; i++) {
+    const tc = wfStructCases[i];
+    const dept = allDepts[i % Math.max(allDepts.length, 1)];
+    fieldData[tc.testId] = buildWorkforceStructureFields(i, tc.testId, dept, tc.businessProcess);
+    totalGenerated++;
+  }
+
+  // --- PERSON EIT tests ---
+  const personEITCases = grouped.get('person_eit') || [];
+  console.log(`Generating field data for ${personEITCases.length} person EIT tests...`);
+  for (let i = 0; i < personEITCases.length; i++) {
+    const tc = personEITCases[i];
+    const person = allPersons[i % allPersons.length];
+    const bp = tc.businessProcess.toLowerCase();
+    let eitType = 'EIT';
+    let eitData: Record<string, string> | undefined;
+
+    if (bp.includes('staff group')) {
+      eitType = 'Staff Groups';
+      const groups = staffGroupByPerson.get(person.PERSON_NUMBER) || [];
+      if (groups.length > 0) eitData = { 'Group ID': groups[0].GROUP_ID || '' };
+    } else if (bp.includes('training') || bp.includes('course')) {
+      eitType = 'Training Status';
+      const trainings = trainingByPerson.get(person.PERSON_NUMBER) || [];
+      if (trainings.length > 0) eitData = {
+        'Type': trainings[0].TYPE || '', 'Course Number': trainings[0].COURSE_NUMBER || '',
+        'Status': trainings[0].STATUS || '',
+      };
+    } else if (bp.includes('team membership')) {
+      eitType = 'Team Structure';
+      const teams = teamByPerson.get(person.PERSON_NUMBER) || [];
+      if (teams.length > 0) eitData = {
+        'Team Name': teams[0].TEAM_NAME || '', 'Primary Team': teams[0].PRIMARY_TEAM || '',
+        'Leader': teams[0].LEADER || '',
+      };
+    } else if (bp.includes('care giver')) {
+      eitType = 'Care Giver';
+      const cgs = careGiverByPerson.get(person.PERSON_NUMBER) || [];
+      if (cgs.length > 0) eitData = {
+        'Care Giver Type': cgs[0].CARE_GIVER_TYPE || '', 'Hours': cgs[0].HOURS || '',
+      };
+    } else if (bp.includes('crisis')) {
+      eitType = 'Crisis Management';
+      const crisis = crisisByPerson.get(person.PERSON_NUMBER);
+      if (crisis) eitData = {
+        'Secure Phone': crisis.SECURE_PHONE || '', 'Secure Email': crisis.SECURE_EMAIL || '',
+      };
+    } else if (bp.includes('mha') || bp.includes('minister')) {
+      eitType = 'Ministers Housing Allowance';
+      const mhas = mhaByPerson.get(person.PERSON_NUMBER) || [];
+      if (mhas.length > 0) eitData = {
+        'Amount': mhas[0].AMOUNT || '', 'Certification Date': mhas[0].CERTIFICATION_DATE || '',
+      };
+    } else if (bp.includes('service recognition')) {
+      eitType = 'Service Recognition';
+      const sr = serviceRecByPerson.get(person.PERSON_NUMBER);
+      if (sr) eitData = { 'Award Year': sr.AWARD_YEAR || '' };
+    } else if (bp.includes('ethnic ministry')) {
+      eitType = 'Ethnic Ministry Fund';
+      const em = ethnicByPerson.get(person.PERSON_NUMBER);
+      if (em) eitData = { 'Program ID': em.PROGRAM_ID || '', 'Amount': em.TOTAL_AMOUNT_RECEIVED || '' };
+    } else if (bp.includes('acknowledgement')) {
+      eitType = 'Acknowledgements';
+    } else if (bp.includes('salary calculation form')) {
+      eitType = 'Salary Calculation Exceptions';
+    } else if (bp.includes('work location')) {
+      eitType = 'Work Locations';
+    } else if (bp.includes('staff account') || bp.includes('designation')) {
+      eitType = 'Staff Account and Designation';
+    } else if (bp.includes('securing') || bp.includes('staff secure')) {
+      eitType = 'Staff Secure Status';
+    } else if (bp.includes('merging') || bp.includes('splitting')) {
+      eitType = 'Account Merge/Split';
+    } else if (bp.includes('staff member role')) {
+      eitType = 'Staff Member Role';
+    }
+
+    fieldData[tc.testId] = buildPersonEITFields(i, tc.testId, person, eitType, eitData);
+    totalGenerated++;
+  }
+
+  // --- Catch-all for any remaining 'other' tests ---
+  const otherCases = grouped.get('other') || [];
+  if (otherCases.length > 0) {
+    console.log(`Generating field data for ${otherCases.length} remaining 'other' tests...`);
+    for (let i = 0; i < otherCases.length; i++) {
+      const tc = otherCases[i];
+      const person = allPersons[i % allPersons.length];
+      const asg = (asgByPerson.get(person.PERSON_NUMBER) || [])[0] || hirePool[0];
+      fieldData[tc.testId] = buildMinimalPersonFields(i, tc.testId, person, asg, tc.module || 'Core HR');
+      totalGenerated++;
+    }
   }
 
   // --- Write output ---
