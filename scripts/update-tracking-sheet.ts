@@ -85,7 +85,9 @@ function parsePlaywrightReport(reportPath: string): TestResult[] {
             const lastResult = test.results?.[test.results.length - 1];
             if (!lastResult) continue;
 
-            const status = test.status || lastResult.status;
+            // test.status is "expected"|"unexpected"|"flaky"|"skipped" (outcome classification)
+            // lastResult.status is the actual result: "passed"|"failed"|"timedOut"|"skipped"
+            const status = lastResult.status;
             const errorMessage = extractError(lastResult);
 
             results.push({
