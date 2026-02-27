@@ -12,6 +12,7 @@ export default defineConfig({
   workers: 1, // Serial — Oracle HCM sessions conflict
   reporter: [
     ['html', { open: 'never' }],
+    ['json', { outputFile: 'test-results/results.json' }],
     ['list'],
   ],
   timeout: 120_000,       // 2 min per test
