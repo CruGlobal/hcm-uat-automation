@@ -19,7 +19,9 @@ import * as path from 'path';
 import * as dotenv from 'dotenv';
 import type { TestCase, UATTestCase } from '../src/data/types';
 
-// Load migration DB credentials from the data-conversion project
+// Load project .env first for Google API credentials (used for config workbook lookup)
+dotenv.config();
+// Then load migration DB credentials (won't override existing vars)
 dotenv.config({ path: path.resolve('/home/ai/htdocs/ohcm-data-conversion/.env') });
 
 const DB_USER = 'migration';
@@ -31,6 +33,7 @@ const UAT_PLAN_FILE = path.resolve(__dirname, '..', '.cache', 'uat-plan.json');
 
 // ============================================================
 // Value mappings: DB codes → Oracle HCM UI display values
+// (Validated against the HR Configuration Workbook)
 // ============================================================
 const GENDER_MAP: Record<string, string> = { M: 'Male', F: 'Female' };
 const MARITAL_MAP: Record<string, string> = { S: 'Single', M: 'Married', D: 'Divorced', W: 'Widowed' };
@@ -55,8 +58,11 @@ const EDUCATION_MAP: Record<string, string> = {
   BACHELOR: 'Bachelor', MASTERS: 'Masters', DOCTORAL: 'Doctoral',
   CA_10: 'Some High School', CA_20: 'High School Diploma', CA_80: 'Some College',
 };
+// PEOPLE_GROUP values from DB map to Support Type display names from Common Lookups
 const PEOPLE_GROUP_MAP: Record<string, string> = {
-  FICA: 'FICA', SECA: 'SECA', OPTOUT: 'None',
+  FICA: 'None', SECA: 'Supported RMO', OPTOUT: 'None',
+  SUPPORTED_RMO: 'Supported RMO', SUPPORTED_NOT_RMO: 'Supported - non-RMO',
+  DESIGNATION: 'Designation', NONE: 'None',
 };
 const ACTION_MAP: Record<string, string> = {
   HIRE: 'Hire', ADD_PEN_WKR: 'Add Pending Worker', TERMINATION: 'Termination',
@@ -64,21 +70,46 @@ const ACTION_MAP: Record<string, string> = {
   CHANGE_SALARY: 'Change Salary', PAID_LEAVE: 'Paid Leave',
   JOB_CHANGE: 'Job Change',
 };
+// Action Reason codes → display names (matched to HR Configuration Workbook Action Reasons tab)
 const ACTION_REASON_MAP: Record<string, string> = {
-  '': 'New Hire', NEW_HIRE: 'New Hire', PERSONAL: 'Personal',
+  '': 'New Hire', CMP_NEWH: 'New Hire', NEW_HIRE: 'New Hire',
+  PERSONAL: 'Personal Reasons', RESIGN_PERSONAL: 'Personal Reasons',
   DISCHARGE: 'Discharge', TEAM_RELATION: 'Team Relationship',
-  FICA: 'FICA Status Change', PAY_ADJUST: 'Pay Adjustment',
+  FICA: 'Fica  Status Change', PAY_ADJUST: 'Pay Adjustment',
   PROMOTION: 'Promotion', POS_CHG: 'Position Change',
   TEMP_TO_REG: 'Temp to Regular', GRADE_CHANGE: 'Grade Change',
   NEW_SAL_CALC: 'New Salary Calculation', MGRREQ: 'Manager Request',
-  '12MO_FT': '12MO_FT', FUTURE_HIRE: 'Future Hire',
-  'TRANSFER DEPARTMENT': 'Transfer Department',
-  'MIN TO MIN': 'Ministry to Ministry',
+  '12MO_FT': 'Rehire Within 12 mos of FT Ser', FUTURE_HIRE: 'Future Hire',
+  'TRANSFER DEPARTMENT': 'Transfer department',
+  'MIN TO MIN': 'DEPT: Min to Min Transfer',
+  'MIN to MIN': 'DEPT: Min to Min Transfer',
+  STATUS_CHANGE: 'Status Change',
+  CAREER_PROG: 'Normal Career Progression',
+  PAID_60DAY: 'Paid 60-Day Sabbatical', PAID_90DAY: 'Paid 90-Day Sabbatical',
+  PAID_30DAY: 'Paid 30-Day Sabbatical',
+  PAID_MED: 'Paid Medical (non-FMLA)', PAID_FMLA: 'Paid Family/Medical (FMLA)',
+  PAID_MIL: 'Paid Military Service',
+  UNPAID_MED: 'Unpaid Medical (non-FMLA)', UNPAID_FMLA: 'Unpaid Family/Medical (FMLA)',
+  UNPAID_MIL: 'Unpaid Military Service',
+  PLANEND: 'Planned End', ENDPROB: 'End Probation', WORKERREQ: 'Worker Request',
 };
 const SALARY_BASIS_MAP: Record<string, string> = {
   US_Hourly: 'US Hourly', US_Salaried: 'US Salaried',
   Supported_Staff_RMO: 'Supported Staff RMO',
 };
+// Location codes → display names (from HR Configuration Workbook Location tab)
+const LOCATION_MAP: Record<string, string> = {
+  CRU_HQ: 'Cru World Headquarters', JFILM_CA: 'Jesus Film - CA Office', AIA_HQ: 'AIA- HQ',
+};
+// Grade codes use "Grd" abbreviation; config workbook uses full "Grade".
+// This map covers all codes from the Grade tab; built at startup from config.
+// For test generation we apply gradeCodeToName() conversion.
+const GRADE_CODE_REPLACEMENTS: Record<string, string> = {
+  'Not Graded': 'Non Graded',  // Migration DB spelling → Oracle HCM spelling
+};
+// Business Unit: Only valid BU in config workbook is "Cru".
+// Migration DB BUSINESS_UNIT_SHORT_CODE contains Division names, not BU names.
+const VALID_BUSINESS_UNIT = 'Cru';
 
 // Addresses to use for test data (realistic US addresses)
 const SAMPLE_ADDRESSES = [
@@ -94,19 +125,202 @@ const SAMPLE_ADDRESSES = [
   { line1: '1 Tower Ln', city: 'Oakbrook Terrace', state: 'IL', zip: '60181', county: 'DuPage' },
 ];
 
-function dateToExcelSerial(dateStr: string): string {
+/** Convert a date string (from migration DB) to MM/DD/YYYY for Oracle HCM. */
+function formatDate(dateStr: string): string {
   const d = new Date(dateStr);
-  const epoch = new Date(1899, 11, 30);
-  const diff = d.getTime() - epoch.getTime();
-  return String(Math.round(diff / (1000 * 60 * 60 * 24)));
+  if (isNaN(d.getTime())) return dateStr; // passthrough if unparseable
+  return `${(d.getMonth() + 1).toString().padStart(2, '0')}/${d.getDate().toString().padStart(2, '0')}/${d.getFullYear()}`;
 }
 
+/** Generate a future date as MM/DD/YYYY, N days from today. */
 function futureDate(daysFromNow: number): string {
   const d = new Date();
   d.setDate(d.getDate() + daysFromNow);
-  const epoch = new Date(1899, 11, 30);
-  const diff = d.getTime() - epoch.getTime();
-  return String(Math.round(diff / (1000 * 60 * 60 * 24)));
+  return `${(d.getMonth() + 1).toString().padStart(2, '0')}/${d.getDate().toString().padStart(2, '0')}/${d.getFullYear()}`;
+}
+
+/** Resolve a job code from migration DB to its display name using the config workbook.
+ *  Falls back to 'Raising Support Full Time' for unknown codes like CNV_JOB. */
+function resolveJobName(jobCode: string): string {
+  if (!jobCode) return 'Raising Support Full Time';
+  // Check the runtime-populated map (loaded from config workbook)
+  if (jobCodeMap.has(jobCode)) return jobCodeMap.get(jobCode)!;
+  // Return the code as-is if it looks like a name already (contains spaces)
+  if (jobCode.includes(' ')) return jobCode;
+  return 'Raising Support Full Time';
+}
+
+/** Resolve a grade value: convert abbreviated "Grd" form to full "Grade" form,
+ *  and fix "Not Graded" → "Non Graded". Falls back to "Non Graded" for
+ *  grades not found in the config workbook. */
+function resolveGradeName(gradeVal: string): string {
+  if (!gradeVal) return 'Non Graded';
+  // Check direct replacements
+  if (GRADE_CODE_REPLACEMENTS[gradeVal]) return GRADE_CODE_REPLACEMENTS[gradeVal];
+  // Check grade code → name map first (populated from config workbook)
+  if (gradeCodeMap.has(gradeVal)) return gradeCodeMap.get(gradeVal)!;
+  // Auto-convert "Grd" → "Grade" pattern and check again
+  if (gradeVal.includes(' Grd ')) {
+    const converted = gradeVal.replace(' Grd ', ' Grade ');
+    // Verify the converted name exists in config by checking if any grade code maps to it
+    const exists = Array.from(gradeCodeMap.values()).some(v => v === converted);
+    if (exists) return converted;
+  }
+  // If we have a loaded config and this grade isn't in it, fall back to Non Graded
+  if (gradeCodeMap.size > 0) {
+    // Check if the value (as-is) matches any grade name in the config
+    const allGradeNames = new Set(gradeCodeMap.values());
+    if (!allGradeNames.has(gradeVal)) return 'Non Graded';
+  }
+  return gradeVal;
+}
+
+/** Resolve location code → display name. */
+function resolveLocation(locCode: string): string {
+  if (!locCode) return 'Cru World Headquarters';
+  if (LOCATION_MAP[locCode]) return LOCATION_MAP[locCode];
+  // If it already looks like a display name (contains spaces), keep it
+  if (locCode.includes(' ')) return locCode;
+  return 'Cru World Headquarters';
+}
+
+/** Resolve business unit — migration DB has division names, not BU names.
+ *  The only valid BU in the config workbook is "Cru". */
+function resolveBusinessUnit(_divisionName: string): string {
+  return VALID_BUSINESS_UNIT;
+}
+
+/** Resolve department name — maps legacy migration DB names to Oracle HCM names.
+ *  Uses FIXED_DEPARTMENT_ASSIGNMENTS mapping table, then validates against config workbook. */
+function resolveDepartment(deptName: string, fallback: string = 'Conversion Department'): string {
+  if (!deptName) return fallback;
+  // Check manual overrides first (for depts not in FIXED_DEPARTMENT_ASSIGNMENTS)
+  if (DEPARTMENT_MANUAL_MAP[deptName]) return DEPARTMENT_MANUAL_MAP[deptName];
+  // Check migration DB mapping (old dept → new dept)
+  if (departmentMap.has(deptName)) return departmentMap.get(deptName)!;
+  // Already a valid config workbook department
+  if (validDepartments.has(deptName)) return deptName;
+  // Try case-insensitive match against valid departments
+  const lower = deptName.toLowerCase();
+  const match = Array.from(validDepartments).find(d => d.toLowerCase() === lower);
+  if (match) return match;
+  return fallback;
+}
+
+// Runtime maps populated from HR Configuration Workbook (Job Codes, Grades, Departments)
+let jobCodeMap = new Map<string, string>();
+let gradeCodeMap = new Map<string, string>();
+let validDepartments = new Set<string>();
+
+// Runtime map: legacy migration DB department names → Oracle HCM department names
+// Populated from FIXED_DEPARTMENT_ASSIGNMENTS_2025_12_18 table at startup
+let departmentMap = new Map<string, string>();
+
+// Manual overrides for departments not in FIXED_DEPARTMENT_ASSIGNMENTS table
+// or CONV_DEPT_MAPPING_TBL entries that aren't valid config workbook departments
+const DEPARTMENT_MANUAL_MAP: Record<string, string> = {
+  'CITYCAP Director': 'City Capacity',
+  'City Innovation Lab': 'City Capacity',
+  'AIA SE Asia': 'AIA Global',
+  'HR Tech & Analytics': 'HR Services',
+};
+
+/** Load job code → name and grade code → name maps from the HR Config Workbook. */
+async function loadConfigWorkbookMaps(): Promise<void> {
+  const clientId = process.env.GOOGLE_CLIENT_ID;
+  const clientSecret = process.env.GOOGLE_CLIENT_SECRET;
+  const refreshToken = process.env.GOOGLE_REFRESH_TOKEN;
+
+  if (!clientId || !clientSecret || !refreshToken) {
+    console.warn('  Google OAuth not configured — using fallback job/grade mappings');
+    return;
+  }
+
+  const CONFIG_SHEET_ID = '1eiejJ6p80kiI64KoAJO9pjuq5ZTOSF3RB-btWEjoGd8';
+  const tokenRes = await fetch('https://oauth2.googleapis.com/token', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: new URLSearchParams({
+      client_id: clientId, client_secret: clientSecret,
+      refresh_token: refreshToken, grant_type: 'refresh_token',
+    }),
+  });
+  const { access_token } = await tokenRes.json();
+  if (!access_token) {
+    console.warn('  Failed to get Google access token — using fallback mappings');
+    return;
+  }
+
+  // Fetch Job Codes tab
+  const jobRes = await fetch(
+    `https://sheets.googleapis.com/v4/spreadsheets/${CONFIG_SHEET_ID}/values/${encodeURIComponent('Job Codes')}?valueRenderOption=UNFORMATTED_VALUE`,
+    { headers: { Authorization: `Bearer ${access_token}` } }
+  );
+  if (jobRes.ok) {
+    const jobData = await jobRes.json();
+    for (const r of (jobData.values || [])) {
+      if (r.length > 3 && typeof r[1] === 'string' && typeof r[2] === 'string' &&
+          r[1] !== '*Name' && r[2] !== '*Job Code' && r[2]) {
+        jobCodeMap.set(r[2], r[1]);  // code → name
+      }
+    }
+    console.log(`  Loaded ${jobCodeMap.size} job code → name mappings from config workbook`);
+  }
+
+  // Fetch Grade tab
+  const gradeRes = await fetch(
+    `https://sheets.googleapis.com/v4/spreadsheets/${CONFIG_SHEET_ID}/values/${encodeURIComponent('Grade')}?valueRenderOption=UNFORMATTED_VALUE`,
+    { headers: { Authorization: `Bearer ${access_token}` } }
+  );
+  if (gradeRes.ok) {
+    const gradeData = await gradeRes.json();
+    for (const r of (gradeData.values || [])) {
+      if (typeof r[0] === 'number' && typeof r[2] === 'string' && r[2]) {
+        const name = r[2];
+        const code = r[3] || '';
+        if (code) gradeCodeMap.set(code, name);  // short code → full name
+      }
+    }
+    console.log(`  Loaded ${gradeCodeMap.size} grade code → name mappings from config workbook`);
+  }
+
+  // Fetch Departments tab
+  const deptRes = await fetch(
+    `https://sheets.googleapis.com/v4/spreadsheets/${CONFIG_SHEET_ID}/values/${encodeURIComponent('Departments')}?valueRenderOption=UNFORMATTED_VALUE`,
+    { headers: { Authorization: `Bearer ${access_token}` } }
+  );
+  if (deptRes.ok) {
+    const deptData = await deptRes.json();
+    for (const r of (deptData.values || [])) {
+      // Data rows: col 0 = effective date (number), col 3 = Department Name
+      if (r.length > 4 && typeof r[0] === 'number' && typeof r[3] === 'string' && r[3]) {
+        validDepartments.add(r[3]);
+      }
+    }
+    console.log(`  Loaded ${validDepartments.size} valid departments from config workbook`);
+  }
+}
+
+/** Load department mapping from FIXED_DEPARTMENT_ASSIGNMENTS_2025_12_18.
+ *  Maps old (granular) department names to new (consolidated) Oracle HCM departments.
+ *  Uses the most-common new department when an old dept maps to multiple. */
+async function loadDepartmentMapping(conn: oracledb.Connection): Promise<void> {
+  const result = await conn.execute<{ OLD_DEPARTMENT_NAME: string; NEW_DEPARTMENT_NAME: string; CNT: number }>(
+    `SELECT OLD_DEPARTMENT_NAME, NEW_DEPARTMENT_NAME, COUNT(*) as CNT
+     FROM FIXED_DEPARTMENT_ASSIGNMENTS_2025_12_18
+     WHERE OLD_DEPARTMENT_NAME IS NOT NULL AND NEW_DEPARTMENT_NAME IS NOT NULL
+     GROUP BY OLD_DEPARTMENT_NAME, NEW_DEPARTMENT_NAME
+     ORDER BY OLD_DEPARTMENT_NAME, CNT DESC`,
+    [],
+    { outFormat: oracledb.OUT_FORMAT_OBJECT }
+  );
+  for (const row of (result.rows || [])) {
+    // Only keep the first (most-common) mapping for each old dept
+    if (!departmentMap.has(row.OLD_DEPARTMENT_NAME)) {
+      departmentMap.set(row.OLD_DEPARTMENT_NAME, row.NEW_DEPARTMENT_NAME);
+    }
+  }
+  console.log(`  Loaded ${departmentMap.size} department old→new mappings from migration DB`);
 }
 
 function generateSSN(index: number): string {
@@ -743,11 +957,11 @@ function buildHireFields(
     'When': hireDate,
     'Legal Employer': asg.LEGAL_EMPLOYER || 'Campus Crusade for Christ, Inc.',
     "What's the way": 'Hire',
-    'Why': ACTION_REASON_MAP[asg.ACTION_REASON] || 'New Hire',
-    'Business Unit': asg.BUSINESS_UNIT_SHORT_CODE || 'Cru',
+    'Why': ACTION_REASON_MAP[asg.ACTION_REASON] || 'New Hire',  // Hire default
+    'Business Unit': resolveBusinessUnit(asg.BUSINESS_UNIT_SHORT_CODE),
     'Personal Details > Last Name - Use test case number': testId,
     'Personal Details > First Name- Use Status Description': scenario,
-    'Personal Details > Birthdate': dateToExcelSerial(person.DATE_OF_BIRTH),
+    'Personal Details > Birthdate': formatDate(person.DATE_OF_BIRTH),
     'Personal Details > National ID': generateSSN(index),
     'Personal Details > National ID Type': 'Social Security Number',
     'Legistlative > Gender': GENDER_MAP[person.GENDER] || 'Male',
@@ -759,10 +973,10 @@ function buildHireFields(
     'Addresses > County': 'COUNTY' in addrData ? (addrData as AddressRow).COUNTY : (addrData as typeof SAMPLE_ADDRESSES[0]).county,
     'Assignment > Assignment Status': ASSIGNMENT_STATUS_MAP[asg.ASSIGNMENT_STATUS] || 'Active - Payroll Eligible',
     'Assignment > Person Type': personType,
-    'Assignment > Job': asg.JOB || 'New Staff Raising Support',
-    'Assignment > Grade': asg.GRADE || 'Not Graded',
-    'Assignment > Department': asg.DEPARTMENT || 'Conversion Department',
-    'Assignment > Location': asg.LOCATION || 'CRU_HQ',
+    'Assignment > Job': resolveJobName(asg.JOB),
+    'Assignment > Grade': resolveGradeName(asg.GRADE),
+    'Assignment > Department': resolveDepartment(asg.DEPARTMENT),
+    'Assignment > Location': resolveLocation(asg.LOCATION),
     'Assignment > Assignment Category': ASSIGNMENT_CATEGORY_MAP[asg.ASSIGNMENT_CATEGORY] || 'Full-time regular',
     'Assignment > Reg/Temp': REG_TEMP_MAP[asg.PERMANENT_TEMPORARY] || 'Regular',
     'Assignment > Full time or Part Time': FULL_PART_MAP[asg.FULL_TIME_OR_PART_TIME] || 'Full Time',
@@ -809,10 +1023,10 @@ function buildAddPendingFields(
     'When and Why > Legal Employer': asg.LEGAL_EMPLOYER || 'Campus Crusade for Christ, Inc.',
     'When and Why > What': 'Add Pending Worker',
     'When and Why > Why': 'Future Hire',
-    'When and Why > Business Unit': asg.BUSINESS_UNIT_SHORT_CODE || 'Cru',
+    'When and Why > Business Unit': resolveBusinessUnit(asg.BUSINESS_UNIT_SHORT_CODE),
     'Personal Details > Last Name - Use test case number': testId,
     'Personal Details > First Name- Use Status Description': scenario,
-    'Personal Details > Birthdate': dateToExcelSerial(person.DATE_OF_BIRTH),
+    'Personal Details > Birthdate': formatDate(person.DATE_OF_BIRTH),
     'Personal Details > National ID Type': 'Social Security Number',
     'Personal Details > National ID': generateSSN(1000 + index),
     'Legistlative Details > Marital Status': MARITAL_MAP[person.MARITAL_STATUS] || 'Single',
@@ -820,10 +1034,10 @@ function buildAddPendingFields(
     'Assignment > Assignment Status': 'Pending - No Payroll',
     'Assignment > Person Type': asg.PERSON_TYPE || 'Pending Staff',
     'Assignment > Proposed Person type': (asg.PERSON_TYPE || 'Employee - Staff').replace('Pending - ', 'Employee - '),
-    'Assignment > Job': asg.JOB || 'New Staff Raising Support',
-    'Assignment > Grade': asg.GRADE || 'Not Graded',
-    'Assignment > Department': asg.DEPARTMENT || 'Campus Faculty Commons',
-    'Assignment > Location': asg.LOCATION || 'CRU HQ',
+    'Assignment > Job': resolveJobName(asg.JOB),
+    'Assignment > Grade': resolveGradeName(asg.GRADE),
+    'Assignment > Department': resolveDepartment(asg.DEPARTMENT, 'Campus Faculty Commons'),
+    'Assignment > Location': resolveLocation(asg.LOCATION),
     'Assignment > Assignment Category': ASSIGNMENT_CATEGORY_MAP[asg.ASSIGNMENT_CATEGORY] || 'Full-time regular',
     'Assignment > Reg/Temp': REG_TEMP_MAP[asg.PERMANENT_TEMPORARY] || 'Regular',
     'Assignment > Full time or Part Time': FULL_PART_MAP[asg.FULL_TIME_OR_PART_TIME] || 'Full time',
@@ -854,20 +1068,20 @@ function buildAddNonWorkerFields(
     'When and Why > When': futureDate(30 + index),
     'When and Why > What': 'Add Non Worker',
     'When and Why > Legal Employer': asg.LEGAL_EMPLOYER || 'Campus Crusade for Christ, Inc.',
-    'When and Why > Business Unit': asg.BUSINESS_UNIT_SHORT_CODE || 'Cru',
+    'When and Why > Business Unit': resolveBusinessUnit(asg.BUSINESS_UNIT_SHORT_CODE),
     'When and Why > Non Worker Type': 'Nonworker',
     'Personal Details > Last Name - Use test case number': testId,
     'Personal Details > First Name- Use Status Description': scenario,
-    'Personal Details > Birthdate': dateToExcelSerial(person.DATE_OF_BIRTH),
+    'Personal Details > Birthdate': formatDate(person.DATE_OF_BIRTH),
     'Personal Details > National ID Type': 'Social Security Number',
     'Personal Details > National ID': generateSSN(2000 + index),
     'Legistlative Details > Marital Status': MARITAL_MAP[person.MARITAL_STATUS] || 'Single',
     'Addresses > Address': 'Any valid address',
     'Assignment > Assignment Status': 'Pending - No Payroll',
     'Assignment > Person Type': personType,
-    'Assignment > Job': asg.JOB || 'N/A',
-    'Assignment > Department': asg.DEPARTMENT || 'Campus Faculty Commons',
-    'Assignment > Location': asg.LOCATION || 'CRU HQ',
+    'Assignment > Job': resolveJobName(asg.JOB),
+    'Assignment > Department': resolveDepartment(asg.DEPARTMENT, 'Campus Faculty Commons'),
+    'Assignment > Location': resolveLocation(asg.LOCATION),
     'Assignment > Assignment Category': ASSIGNMENT_CATEGORY_MAP[asg.ASSIGNMENT_CATEGORY] || 'Part-time regular',
     'Assignment > Reg/Temp': REG_TEMP_MAP[asg.PERMANENT_TEMPORARY] || 'Regular',
     'Assignment > Full time or Part Time': FULL_PART_MAP[asg.FULL_TIME_OR_PART_TIME] || 'Part time',
@@ -896,14 +1110,14 @@ function buildRehireFields(
     'Use Person > When': futureDate(30 + index),
     'Use Person > Legal Employer': asg.LEGAL_EMPLOYER || 'Campus Crusade for Christ, Inc.',
     "Use Person > What's the way": 'Rehire an Employee',
-    'Use Person > Why': ACTION_REASON_MAP[asg.ACTION_REASON] || '12MO_FT',
-    'Use Person > Business Unit': asg.BUSINESS_UNIT_SHORT_CODE || 'Cru',
+    'Use Person > Why': ACTION_REASON_MAP[asg.ACTION_REASON] || ACTION_REASON_MAP['12MO_FT'],
+    'Use Person > Business Unit': resolveBusinessUnit(asg.BUSINESS_UNIT_SHORT_CODE),
     'Assignment > Assignment Status': ASSIGNMENT_STATUS_MAP[asg.ASSIGNMENT_STATUS] || 'Active - Payroll Eligible',
     'Assignment > Person Type': personType,
-    'Assignment > Job': asg.JOB || 'Accountant',
-    'Assignment > Grade': asg.GRADE || 'Not Graded',
-    'Assignment > Department': asg.DEPARTMENT || 'Conversion Department',
-    'Assignment > Location': asg.LOCATION || 'Cru-HQ',
+    'Assignment > Job': resolveJobName(asg.JOB),
+    'Assignment > Grade': resolveGradeName(asg.GRADE),
+    'Assignment > Department': resolveDepartment(asg.DEPARTMENT),
+    'Assignment > Location': resolveLocation(asg.LOCATION),
     'Assignment > Work from Home': 'No',
     'Assignment > Assignment Category': ASSIGNMENT_CATEGORY_MAP[asg.ASSIGNMENT_CATEGORY] || 'Full-time regular',
     'Assignment > Reg/Temp': REG_TEMP_MAP[asg.PERMANENT_TEMPORARY] || 'Regular',
@@ -949,18 +1163,18 @@ function buildPendingToHireFields(
     'Legal Employer': asg.LEGAL_EMPLOYER || 'Campus Crusade for Christ, Inc.',
     "What's the way": 'Hire',
     'Why': 'New Hire',
-    'Business Unit': asg.BUSINESS_UNIT_SHORT_CODE || 'Cru',
+    'Business Unit': resolveBusinessUnit(asg.BUSINESS_UNIT_SHORT_CODE),
     'Personal Details > Last Name - Use test case number': testId,
     'Personal Details > First Name- Use Status Description': scenario,
-    'Personal Details > Birthdate': dateToExcelSerial(person.DATE_OF_BIRTH),
+    'Personal Details > Birthdate': formatDate(person.DATE_OF_BIRTH),
     'Personal Details > National ID': generateSSN(3000 + index),
     'Personal Details > National ID Type': 'Social Security Number',
     'Assignment > Assignment Status': ASSIGNMENT_STATUS_MAP[asg.ASSIGNMENT_STATUS] || 'Active - Payroll Eligible',
     'Assignment > Person Type': personType,
-    'Assignment > Job': asg.JOB || 'New Staff Raising Support',
-    'Assignment > Grade': asg.GRADE || 'Not Graded',
-    'Assignment > Department': asg.DEPARTMENT || 'Campus Ministry',
-    'Assignment > Location': asg.LOCATION || 'CRU HQ',
+    'Assignment > Job': resolveJobName(asg.JOB),
+    'Assignment > Grade': resolveGradeName(asg.GRADE),
+    'Assignment > Department': resolveDepartment(asg.DEPARTMENT, 'Campus Interim'),
+    'Assignment > Location': resolveLocation(asg.LOCATION),
     'Assignment > Assignment Category': ASSIGNMENT_CATEGORY_MAP[asg.ASSIGNMENT_CATEGORY] || 'Full-time regular',
     'Assignment > Reg/Temp': REG_TEMP_MAP[asg.PERMANENT_TEMPORARY] || 'Regular',
     'Assignment > Full time or Part Time': FULL_PART_MAP[asg.FULL_TIME_OR_PART_TIME] || 'Full Time',
@@ -1008,12 +1222,12 @@ function buildCreateWorkRelFields(
     'Worker Type': WORKER_TYPE_MAP[asg.WORKER_TYPE] || 'Non Worker',
     'Legal Employer': asg.LEGAL_EMPLOYER || 'Campus Crusade for Christ, Inc.',
     "What's the way": 'Create Work Relationship',
-    'Business Unit': asg.BUSINESS_UNIT_SHORT_CODE || 'Cru',
+    'Business Unit': resolveBusinessUnit(asg.BUSINESS_UNIT_SHORT_CODE),
     'Assignment > Person Type': asg.PERSON_TYPE || 'Non-worker - Staff',
     'Assignment > Assignment Status': ASSIGNMENT_STATUS_MAP[asg.ASSIGNMENT_STATUS] || 'Active - No Payroll',
-    'Assignment > Job': asg.JOB || 'N/A',
-    'Assignment > Department': asg.DEPARTMENT || 'Campus Faculty Commons',
-    'Assignment > Location': asg.LOCATION || 'CRU HQ',
+    'Assignment > Job': resolveJobName(asg.JOB),
+    'Assignment > Department': resolveDepartment(asg.DEPARTMENT, 'Campus Faculty Commons'),
+    'Assignment > Location': resolveLocation(asg.LOCATION),
     'Managers > Manager Type': 'Line Manager',
     'Payroll Details > Tax reporting Unit': asg.LEGAL_EMPLOYER || 'Campus Crusade for Christ, Inc.',
   };
@@ -1032,14 +1246,14 @@ function buildAssignmentChangeFields(
     'Person Number': person.PERSON_NUMBER,
     'When - Effective date': futureDate(14 + index),
     "What's the way": ACTION_MAP[asg.ACTION] || 'Assignment Change',
-    'Why': ACTION_REASON_MAP[asg.ACTION_REASON] || 'Status Change',
-    'Business Unit': asg.BUSINESS_UNIT_SHORT_CODE || 'Cru',
+    'Why': ACTION_REASON_MAP[asg.ACTION_REASON] || ACTION_REASON_MAP['STATUS_CHANGE'],
+    'Business Unit': resolveBusinessUnit(asg.BUSINESS_UNIT_SHORT_CODE),
     'Assignment > Assignment Status': ASSIGNMENT_STATUS_MAP[asg.ASSIGNMENT_STATUS] || 'Active - Payroll Eligible',
     'Assignment > Person Type': asg.PERSON_TYPE || 'Employee - Staff',
-    'Assignment > Job': asg.JOB || 'Field Staff',
-    'Assignment > Grade': asg.GRADE || 'Not Graded',
-    'Assignment > Department': asg.DEPARTMENT || 'Conversion Department',
-    'Assignment > Location': asg.LOCATION || 'CRU_HQ',
+    'Assignment > Job': resolveJobName(asg.JOB),
+    'Assignment > Grade': resolveGradeName(asg.GRADE),
+    'Assignment > Department': resolveDepartment(asg.DEPARTMENT),
+    'Assignment > Location': resolveLocation(asg.LOCATION),
   };
 
   return { testId, tab: 'Core - Assign Change/XFR', scenario, fields, columnIndex: index + 2 };
@@ -1053,7 +1267,7 @@ function buildTerminationFields(
     'Person Number': person.PERSON_NUMBER,
     'When - Effective date': futureDate(7 + index),
     "What's the way": 'Termination',
-    'Why': ACTION_REASON_MAP[asg.ACTION_REASON] || 'Personal',
+    'Why': ACTION_REASON_MAP[asg.ACTION_REASON] || ACTION_REASON_MAP['PERSONAL'],
   };
 
   return {
@@ -1072,7 +1286,7 @@ function buildPayrollFields(
   const fields: Record<string, string> = {
     'Starting point': scenario,
     'Search For': `${person.FIRST_NAME} ${person.LAST_NAME}`,
-    'Effective date': effectiveDate ? dateToExcelSerial(effectiveDate) : futureDate(30),
+    'Effective date': effectiveDate ? formatDate(effectiveDate) : futureDate(30),
     'Element name': elementName,
     'General Information > Separate Tax Code': 'Regular',
     'General Information > Reason': 'Migration test',
@@ -1175,7 +1389,7 @@ function buildBenefitsFields(
   if (asg) {
     fields['Assignment Category'] = ASSIGNMENT_CATEGORY_MAP[asg.ASSIGNMENT_CATEGORY] || 'Full-time regular';
     fields['Person Type'] = asg.PERSON_TYPE || 'Employee - Staff';
-    fields['Job'] = asg.JOB || '';
+    fields['Job'] = resolveJobName(asg.JOB);
   }
 
   const scenario = participant?.PLANNAME || 'Benefits Enrollment';
@@ -1247,9 +1461,9 @@ function buildCompensationFields(
   }
 
   if (asg) {
-    fields['Job'] = asg.JOB || '';
-    fields['Grade'] = asg.GRADE || '';
-    fields['Department'] = asg.DEPARTMENT || '';
+    fields['Job'] = resolveJobName(asg.JOB);
+    fields['Grade'] = resolveGradeName(asg.GRADE);
+    fields['Department'] = resolveDepartment(asg.DEPARTMENT, '');
     fields['Assignment Category'] = ASSIGNMENT_CATEGORY_MAP[asg.ASSIGNMENT_CATEGORY] || '';
   }
 
@@ -1270,8 +1484,8 @@ function buildJourneysFields(
 
   if (asg) {
     fields['Person Type'] = asg.PERSON_TYPE || '';
-    fields['Department'] = asg.DEPARTMENT || '';
-    fields['Job'] = asg.JOB || '';
+    fields['Department'] = resolveDepartment(asg.DEPARTMENT, '');
+    fields['Job'] = resolveJobName(asg.JOB);
     fields['Legal Employer'] = asg.LEGAL_EMPLOYER || 'Campus Crusade for Christ, Inc.';
   }
 
@@ -1317,7 +1531,7 @@ function buildSAAFields(
   if (asg) {
     fields['Person Type'] = asg.PERSON_TYPE || '';
     fields['Legal Employer'] = asg.LEGAL_EMPLOYER || 'Campus Crusade for Christ, Inc.';
-    fields['Department'] = asg.DEPARTMENT || '';
+    fields['Department'] = resolveDepartment(asg.DEPARTMENT, '');
   }
   return { testId, tab: 'SAA', scenario: 'SAA', fields, columnIndex: index + 2 };
 }
@@ -1331,7 +1545,7 @@ function buildSalaryChangeFields(
     'Person Number': person.PERSON_NUMBER,
     'When - Effective date': futureDate(14 + index),
     "What's the way": 'Change Salary',
-    'Why': 'Pay Adjustment',
+    'Why': ACTION_REASON_MAP['PAY_ADJUST'],
   };
   if (salary) {
     fields['Salary > Salary Basis'] = SALARY_BASIS_MAP[salary.SALARYBASISNAME] || salary.SALARYBASISNAME;
@@ -1372,9 +1586,9 @@ function buildLeaveFields(
     'When - Effective date': futureDate(14 + index),
     "What's the way": businessProcess.includes('Return') ? 'Return from Leave' :
       businessProcess.includes('Unpaid') ? 'Unpaid Leave' : 'Paid Leave',
-    'Why': businessProcess.includes('Sabbatical') ? 'Sabbatical' :
-      businessProcess.includes('Medical') ? 'Medical Leave' :
-      businessProcess.includes('Military') ? 'Military Leave' : 'Personal',
+    'Why': businessProcess.includes('Sabbatical') ? 'Paid 60-Day Sabbatical' :
+      businessProcess.includes('Medical') ? 'Paid Medical (non-FMLA)' :
+      businessProcess.includes('Military') ? 'Paid Military Service' : 'Personal Reasons',
   };
   if (asg) {
     fields['Person Type'] = asg.PERSON_TYPE || '';
@@ -1391,10 +1605,10 @@ function buildAdditionalAssignmentFields(
     'Person Number': person.PERSON_NUMBER,
     'When - Effective date': futureDate(14 + index),
     "What's the way": 'Add Assignment',
-    'Assignment > Job': asg.JOB || 'Field Staff',
-    'Assignment > Grade': asg.GRADE || 'Not Graded',
-    'Assignment > Department': asg.DEPARTMENT || 'Conversion Department',
-    'Assignment > Location': asg.LOCATION || 'CRU_HQ',
+    'Assignment > Job': resolveJobName(asg.JOB),
+    'Assignment > Grade': resolveGradeName(asg.GRADE),
+    'Assignment > Department': resolveDepartment(asg.DEPARTMENT),
+    'Assignment > Location': resolveLocation(asg.LOCATION),
     'Assignment > Assignment Category': ASSIGNMENT_CATEGORY_MAP[asg.ASSIGNMENT_CATEGORY] || 'Full-time regular',
     'Assignment > Full time or Part Time': FULL_PART_MAP[asg.FULL_TIME_OR_PART_TIME] || 'Full Time',
     'Assignment > Hourly Salary': HOURLY_SALARY_MAP[asg.HOURLY_PAID_OR_SALARIED] || 'Hourly',
@@ -1411,7 +1625,7 @@ function buildEndAdditionalJobFields(
     'Person Number': person.PERSON_NUMBER,
     'When - Effective date': futureDate(7 + index),
     "What's the way": 'End Assignment',
-    'Why': 'End Additional Job',
+    'Why': 'Planned End',
   };
   if (asg) {
     fields['Person Type'] = asg.PERSON_TYPE || '';
@@ -1439,7 +1653,7 @@ function buildPersonalInfoFields(
   const fields: Record<string, string> = {
     'Person Name': `${person.LAST_NAME}, ${person.FIRST_NAME}`,
     'Person Number': person.PERSON_NUMBER,
-    'Birthdate': dateToExcelSerial(person.DATE_OF_BIRTH),
+    'Birthdate': formatDate(person.DATE_OF_BIRTH),
     'Gender': GENDER_MAP[person.GENDER] || '',
     'Marital Status': MARITAL_MAP[person.MARITAL_STATUS] || '',
   };
@@ -1538,7 +1752,7 @@ function buildWorkforceStructureFields(
     'Effective Date': futureDate(index),
   };
   if (dept) {
-    fields['Department'] = dept.ORACLE_DEPARTMENT || '';
+    fields['Department'] = resolveDepartment(dept.ORACLE_DEPARTMENT, '');
     fields['Ministry'] = dept.MINISTRY || '';
     fields['Sub Ministry'] = dept.SUB_MINISTRY || '';
     fields['Description'] = dept.DEPT_DESCR || '';
@@ -1580,8 +1794,8 @@ function buildMinimalPersonFields(
   if (asg) {
     fields['Person Type'] = asg.PERSON_TYPE || '';
     fields['Legal Employer'] = asg.LEGAL_EMPLOYER || 'Campus Crusade for Christ, Inc.';
-    fields['Department'] = asg.DEPARTMENT || '';
-    fields['Job'] = asg.JOB || '';
+    fields['Department'] = resolveDepartment(asg.DEPARTMENT, '');
+    fields['Job'] = resolveJobName(asg.JOB);
   }
   return { testId, tab, scenario: tab, fields, columnIndex: index + 2 };
 }
@@ -1606,9 +1820,15 @@ async function generate(): Promise<void> {
     console.log(`  ${type}: ${cases.length} tests`);
   }
 
+  console.log('\nLoading HR Configuration Workbook maps (jobs, grades, departments)...');
+  await loadConfigWorkbookMaps();
+
   console.log('\nConnecting to migration database...');
   const conn = await getConnection();
   console.log('Connected.');
+
+  console.log('Loading department mapping from migration DB...');
+  await loadDepartmentMapping(conn);
 
   fs.mkdirSync(OUTPUT_DIR, { recursive: true });
 
