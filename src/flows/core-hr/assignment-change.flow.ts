@@ -485,11 +485,19 @@ export class AssignmentChangeFlow extends BaseCoreHRFlow {
     console.log(`[AssignChange] Filling LOV ${fieldName} = "${value}" (was "${originalValue}", adf=${originalAdfValue})`);
 
     try {
-      await this.person.fillLovField(locator, value);
+      // Cap each LOV fill at 20s to prevent slow Oracle JET responses from
+      // accumulating across many fields and hitting the 300s test timeout
+      await Promise.race([
+        this.person.fillLovField(locator, value),
+        new Promise<void>((_, reject) => setTimeout(() => reject(new Error(`${fieldName} fill timeout (20s)`)), 20000)),
+      ]);
       const afterValue = await locator.inputValue().catch(() => '');
       console.log(`[AssignChange] ${fieldName} after fill: "${afterValue}"`);
     } catch (err) {
       console.log(`[AssignChange] fillLovField failed for ${fieldName}: ${err}`);
+      // Clear any partial text to avoid Oracle validation errors on submit
+      await locator.press('Escape').catch(() => {});
+      await this.page.waitForTimeout(300);
     }
 
     // Check if the LOV actually resolved (ADF internal value should differ from display text)
@@ -538,7 +546,10 @@ export class AssignmentChangeFlow extends BaseCoreHRFlow {
       return;
     }
     try {
-      await this.person.fillCombobox(locator, value);
+      await Promise.race([
+        this.person.fillCombobox(locator, value),
+        new Promise<void>((_, reject) => setTimeout(() => reject(new Error(`${fieldName} readonly timeout (15s)`)), 15000)),
+      ]);
       const afterValue = await locator.inputValue().catch(() => '(no value)');
       console.log(`[AssignChange] ${fieldName} after set: "${afterValue}"`);
     } catch (err) {
