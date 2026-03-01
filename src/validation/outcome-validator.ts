@@ -1,8 +1,9 @@
 /**
  * OutcomeValidator — module-specific post-execution validation.
  *
- * Uses Oracle HCM REST API calls for data verification and UI fallbacks
- * where API endpoints are unavailable (e.g., benefitEnrollments returns 403).
+ * Uses Oracle HCM REST API calls (via Node.js https, not Playwright page.request)
+ * for data verification. All major endpoints are accessible with josh.starcher@cru.org
+ * credentials via Basic Auth through OWSM.
  *
  * Assertion errors (from expect()) propagate and fail the test.
  * API/network errors are logged as warnings and do not fail the test.
@@ -12,18 +13,14 @@ import type { UATTestCase, TestCase } from '../data/types';
 import { getFieldData } from '../data/uat-plan-provider';
 import { getField } from '../data/test-data-provider';
 import {
-  hcmGet,
   lookupPersonId,
   getWorkerFull,
-  getWorkerEmails,
-  lookupAbsences,
   lookupAbsencesByNumber,
-  lookupElementEntries,
   lookupElementEntriesByNumber,
-  type WorkerFullRecord,
-  type EmailRecord,
-  type AbsenceRecord,
-  type ElementEntryRecord,
+  lookupBenefitEnrollmentsByNumber,
+  lookupSalariesByNumber,
+  lookupTimeRecords,
+  lookupAllocatedChecklistsByNumber,
   type BasicAuthCredentials,
 } from '../../scripts/lib/hcm-rest-api';
 
@@ -33,8 +30,8 @@ export class OutcomeValidator {
 
   constructor(private page: Page) {
     this.baseUrl = process.env.ORACLE_HCM_URL || 'https://stafflife-icahjb-test.fa.ocs.oraclecloud.com';
-    // Use bot_hr_admin for API validation (has HR Specialist role for API access)
-    this.creds = { username: 'uat.bot_hr_admin', password: 'WinBuildSend!1951@cru' };
+    // OWSM requires email-format username for REST API Basic Auth
+    this.creds = { username: 'josh.starcher@cru.org', password: 'WinBuildSend!1951@cru' };
   }
 
   /**
@@ -49,14 +46,15 @@ export class OutcomeValidator {
       else if (module.includes('absence')) await this.validateAbsence(tc);
       else if (module.includes('benefits')) await this.validateBenefits(tc);
       else if (module.includes('payroll')) await this.validatePayroll(tc);
+      else if (module.includes('compensation')) await this.validateCompensation(tc);
       else if (module.includes('time')) await this.validateTimeLabor(tc);
+      else if (module.includes('journey')) await this.validateJourneys(tc);
       else if (module.includes('mpdx')) await this.validateMPDX(tc);
+      else if (module.includes('saa')) await this.validateSAA(tc);
       else await this.validateGeneric(tc);
     } catch (error) {
-      // Re-throw assertion errors (from expect()) — these are real validation failures
-      if (error instanceof Error && error.message.includes('expect')) throw error;
-      // Log API/network errors as warnings, don't fail the test
-      console.warn(`[OutcomeValidator] ${tc.testId}: API validation error: ${error}`);
+      // All errors should fail the test — no silent swallowing
+      throw error;
     }
   }
 
@@ -73,91 +71,81 @@ export class OutcomeValidator {
     } else if (bp.includes('document') || bp.includes('attachment')) {
       await this.validateDocumentAccess(tc);
     } else {
-      await this.verifyNoErrors();
+      // For assignment changes, personal info updates, etc. — verify worker exists
+      await this.validateWorkerExists(tc, fieldData);
     }
   }
 
-  /**
-   * Validate hire/add-pending/add-nonworker outcome.
-   * If field data exists, looks up the person via REST API and verifies creation.
-   */
   private async validateHireOutcome(tc: UATTestCase, fieldData: TestCase | undefined): Promise<void> {
     await this.verifyNoErrors();
-
-    if (!fieldData) return;
-
-    // Try to extract person number from the test data
-    const personNumber = getField(fieldData, 'person number') || getField(fieldData, 'personnumber');
-    if (!personNumber) {
-      console.log(`[OutcomeValidator] ${tc.testId}: No person number in field data, skipping API check`);
-      return;
-    }
-
-    const worker = await getWorkerFull(this.page, this.baseUrl, personNumber, this.creds);
-    if (!worker) {
-      console.log(`[OutcomeValidator] ${tc.testId}: Worker ${personNumber} not found via API (may be newly created)`);
-      return;
-    }
-
-    // Verify worker record exists
-    expect(worker.PersonNumber, `Worker ${personNumber} should exist`).toBe(personNumber);
-
-    // Verify work relationship exists
-    const workRels = worker.workRelationships || [];
-    if (workRels.length > 0) {
-      const primaryRel = workRels.find(wr => wr.PrimaryFlag) || workRels[0];
-      console.log(`[OutcomeValidator] ${tc.testId}: Worker ${personNumber} — ` +
-        `LegalEmployer: ${primaryRel.LegalEmployerName}, StartDate: ${primaryRel.StartDate}`);
-    }
-
-    // Verify email is provisioned (if worker has been fully hired)
-    const emails = worker.emails || [];
-    if (emails.length > 0) {
-      const cruEmail = emails.find(e => e.EmailAddress?.includes('@cru.org'));
-      if (cruEmail) {
-        console.log(`[OutcomeValidator] ${tc.testId}: Email provisioned: ${cruEmail.EmailAddress}`);
-      }
-    }
-  }
-
-  /**
-   * Validate termination outcome.
-   * Looks up person and verifies TerminationDate is set on a work relationship.
-   */
-  private async validateTermination(tc: UATTestCase, fieldData: TestCase | undefined): Promise<void> {
-    await this.verifyNoErrors();
-
     if (!fieldData) return;
 
     const personNumber = getField(fieldData, 'person number') || getField(fieldData, 'personnumber');
     if (!personNumber) return;
 
-    const worker = await getWorkerFull(this.page, this.baseUrl, personNumber, this.creds);
-    if (!worker) {
-      console.log(`[OutcomeValidator] ${tc.testId}: Worker ${personNumber} not found via API`);
-      return;
-    }
+    const worker = await getWorkerFull(null, this.baseUrl, personNumber, this.creds);
+    expect(worker, `${tc.testId}: Worker ${personNumber} should exist in HCM after hire`).toBeTruthy();
 
-    const workRels = worker.workRelationships || [];
-    const terminated = workRels.find(wr => wr.TerminationDate !== null);
-    if (terminated) {
-      console.log(`[OutcomeValidator] ${tc.testId}: Termination confirmed — ` +
-        `TerminationDate: ${terminated.TerminationDate}`);
+    expect(worker!.PersonNumber, `Worker ${personNumber} should exist`).toBe(personNumber);
+
+    const workRels = worker!.workRelationships || [];
+    expect(workRels.length, `${tc.testId}: Worker ${personNumber} should have at least one work relationship`).toBeGreaterThan(0);
+
+    const primaryRel = workRels.find(wr => wr.PrimaryFlag) || workRels[0];
+    console.log(`[OutcomeValidator] ${tc.testId}: Worker ${personNumber} — ` +
+      `LegalEmployer: ${primaryRel.LegalEmployerName}, StartDate: ${primaryRel.StartDate}`);
+
+    const emails = worker!.emails || [];
+    const cruEmail = emails.find(e => e.EmailAddress?.includes('@cru.org'));
+    if (cruEmail) {
+      console.log(`[OutcomeValidator] ${tc.testId}: Email provisioned: ${cruEmail.EmailAddress}`);
     } else {
-      console.log(`[OutcomeValidator] ${tc.testId}: No terminated work relationship found for ${personNumber}`);
+      console.log(`[OutcomeValidator] ${tc.testId}: WARNING — no @cru.org email found. Emails: ${emails.map(e => e.EmailAddress).join(', ') || '(none)'}`);
     }
   }
 
-  /**
-   * Validate document management access — UI-only check.
-   */
+  private async validateTermination(tc: UATTestCase, fieldData: TestCase | undefined): Promise<void> {
+    await this.verifyNoErrors();
+    if (!fieldData) return;
+
+    const personNumber = getField(fieldData, 'person number') || getField(fieldData, 'personnumber');
+    if (!personNumber) return;
+
+    const worker = await getWorkerFull(null, this.baseUrl, personNumber, this.creds);
+    expect(worker, `${tc.testId}: Worker ${personNumber} should exist in HCM`).toBeTruthy();
+
+    const workRels = worker!.workRelationships || [];
+    const terminated = workRels.find(wr => wr.TerminationDate !== null);
+    expect(
+      terminated,
+      `${tc.testId}: Worker ${personNumber} should have a terminated work relationship, ` +
+        `but found ${workRels.length} work relationship(s) with no TerminationDate set`,
+    ).toBeTruthy();
+
+    console.log(`[OutcomeValidator] ${tc.testId}: Termination confirmed — ` +
+      `TerminationDate: ${terminated!.TerminationDate}`);
+  }
+
   private async validateDocumentAccess(tc: UATTestCase): Promise<void> {
     await this.verifyNoErrors();
-
     const docSection = this.page.locator('text=Document Records, text=Documents, text=Attachments').first();
     const visible = await docSection.isVisible({ timeout: 5000 }).catch(() => false);
     if (visible) {
       console.log(`[OutcomeValidator] ${tc.testId}: Document section visible`);
+    }
+  }
+
+  /** Verify worker record exists via API (for assignment changes, personal info, etc.) */
+  private async validateWorkerExists(tc: UATTestCase, fieldData: TestCase | undefined): Promise<void> {
+    await this.verifyNoErrors();
+    if (!fieldData) return;
+
+    const personNumber = getField(fieldData, 'person number') || getField(fieldData, 'personnumber');
+    if (!personNumber) return;
+
+    const worker = await getWorkerFull(null, this.baseUrl, personNumber, this.creds);
+    if (worker) {
+      console.log(`[OutcomeValidator] ${tc.testId}: Worker ${personNumber} verified (${worker.DisplayName || 'no name'})`);
     }
   }
 
@@ -172,66 +160,86 @@ export class OutcomeValidator {
     } else if (bp.includes('approval') || bp.includes('approve')) {
       await this.validateAbsenceApproval(tc, fieldData);
     } else {
-      await this.verifyNoErrors();
+      await this.validateAbsenceGeneric(tc, fieldData);
     }
   }
 
-  /**
-   * Validate absence submission — checks that an absence record exists via API.
-   */
   private async validateAbsenceSubmission(tc: UATTestCase, fieldData: TestCase | undefined): Promise<void> {
     await this.verifyNoErrors();
-
     if (!fieldData) return;
 
     const personNumber = getField(fieldData, 'person number') || getField(fieldData, 'personnumber');
     if (!personNumber) return;
 
-    const absences = await lookupAbsencesByNumber(this.page, this.baseUrl, personNumber, this.creds);
-    if (absences.length > 0) {
-      const latest = absences[absences.length - 1];
-      console.log(`[OutcomeValidator] ${tc.testId}: Absence found — ` +
-        `status: ${latest.absenceStatusCd}, approval: ${latest.approvalStatusCd}, ` +
-        `${latest.startDate} to ${latest.endDate}`);
-    } else {
-      console.log(`[OutcomeValidator] ${tc.testId}: No absences found for person ${personNumber}`);
-    }
+    const absences = await lookupAbsencesByNumber(null, this.baseUrl, personNumber, this.creds);
+    expect(
+      absences.length,
+      `${tc.testId}: Expected at least one absence record for person ${personNumber} after submission`,
+    ).toBeGreaterThan(0);
+
+    const latest = absences[absences.length - 1];
+    console.log(`[OutcomeValidator] ${tc.testId}: Absence found — ` +
+      `status: ${latest.absenceStatusCd}, approval: ${latest.approvalStatusCd}, ` +
+      `${latest.startDate} to ${latest.endDate}`);
   }
 
-  /**
-   * Validate absence approval — checks approval status via API.
-   */
   private async validateAbsenceApproval(tc: UATTestCase, fieldData: TestCase | undefined): Promise<void> {
     await this.verifyNoErrors();
-
     if (!fieldData) return;
 
     const personNumber = getField(fieldData, 'person number') || getField(fieldData, 'personnumber');
     if (!personNumber) return;
 
-    const absences = await lookupAbsencesByNumber(this.page, this.baseUrl, personNumber, this.creds);
+    const absences = await lookupAbsencesByNumber(null, this.baseUrl, personNumber, this.creds);
     const approved = absences.filter(a => a.approvalStatusCd === 'APPROVED');
-    if (approved.length > 0) {
-      console.log(`[OutcomeValidator] ${tc.testId}: ${approved.length} approved absence(s) for ${personNumber}`);
-    } else {
-      console.log(`[OutcomeValidator] ${tc.testId}: No approved absences found for ${personNumber}`);
-    }
+    expect(
+      approved.length,
+      `${tc.testId}: Expected at least one APPROVED absence for person ${personNumber}, ` +
+        `but found statuses: ${absences.map(a => `${a.absenceStatusCd}/${a.approvalStatusCd}`).join(', ') || '(none)'}`,
+    ).toBeGreaterThan(0);
+
+    console.log(`[OutcomeValidator] ${tc.testId}: ${approved.length} approved absence(s) for ${personNumber}`);
+  }
+
+  private async validateAbsenceGeneric(tc: UATTestCase, fieldData: TestCase | undefined): Promise<void> {
+    await this.verifyNoErrors();
+    if (!fieldData) return;
+
+    const personNumber = getField(fieldData, 'person number') || getField(fieldData, 'personnumber');
+    if (!personNumber) return;
+
+    const absences = await lookupAbsencesByNumber(null, this.baseUrl, personNumber, this.creds);
+    expect(
+      absences.length,
+      `${tc.testId}: Expected at least one absence record for person ${personNumber}`,
+    ).toBeGreaterThan(0);
+
+    console.log(`[OutcomeValidator] ${tc.testId}: ${absences.length} absence record(s) for ${personNumber}`);
   }
 
   // ── Benefits ─────────────────────────────────────────────────────────
 
   /**
-   * Validate benefits — UI-based since benefitEnrollments API returns 403.
+   * Validate benefits — now uses benefitEnrollments API (previously returned 403).
    */
   private async validateBenefits(tc: UATTestCase): Promise<void> {
     await this.verifyNoErrors();
+    const fieldData = getFieldData(tc.testId);
+    if (!fieldData) return;
 
-    // Check for plan-level indicators in the UI
-    const planSummary = this.page.locator('[class*="plan"], [class*="enrollment"], [class*="benefit"]').first();
-    const visible = await planSummary.isVisible({ timeout: 5000 }).catch(() => false);
-    if (visible) {
-      console.log(`[OutcomeValidator] ${tc.testId}: Benefits plan summary visible`);
-    }
+    const personNumber = getField(fieldData, 'person number') || getField(fieldData, 'personnumber');
+    if (!personNumber) return;
+
+    const enrollments = await lookupBenefitEnrollmentsByNumber(null, this.baseUrl, personNumber, this.creds);
+    expect(
+      enrollments.length,
+      `${tc.testId}: Expected at least one benefit enrollment for person ${personNumber}`,
+    ).toBeGreaterThan(0);
+
+    console.log(`[OutcomeValidator] ${tc.testId}: ${enrollments.length} benefit enrollment(s) for ${personNumber}`);
+    const first = enrollments[0];
+    console.log(`[OutcomeValidator] ${tc.testId}: First enrollment — ` +
+      `coverage: ${first.EnrollmentCoverageStartDate} to ${first.EnrollmentCoverageEndDate}`);
   }
 
   // ── Payroll ──────────────────────────────────────────────────────────
@@ -239,9 +247,6 @@ export class OutcomeValidator {
   private async validatePayroll(tc: UATTestCase): Promise<void> {
     const fieldData = getFieldData(tc.testId);
 
-    // All payroll tests with field data containing element entry fields
-    // (108 of 113) should be validated via the element entry API, regardless
-    // of their business process name.
     if (fieldData) {
       const hasElementFields = Boolean(
         getField(fieldData, 'Search For') && getField(fieldData, 'Element name')
@@ -252,76 +257,135 @@ export class OutcomeValidator {
       }
     }
 
-    // Non-element-entry payroll tests (leave, hire, configuration) — UI check only
     await this.verifyNoErrors();
   }
 
-  /**
-   * Validate element entry creation via API.
-   * Looks up person by number and checks that element entries exist.
-   * Also verifies the effective date matches if field data provides one.
-   */
   private async validateElementEntry(tc: UATTestCase, fieldData: TestCase | undefined): Promise<void> {
     await this.verifyNoErrors();
-
     if (!fieldData) return;
 
     const personNumber = getField(fieldData, 'person number') || getField(fieldData, 'personnumber');
-    const searchFor = getField(fieldData, 'Search For');
+    if (!personNumber) return;
 
-    // Try personNumber first; if not available, we can't do API validation
-    if (!personNumber) {
-      if (searchFor) {
-        console.log(`[OutcomeValidator] ${tc.testId}: Has Search For="${searchFor}" but no person number — skipping API check`);
-      }
-      return;
-    }
+    const entries = await lookupElementEntriesByNumber(null, this.baseUrl, personNumber, this.creds);
+    expect(
+      entries.length,
+      `${tc.testId}: Expected at least one element entry for person ${personNumber}`,
+    ).toBeGreaterThan(0);
 
-    const entries = await lookupElementEntriesByNumber(this.page, this.baseUrl, personNumber, this.creds);
-    if (entries.length > 0) {
-      const elementName = getField(fieldData, 'Element name');
-      // Check if the expected element exists in the person's entries
-      if (elementName) {
-        const matching = entries.filter(e =>
-          String(e.ElementName || '').toLowerCase().includes(elementName.toLowerCase())
-        );
-        if (matching.length > 0) {
-          console.log(`[OutcomeValidator] ${tc.testId}: Element "${elementName}" found (${matching.length} entries) for ${personNumber}`);
-        } else {
-          console.log(`[OutcomeValidator] ${tc.testId}: Element "${elementName}" NOT found among ${entries.length} entries for ${personNumber}`);
-        }
-      } else {
-        console.log(`[OutcomeValidator] ${tc.testId}: ${entries.length} element entry(ies) found for ${personNumber}`);
-      }
+    const elementName = getField(fieldData, 'Element name');
+    if (elementName) {
+      const matching = entries.filter(e =>
+        String(e.ElementName || '').toLowerCase().includes(elementName.toLowerCase())
+      );
+      expect(
+        matching.length,
+        `${tc.testId}: Expected element "${elementName}" for person ${personNumber}, ` +
+          `but found ${entries.length} entries with no match`,
+      ).toBeGreaterThan(0);
+
+      console.log(`[OutcomeValidator] ${tc.testId}: Element "${elementName}" found (${matching.length} entries) for ${personNumber}`);
     } else {
-      console.log(`[OutcomeValidator] ${tc.testId}: No element entries found for ${personNumber}`);
+      console.log(`[OutcomeValidator] ${tc.testId}: ${entries.length} element entry(ies) found for ${personNumber}`);
     }
+  }
+
+  // ── Compensation ───────────────────────────────────────────────────
+
+  /**
+   * Validate compensation — now uses salaries API (previously returned 403).
+   */
+  private async validateCompensation(tc: UATTestCase): Promise<void> {
+    await this.verifyNoErrors();
+    const fieldData = getFieldData(tc.testId);
+    if (!fieldData) return;
+
+    const personNumber = getField(fieldData, 'person number') || getField(fieldData, 'personnumber');
+    if (!personNumber) return;
+
+    const salaries = await lookupSalariesByNumber(null, this.baseUrl, personNumber, this.creds);
+    expect(
+      salaries.length,
+      `${tc.testId}: Expected at least one salary record for person ${personNumber}`,
+    ).toBeGreaterThan(0);
+
+    const latest = salaries[salaries.length - 1];
+    console.log(`[OutcomeValidator] ${tc.testId}: Salary found — ` +
+      `${latest.CurrencyCode} ${latest.SalaryAmount}, from: ${latest.DateFrom}`);
   }
 
   // ── Time & Labor ─────────────────────────────────────────────────────
 
   /**
-   * Validate Time & Labor — UI-only since timecards API returns 403.
+   * Validate Time & Labor — now uses timeRecordGroups API (previously returned 403).
    */
   private async validateTimeLabor(tc: UATTestCase): Promise<void> {
     await this.verifyNoErrors();
+    const fieldData = getFieldData(tc.testId);
+    if (!fieldData) return;
+
+    const personNumber = getField(fieldData, 'person number') || getField(fieldData, 'personnumber');
+    if (!personNumber) return;
+
+    const records = await lookupTimeRecords(null, this.baseUrl, personNumber, undefined, undefined, this.creds);
+    expect(
+      records.length,
+      `${tc.testId}: Expected at least one time record for person ${personNumber}`,
+    ).toBeGreaterThan(0);
+
+    const latest = records[records.length - 1];
+    console.log(`[OutcomeValidator] ${tc.testId}: ${records.length} time record group(s) for ${personNumber} — ` +
+      `latest: ${latest.startTime} to ${latest.stopTime}, type: ${latest.groupType}`);
+  }
+
+  // ── Journeys ─────────────────────────────────────────────────────────
+
+  /**
+   * Validate Journeys — now uses allocatedChecklists API (previously returned 403).
+   */
+  private async validateJourneys(tc: UATTestCase): Promise<void> {
+    await this.verifyNoErrors();
+    const fieldData = getFieldData(tc.testId);
+    if (!fieldData) return;
+
+    const personNumber = getField(fieldData, 'person number') || getField(fieldData, 'personnumber');
+    if (!personNumber) return;
+
+    const checklists = await lookupAllocatedChecklistsByNumber(null, this.baseUrl, personNumber, this.creds);
+    expect(
+      checklists.length,
+      `${tc.testId}: Expected at least one journey checklist for person ${personNumber}`,
+    ).toBeGreaterThan(0);
+
+    const latest = checklists[checklists.length - 1];
+    console.log(`[OutcomeValidator] ${tc.testId}: ${checklists.length} journey checklist(s) — ` +
+      `"${latest.ChecklistName}" — status: ${latest.ChecklistStatus}`);
   }
 
   // ── MPDX ───────────────────────────────────────────────────────────
 
   /**
-   * Validate MPDX operations — UI-based checks for Scheduled Processes completion.
-   * MPDX operations (Salary Calc, MHA Calc, MPD Goals) run via Scheduled Processes,
-   * so we check the page for success/completion indicators.
-   * TODO: Add REST API validation for salary amounts if hcmGet endpoints become available.
+   * Validate MPDX — salary API for salary calc results + UI for process status.
    */
   private async validateMPDX(tc: UATTestCase): Promise<void> {
     await this.verifyNoErrors();
+    const fieldData = getFieldData(tc.testId);
 
-    // Check for Scheduled Processes result indicators
-    const successIndicators = [
-      'Succeeded', 'Completed', 'submitted', 'Running', 'Pending', 'Ready',
-    ];
+    // Try salary API validation if person number available
+    if (fieldData) {
+      const personNumber = getField(fieldData, 'person number') || getField(fieldData, 'personnumber');
+      if (personNumber) {
+        const salaries = await lookupSalariesByNumber(null, this.baseUrl, personNumber, this.creds);
+        if (salaries.length > 0) {
+          const latest = salaries[salaries.length - 1];
+          console.log(`[OutcomeValidator] ${tc.testId}: MPDX salary — ${latest.CurrencyCode} ${latest.SalaryAmount}`);
+          return;
+        }
+      }
+    }
+
+    // Fallback: UI check for Scheduled Processes completion
+    const successIndicators = ['Succeeded', 'Completed', 'submitted', 'Running', 'Pending', 'Ready'];
     for (const indicator of successIndicators) {
       const el = this.page.getByText(indicator, { exact: false }).first();
       const visible = await el.isVisible({ timeout: 2000 }).catch(() => false);
@@ -330,25 +394,41 @@ export class OutcomeValidator {
         return;
       }
     }
+    console.log(`[OutcomeValidator] ${tc.testId}: No MPDX validation data found`);
+  }
 
-    console.log(`[OutcomeValidator] ${tc.testId}: No explicit MPDX process status found (flow-level check may have passed)`);
+  // ── SAA ────────────────────────────────────────────────────────────
+
+  /**
+   * Validate SAA — salary + approval data via API.
+   */
+  private async validateSAA(tc: UATTestCase): Promise<void> {
+    await this.verifyNoErrors();
+    const fieldData = getFieldData(tc.testId);
+    if (!fieldData) return;
+
+    const personNumber = getField(fieldData, 'person number') || getField(fieldData, 'personnumber');
+    if (!personNumber) return;
+
+    // Check salary records (SAA is salary approval)
+    const salaries = await lookupSalariesByNumber(null, this.baseUrl, personNumber, this.creds);
+    expect(
+      salaries.length,
+      `${tc.testId}: Expected at least one salary record for person ${personNumber} (SAA)`,
+    ).toBeGreaterThan(0);
+
+    const latest = salaries[salaries.length - 1];
+    console.log(`[OutcomeValidator] ${tc.testId}: SAA salary — ${latest.CurrencyCode} ${latest.SalaryAmount}, from: ${latest.DateFrom}`);
   }
 
   // ── Generic ──────────────────────────────────────────────────────────
 
-  /**
-   * Generic validation — verify no error banners on the page.
-   */
   private async validateGeneric(tc: UATTestCase): Promise<void> {
     await this.verifyNoErrors();
   }
 
   // ── Helpers ──────────────────────────────────────────────────────────
 
-  /**
-   * Check for common Oracle HCM error indicators on the page.
-   * Throws if an error banner/message is visible.
-   */
   private async verifyNoErrors(): Promise<void> {
     const errorSelectors = [
       '.af_message_error',

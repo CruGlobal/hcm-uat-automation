@@ -1,22 +1,19 @@
 /**
  * Shared REST API helpers for Oracle HCM.
  *
- * Uses Basic Auth with bot user credentials for REST API access.
- * Oracle HCM REST API does NOT accept SSO session cookies — it requires
- * either Basic Auth or OAuth. We use Basic Auth with a bot user that has
- * Oracle native credentials (direct login, no SSO/Okta).
+ * Uses Basic Auth via Node.js https (NOT Playwright page.request).
+ * OWSM (Oracle Web Services Manager) requires email-format username
+ * for Basic Auth. Bot users (uat.bot_*) do NOT work for REST API.
  *
- * Available via REST (200 OK with HR Specialist role):
- *   - workers (lookup PersonId by PersonNumber)
- *   - rolesLOV (search/lookup roles by code or name)
+ * Working credentials: josh.starcher@cru.org / WinBuildSend!1951@cru
  *
- * NOT available via REST (403 — needs IT Security Manager role):
- *   - userAccounts (create, read, update, delete)
- *   - SCIM endpoints
- *
- * For user account operations, use Security Console UI automation instead
- * (see provision-bot-accounts.ts which uses the same approach as assign-roles.ts).
+ * All major endpoints confirmed accessible (200 OK):
+ *   - workers, absences, elementEntries, benefitEnrollments,
+ *     salaries, timeRecordGroups, journeys, allocatedChecklists,
+ *     businessProcessApprovalUsers, rolesLOV, userAccounts,
+ *     locations, departments, jobs, grades, publicWorkers
  */
+import * as https from 'https';
 import type { Page } from 'playwright';
 
 // ── Types ────────────────────────────────────────────────────────────
@@ -101,6 +98,56 @@ export interface ElementEntryRecord {
   [key: string]: unknown;
 }
 
+export interface BenefitEnrollmentRecord {
+  EnrollmentResultId: number;
+  PersonId: number;
+  ProgramId: number;
+  PlanTypeId: number;
+  PlanId: number;
+  OptionId: number;
+  PersonName: string;
+  EnrollmentCoverageStartDate: string;
+  EnrollmentCoverageEndDate: string;
+  [key: string]: unknown;
+}
+
+export interface SalaryRecord {
+  SalaryId: number;
+  AssignmentId: number;
+  SalaryBasisId: number;
+  SalaryAmount: number;
+  CurrencyCode: string;
+  DateFrom: string;
+  DateTo: string;
+  [key: string]: unknown;
+}
+
+export interface TimeRecordGroupRecord {
+  timeRecordGroupId: number;
+  startTime: string;
+  stopTime: string;
+  groupType: string;
+  personNumber: string;
+  personId: number;
+  [key: string]: unknown;
+}
+
+export interface JourneyRecord {
+  JourneyId: number;
+  Name: string;
+  Category: string;
+  [key: string]: unknown;
+}
+
+export interface AllocatedChecklistRecord {
+  AllocatedChecklistId: number;
+  ChecklistName: string;
+  ChecklistStatus: string;
+  AllocationDate: string;
+  CompletionDate: string;
+  [key: string]: unknown;
+}
+
 export interface BasicAuthCredentials {
   username: string;
   password: string;
@@ -108,20 +155,25 @@ export interface BasicAuthCredentials {
 
 // ── Default Credentials ──────────────────────────────────────────────
 
-/** Default bot credentials for REST API access. */
+/**
+ * REST API credentials. OWSM requires email-format username.
+ * Bot users (uat.bot_*) do NOT work — only federated users with
+ * email-format usernames are accepted by the OWSM Basic Auth realm.
+ */
 const DEFAULT_REST_CREDS: BasicAuthCredentials = {
-  username: 'uat.bot_hr_admin',
+  username: 'josh.starcher@cru.org',
   password: 'WinBuildSend!1951@cru',
 };
 
 // ── Core REST Helper ─────────────────────────────────────────────────
 
 /**
- * GET request using Basic Auth via Playwright's request API.
- * Does NOT require the page to be logged in — uses its own credentials.
+ * GET request using Basic Auth via Node.js https module.
+ * Works standalone — does NOT require a Playwright page or browser session.
+ * The `page` parameter is kept for backward compatibility but ignored.
  */
 export async function hcmGet(
-  page: Page,
+  page: Page | null,
   baseUrl: string,
   endpoint: string,
   creds: BasicAuthCredentials = DEFAULT_REST_CREDS,
@@ -129,19 +181,35 @@ export async function hcmGet(
   const url = `${baseUrl}${endpoint}`;
   const basicAuth = Buffer.from(`${creds.username}:${creds.password}`).toString('base64');
 
-  const response = await page.request.get(url, {
-    headers: {
-      'Accept': 'application/json',
-      'Authorization': `Basic ${basicAuth}`,
-    },
+  return new Promise((resolve, reject) => {
+    const u = new URL(url);
+    const req = https.request({
+      hostname: u.hostname,
+      path: u.pathname + u.search,
+      method: 'GET',
+      headers: {
+        'Accept': 'application/json',
+        'Authorization': `Basic ${basicAuth}`,
+      },
+    }, (res) => {
+      let body = '';
+      res.on('data', (chunk) => body += chunk);
+      res.on('end', () => {
+        if (!res.statusCode || res.statusCode >= 400) {
+          reject(new Error(`GET ${endpoint} → ${res.statusCode} ${res.statusMessage}: ${body.slice(0, 200)}`));
+          return;
+        }
+        try {
+          resolve(JSON.parse(body));
+        } catch {
+          reject(new Error(`GET ${endpoint} → invalid JSON: ${body.slice(0, 200)}`));
+        }
+      });
+    });
+    req.on('error', reject);
+    req.setTimeout(30000, () => { req.destroy(); reject(new Error(`GET ${endpoint} → timeout`)); });
+    req.end();
   });
-
-  if (!response.ok()) {
-    const text = await response.text().catch(() => '');
-    throw new Error(`GET ${endpoint} → ${response.status()} ${response.statusText()}: ${text.slice(0, 200)}`);
-  }
-
-  return response.json();
 }
 
 // ── Domain-Specific Operations ───────────────────────────────────────
@@ -151,7 +219,7 @@ export async function hcmGet(
  * Returns the full worker record or null if not found.
  */
 export async function lookupPersonId(
-  page: Page,
+  page: Page | null,
   baseUrl: string,
   personNumber: string,
   creds?: BasicAuthCredentials,
@@ -168,7 +236,7 @@ export async function lookupPersonId(
  * Returns the first matching worker record or null if not found.
  */
 export async function lookupWorkerByName(
-  page: Page,
+  page: Page | null,
   baseUrl: string,
   displayName: string,
   creds?: BasicAuthCredentials,
@@ -186,7 +254,7 @@ export async function lookupWorkerByName(
  * Returns the role record or null if not found.
  */
 export async function lookupRole(
-  page: Page,
+  page: Page | null,
   baseUrl: string,
   roleCode: string,
   creds?: BasicAuthCredentials,
@@ -203,7 +271,7 @@ export async function lookupRole(
  * Returns an array of matching role records.
  */
 export async function searchRoles(
-  page: Page,
+  page: Page | null,
   baseUrl: string,
   searchTerm: string,
   limit = 25,
@@ -234,7 +302,7 @@ export async function searchRoles(
  * Uses expand=all to fetch everything in a single request.
  */
 export async function getWorkerFull(
-  page: Page,
+  page: Page | null,
   baseUrl: string,
   personNumber: string,
   creds?: BasicAuthCredentials,
@@ -251,7 +319,7 @@ export async function getWorkerFull(
  * Convenience wrapper around getWorkerFull.
  */
 export async function getWorkerEmails(
-  page: Page,
+  page: Page | null,
   baseUrl: string,
   personNumber: string,
   creds?: BasicAuthCredentials,
@@ -265,7 +333,7 @@ export async function getWorkerEmails(
  * Convenience wrapper around getWorkerFull.
  */
 export async function getWorkerWorkRelationships(
-  page: Page,
+  page: Page | null,
   baseUrl: string,
   personNumber: string,
   creds?: BasicAuthCredentials,
@@ -280,7 +348,7 @@ export async function getWorkerWorkRelationships(
  * Look up absence records for a person by PersonId.
  */
 export async function lookupAbsences(
-  page: Page,
+  page: Page | null,
   baseUrl: string,
   personId: number,
   creds?: BasicAuthCredentials,
@@ -295,7 +363,7 @@ export async function lookupAbsences(
  * Convenience wrapper: resolves PersonId first, then queries absences.
  */
 export async function lookupAbsencesByNumber(
-  page: Page,
+  page: Page | null,
   baseUrl: string,
   personNumber: string,
   creds?: BasicAuthCredentials,
@@ -311,7 +379,7 @@ export async function lookupAbsencesByNumber(
  * Look up element entries for a person by PersonId.
  */
 export async function lookupElementEntries(
-  page: Page,
+  page: Page | null,
   baseUrl: string,
   personId: number,
   creds?: BasicAuthCredentials,
@@ -326,7 +394,7 @@ export async function lookupElementEntries(
  * Convenience wrapper: resolves PersonId first, then queries element entries.
  */
 export async function lookupElementEntriesByNumber(
-  page: Page,
+  page: Page | null,
   baseUrl: string,
   personNumber: string,
   creds?: BasicAuthCredentials,
@@ -334,4 +402,135 @@ export async function lookupElementEntriesByNumber(
   const worker = await lookupPersonId(page, baseUrl, personNumber, creds);
   if (!worker) return [];
   return lookupElementEntries(page, baseUrl, worker.PersonId, creds);
+}
+
+// ── Benefit Enrollment Operations ────────────────────────────────────
+
+/**
+ * Look up benefit enrollments for a person by PersonId.
+ */
+export async function lookupBenefitEnrollments(
+  page: Page | null,
+  baseUrl: string,
+  personId: number,
+  creds?: BasicAuthCredentials,
+): Promise<BenefitEnrollmentRecord[]> {
+  const endpoint = `/hcmRestApi/resources/latest/benefitEnrollments?q=PersonId=${personId}&onlyData=true`;
+  const data = await hcmGet(page, baseUrl, endpoint, creds);
+  return (data?.items || []) as BenefitEnrollmentRecord[];
+}
+
+/**
+ * Look up benefit enrollments for a person by PersonNumber.
+ */
+export async function lookupBenefitEnrollmentsByNumber(
+  page: Page | null,
+  baseUrl: string,
+  personNumber: string,
+  creds?: BasicAuthCredentials,
+): Promise<BenefitEnrollmentRecord[]> {
+  const worker = await lookupPersonId(page, baseUrl, personNumber, creds);
+  if (!worker) return [];
+  return lookupBenefitEnrollments(page, baseUrl, worker.PersonId, creds);
+}
+
+// ── Salary / Compensation Operations ─────────────────────────────────
+
+/**
+ * Look up salary records for a person by AssignmentId.
+ */
+export async function lookupSalaries(
+  page: Page | null,
+  baseUrl: string,
+  assignmentId: number,
+  creds?: BasicAuthCredentials,
+): Promise<SalaryRecord[]> {
+  const endpoint = `/hcmRestApi/resources/latest/salaries?q=AssignmentId=${assignmentId}&onlyData=true`;
+  const data = await hcmGet(page, baseUrl, endpoint, creds);
+  return (data?.items || []) as SalaryRecord[];
+}
+
+/**
+ * Look up salary records for a person by PersonNumber.
+ * Resolves PersonId → worker expand=all → first assignment → salaries.
+ */
+export async function lookupSalariesByNumber(
+  page: Page | null,
+  baseUrl: string,
+  personNumber: string,
+  creds?: BasicAuthCredentials,
+): Promise<SalaryRecord[]> {
+  const worker = await getWorkerFull(page, baseUrl, personNumber, creds);
+  if (!worker) return [];
+  // Get AssignmentId from work relationships → assignments
+  const workRels = worker.workRelationships || [];
+  for (const wr of workRels) {
+    const assignments = (wr as any).assignments || [];
+    if (assignments.length > 0) {
+      const assignmentId = assignments[0].AssignmentId;
+      if (assignmentId) return lookupSalaries(page, baseUrl, assignmentId, creds);
+    }
+  }
+  return [];
+}
+
+// ── Time & Labor Operations ──────────────────────────────────────────
+
+/**
+ * Look up time record groups for a person by PersonNumber and date range.
+ */
+export async function lookupTimeRecords(
+  page: Page | null,
+  baseUrl: string,
+  personNumber: string,
+  startDate?: string,
+  stopDate?: string,
+  creds?: BasicAuthCredentials,
+): Promise<TimeRecordGroupRecord[]> {
+  const start = startDate || new Date(Date.now() - 30 * 86400000).toISOString();
+  const stop = stopDate || new Date().toISOString();
+  const endpoint = `/hcmRestApi/resources/latest/timeRecordGroups?finder=filterByPerNumTimeGrp;personNumber=${personNumber},startTime=${start},stopTime=${stop},groupType=ProcessedTimecard&onlyData=true`;
+  try {
+    const data = await hcmGet(page, baseUrl, endpoint, creds);
+    return (data?.items || []) as TimeRecordGroupRecord[];
+  } catch {
+    // Fallback: try without finder (simpler query)
+    const fallback = `/hcmRestApi/resources/latest/timeRecordGroups?q=personNumber='${personNumber}'&onlyData=true&limit=10`;
+    try {
+      const data2 = await hcmGet(page, baseUrl, fallback, creds);
+      return (data2?.items || []) as TimeRecordGroupRecord[];
+    } catch {
+      return [];
+    }
+  }
+}
+
+// ── Journey / Checklist Operations ───────────────────────────────────
+
+/**
+ * Look up allocated checklists (journey instances) for a person by PersonId.
+ */
+export async function lookupAllocatedChecklists(
+  page: Page | null,
+  baseUrl: string,
+  personId: number,
+  creds?: BasicAuthCredentials,
+): Promise<AllocatedChecklistRecord[]> {
+  const endpoint = `/hcmRestApi/resources/latest/allocatedChecklists?q=PersonId=${personId}&onlyData=true`;
+  const data = await hcmGet(page, baseUrl, endpoint, creds);
+  return (data?.items || []) as AllocatedChecklistRecord[];
+}
+
+/**
+ * Look up allocated checklists for a person by PersonNumber.
+ */
+export async function lookupAllocatedChecklistsByNumber(
+  page: Page | null,
+  baseUrl: string,
+  personNumber: string,
+  creds?: BasicAuthCredentials,
+): Promise<AllocatedChecklistRecord[]> {
+  const worker = await lookupPersonId(page, baseUrl, personNumber, creds);
+  if (!worker) return [];
+  return lookupAllocatedChecklists(page, baseUrl, worker.PersonId, creds);
 }
