@@ -45,7 +45,7 @@ export class TerminationFlow extends BaseCoreHRFlow {
       if (found) {
         const nameLink = this.page.locator('[id*="table2:0:gl"]').first();
         await nameLink.click();
-        await this.page.waitForTimeout(8000);
+        await this.page.waitForTimeout(3000);
         await this.person.waitForJET();
       } else if (personName) {
         console.log(`[Termination] Person ${personNumber} not found, trying name: ${personName}`);
@@ -83,7 +83,7 @@ export class TerminationFlow extends BaseCoreHRFlow {
    * Uses multiple fallback strategies for finding the Actions menu.
    */
   private async initiateTermination(): Promise<boolean> {
-    await this.page.waitForTimeout(10000);
+    await this.page.waitForTimeout(3000);
     await this.person.waitForJET();
     await this.person.dismissPopups();
 
@@ -124,7 +124,7 @@ export class TerminationFlow extends BaseCoreHRFlow {
       }
     }
 
-    await this.page.waitForTimeout(10000);
+    await this.page.waitForTimeout(3000);
     await this.person.waitForJET();
     await this.person.clearGlassPane();
     return true;
@@ -135,7 +135,7 @@ export class TerminationFlow extends BaseCoreHRFlow {
    * Used for "End Additional Job" scenarios.
    */
   private async initiateEndAssignment(): Promise<void> {
-    await this.page.waitForTimeout(10000);
+    await this.page.waitForTimeout(3000);
     await this.person.waitForJET();
     await this.person.dismissPopups();
 
@@ -150,7 +150,7 @@ export class TerminationFlow extends BaseCoreHRFlow {
       if (await endAssignOption.isVisible({ timeout: 3000 }).catch(() => false)) {
         console.log('[Termination] Found "End Assignment" in Actions menu');
         await endAssignOption.click();
-        await this.page.waitForTimeout(10000);
+        await this.page.waitForTimeout(3000);
         await this.person.waitForJET();
         await this.person.clearGlassPane();
         return;
@@ -173,7 +173,7 @@ export class TerminationFlow extends BaseCoreHRFlow {
       if (await endOption.isVisible({ timeout: 3000 }).catch(() => false)) {
         console.log('[Termination] Found "End Assignment" in Edit dropdown');
         await endOption.click();
-        await this.page.waitForTimeout(10000);
+        await this.page.waitForTimeout(3000);
         await this.person.waitForJET();
         await this.person.clearGlassPane();
         return;
@@ -363,7 +363,7 @@ export class TerminationFlow extends BaseCoreHRFlow {
       }
     }
 
-    await this.page.waitForTimeout(15000);
+    await this.page.waitForTimeout(6000);
     await this.person.waitForJET();
     await this.person.dismissErrorDialog();
   }
