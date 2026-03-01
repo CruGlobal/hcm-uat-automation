@@ -164,6 +164,24 @@ export async function lookupPersonId(
 }
 
 /**
+ * Search for a worker by display name (partial match).
+ * Returns the first matching worker record or null if not found.
+ */
+export async function lookupWorkerByName(
+  page: Page,
+  baseUrl: string,
+  displayName: string,
+  creds?: BasicAuthCredentials,
+): Promise<WorkerRecord | null> {
+  const encoded = encodeURIComponent(displayName);
+  const endpoint = `/hcmRestApi/resources/latest/workers?q=DisplayName LIKE '*${encoded}*'&fields=PersonId,PersonNumber,DisplayName&onlyData=true&limit=5`;
+  const data = await hcmGet(page, baseUrl, endpoint, creds);
+  const items = data?.items;
+  if (!items || items.length === 0) return null;
+  return items[0] as WorkerRecord;
+}
+
+/**
  * Look up a role by RoleCode from the roles LOV.
  * Returns the role record or null if not found.
  */
