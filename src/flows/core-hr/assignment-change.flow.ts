@@ -79,7 +79,7 @@ export class AssignmentChangeFlow extends BaseCoreHRFlow {
         // Click the result to go to person detail
         const nameLink = this.page.locator('[id*="table2:0:gl"]').first();
         await nameLink.click();
-        await this.page.waitForTimeout(8000);
+        await this.page.waitForTimeout(3000);
         await this.person.waitForJET();
       } else if (personName) {
         console.log(`[AssignChange] Person ${personNumber} not found, trying name: ${personName}`);
@@ -128,7 +128,7 @@ export class AssignmentChangeFlow extends BaseCoreHRFlow {
    */
   private async initiateUpdate(): Promise<void> {
     // Wait for the person detail page to fully load
-    await this.page.waitForTimeout(10000);
+    await this.page.waitForTimeout(3000);
     await this.person.waitForJET();
     await this.person.dismissPopups();
 
@@ -137,7 +137,7 @@ export class AssignmentChangeFlow extends BaseCoreHRFlow {
     if (!editClicked) {
       // Retry once after extra wait — page may still be rendering
       console.log('[AssignChange] Edit not found on first attempt, waiting and retrying...');
-      await this.page.waitForTimeout(5000);
+      await this.page.waitForTimeout(2000);
       await this.person.waitForJET();
       const retryClicked = await this.tryClickEdit();
       if (!retryClicked) {
@@ -148,7 +148,7 @@ export class AssignmentChangeFlow extends BaseCoreHRFlow {
     }
 
     // Now click "Update" in the dropdown/menu
-    await this.page.waitForTimeout(3000);
+    await this.page.waitForTimeout(1000);
     await this.person.waitForJET();
 
     let updateClicked = await this.tryClickUpdate();
@@ -156,14 +156,14 @@ export class AssignmentChangeFlow extends BaseCoreHRFlow {
       // First attempt failed — dismiss any open menu, wait, and retry Edit+Update
       console.log('[AssignChange] Update not found, dismissing and retrying Edit+Update...');
       await this.page.keyboard.press('Escape').catch(() => {});
-      await this.page.waitForTimeout(3000);
+      await this.page.waitForTimeout(1000);
       await this.person.waitForJET();
       await this.person.clearGlassPane();
 
       // Try Edit again with a different approach
       const retryEdit = await this.tryClickEdit();
       if (retryEdit) {
-        await this.page.waitForTimeout(3000);
+        await this.page.waitForTimeout(1000);
         await this.person.waitForJET();
         updateClicked = await this.tryClickUpdate();
       }
@@ -174,7 +174,7 @@ export class AssignmentChangeFlow extends BaseCoreHRFlow {
       }
     }
 
-    await this.page.waitForTimeout(10000);
+    await this.page.waitForTimeout(3000);
     await this.person.waitForJET();
 
     // Remove glass pane so we can interact with the dialog
@@ -334,7 +334,7 @@ export class AssignmentChangeFlow extends BaseCoreHRFlow {
       console.log(`[AssignChange] Setting action: ${action}`);
       await this.setDialogDropdown(this.dialogAction, action);
       // Wait for Action Reason options to refresh based on selected action
-      await this.page.waitForTimeout(5000);
+      await this.page.waitForTimeout(2000);
       await this.person.waitForJET();
     }
 
@@ -343,7 +343,7 @@ export class AssignmentChangeFlow extends BaseCoreHRFlow {
     if (reason) {
       console.log(`[AssignChange] Setting action reason: ${reason}`);
       await this.setDialogDropdown(this.dialogReason, reason);
-      await this.page.waitForTimeout(3000);
+      await this.page.waitForTimeout(1000);
     }
 
     // Click OK to close dialog and enter edit mode
@@ -356,7 +356,7 @@ export class AssignmentChangeFlow extends BaseCoreHRFlow {
       // Try ADF action event
       await this.person.clickAdfButton('OK');
     }
-    await this.page.waitForTimeout(20000);
+    await this.page.waitForTimeout(8000);
     await this.person.waitForJET();
 
     // Dismiss any warning/error dialog that may appear
