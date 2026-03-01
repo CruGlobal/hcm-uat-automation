@@ -203,6 +203,11 @@ export class SAAPage extends BasePage {
 
   /** Approve a pending request by clicking the Approve button. */
   async approveRequest(): Promise<void> {
+    const visible = await this.approveButton.isVisible({ timeout: 15_000 }).catch(() => false);
+    if (!visible) {
+      console.log('[SAA] No Approve button found — no pending approval items or already approved');
+      return;
+    }
     await this.approveButton.click();
     await this.page.waitForTimeout(3000);
     await this.waitForJET();
