@@ -45,6 +45,13 @@ export class BaseTimeLaborFlow extends BaseFlow {
       // Verify we actually landed on Time Management (not bounced to home)
       const url = this.page.url();
       if (url.includes('time') || url.includes('Time')) return;
+
+      // Also check for Time Management page elements (sidebar links, Team Time Cards)
+      const timeManagementIndicator = this.page.locator(
+        'a:has-text("Team Time Cards"), [id*="TimeManagement"], ' +
+        'h1:has-text("Time Management"), a:has-text("Time Administration")'
+      ).first();
+      if (await timeManagementIndicator.isVisible({ timeout: 3000 }).catch(() => false)) return;
     } catch (err) {
       console.log(`[Time] Navigator path to Time Management failed: ${err}`);
     }
@@ -255,8 +262,13 @@ export class BaseTimeLaborFlow extends BaseFlow {
     // HR Specialist Configuration (HCM.OTL.3901, 4101, 4201, 4301)
     if ([3901, 4101, 4201, 4301].includes(scriptNum)) return 'hr-config';
 
-    // HR Specialist Timecard Entry (HCM.OTL.4501, 4601, 4701, 5501, 5601, 5701)
-    if ([4501, 4601, 5501, 5601, 5701].includes(scriptNum)) return 'hr-timecard-entry';
+    // HR Specialist Timecard Entry (HCM.OTL.4501, 4601, 4701, 5501)
+    if ([4501, 4601, 5501].includes(scriptNum)) return 'hr-timecard-entry';
+
+    // HR Specialist Timecard Review/Dashboard (HCM.OTL.5601, 5701)
+    // 5601 = OTL Dashboards (view submitted/approved status)
+    // 5701 = Time entered but not approved (view unapproved timecards)
+    if ([5601, 5701].includes(scriptNum)) return 'hr-timecard-review';
 
     // HR Specialist Processing (HCM.OTL.6301, 6501)
     if ([6301, 6501].includes(scriptNum)) return 'hr-processing';
