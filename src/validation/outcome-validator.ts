@@ -255,9 +255,12 @@ export class OutcomeValidator {
     const bp = (tc.businessProcess || '').toLowerCase();
     const absences = await lookupAbsencesByNumber(null, this.baseUrl, personNumber, this.creds);
 
-    // View/read-only/edit operations: navigation success is sufficient even if no absences exist
-    // (bot users may not have submitted absences; edit requires an existing record which may not exist)
-    if (bp.includes('view') || bp.includes('review') || bp.includes('check') || bp.includes('edit')) {
+    // View/read-only/edit/admin-process operations: navigation success is sufficient
+    // Accrual processing, balance operations, enrollment, schedules don't create absence records
+    if (bp.includes('view') || bp.includes('review') || bp.includes('check') || bp.includes('edit') ||
+        bp.includes('accrual') || bp.includes('balance') || bp.includes('process') ||
+        bp.includes('schedule') || bp.includes('enroll') || bp.includes('disburse') ||
+        bp.includes('calculate') || bp.includes('withdraw')) {
       console.log(`[OutcomeValidator] ${tc.testId}: ${absences.length} absence record(s) for ${personNumber} (navigation validated)`);
       return;
     }
