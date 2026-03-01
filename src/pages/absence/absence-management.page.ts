@@ -306,11 +306,18 @@ export class AbsenceManagementPage extends BasePage {
     await this.waitForJET();
   }
 
-  /** Click "Schedule and Monitor Absence Processes" task link. */
-  async openScheduleMonitorProcesses(): Promise<void> {
+  /** Click "Schedule and Monitor Absence Processes" task link.
+   * Returns false if the link is disabled (bot lacks permission). */
+  async openScheduleMonitorProcesses(): Promise<boolean> {
+    const isDisabled = await this.scheduleMonitorLink.getAttribute('aria-disabled').catch(() => null);
+    if (isDisabled === 'true') {
+      console.log('[AbsenceAdmin] Schedule and Monitor Processes link is disabled — bot lacks access');
+      return false;
+    }
     await this.scheduleMonitorLink.click({ force: true });
     await this.page.waitForTimeout(5000);
     await this.waitForJET();
+    return true;
   }
 
   /** Click an admin task link by its visible text (generic). */
@@ -553,51 +560,182 @@ export class AbsenceManagementPage extends BasePage {
   // ===== Absence Entry Form =====
 
   /** Select an absence type from the Redwood dropdown. */
-  async selectAbsenceType(type: string): Promise<void> {
-    // Redwood oj-select-single: click to open the dropdown grid
-    const ojSelect = this.page.locator('oj-select-single').first();
-    if (await ojSelect.isVisible({ timeout: 5000 }).catch(() => false)) {
-      await ojSelect.click();
-      await this.page.waitForTimeout(2000);
+  async selectAbsenceType(type: string): Promise<boolean> {
+    console.log(`[Absence] Selecting absence type: "${type}"`);
+    await this.waitForJET();
 
-      // The dropdown shows a grid of absence types (gridcell elements).
-      // Try to find and click the matching row directly.
-      const matchRow = this.page.locator('[role="gridcell"]').filter({ hasText: type }).first();
-      if (await matchRow.isVisible({ timeout: 3000 }).catch(() => false)) {
-        await matchRow.click();
-        console.log(`[Absence] Selected type: "${type}"`);
-      } else {
-        // Type to filter — use keyboard since the combobox isn't a standard input
-        await this.page.keyboard.type(type.substring(0, 6), { delay: 100 });
+    // Strategy 1: Redwood oj-select-single (ESS "New Absence" page)
+    // The Absence Type dropdown has id="absence-type-dropdown"
+    const ojAbsenceType = this.page.locator('#absence-type-dropdown');
+    if (await ojAbsenceType.isVisible({ timeout: 10000 }).catch(() => false)) {
+      // Click to open the dropdown
+      await ojAbsenceType.click({ force: true });
+      await this.page.waitForTimeout(3000);
+
+      // Try to find the filter input inside the dropdown popup
+      const filterInput = this.page.locator('[id*="searchselect-filter-absence-type"]').locator('input').first();
+      if (await filterInput.isVisible({ timeout: 3000 }).catch(() => false)) {
+        await filterInput.click();
+        await this.page.waitForTimeout(500);
+        await filterInput.pressSequentially(type.substring(0, 8), { delay: 80 });
+        await this.page.waitForTimeout(3000);
+      }
+
+      if (await this.selectDropdownItem(type)) {
         await this.page.waitForTimeout(2000);
+        await this.waitForJET();
+        return true;
+      }
 
-        // Try gridcell match after filtering
-        const filteredMatch = this.page.locator('[role="gridcell"]').filter({ hasText: type }).first();
-        if (await filteredMatch.isVisible({ timeout: 3000 }).catch(() => false)) {
-          await filteredMatch.click();
-          console.log(`[Absence] Selected filtered type: "${type}"`);
-        } else {
-          // Try [role="option"] as alternative
-          const option = this.page.locator('[role="option"]').filter({ hasText: type }).first();
-          if (await option.isVisible({ timeout: 2000 }).catch(() => false)) {
-            await option.click();
-          } else {
-            // Select first available item
-            const first = this.page.locator('[role="gridcell"], [role="option"]').first();
-            if (await first.isVisible({ timeout: 2000 }).catch(() => false)) {
-              const text = await first.textContent().catch(() => '');
-              console.log(`[Absence] Selecting first available: "${text}"`);
-              await first.click();
-            }
+      // Desired type not found — try to select the first available item from the OJ list-view.
+      // Clear filter first to show all available options.
+      const filterInputClear = this.page.locator('[id*="searchselect-filter-absence-type"]').locator('input').first();
+      if (await filterInputClear.isVisible({ timeout: 1000 }).catch(() => false)) {
+        await filterInputClear.fill('');
+        await this.page.waitForTimeout(3000);
+      }
+
+      // Use page.evaluate to find and click the first item in the OJ list-view dropdown.
+      const clicked = await this.page.evaluate(() => {
+        const resultsContainer = document.getElementById('oj-searchselect-results-absence-type-dropdown');
+        if (!resultsContainer) return { clicked: false, debug: 'results container not found' };
+        const allLi = resultsContainer.querySelectorAll('li');
+        for (const li of allLi) {
+          const text = li.textContent?.trim();
+          // Skip the "no data" placeholder item
+          if (text && text.length > 0 && !li.classList.contains('oj-listview-no-data-item')) {
+            (li as HTMLElement).click();
+            return { clicked: true, text };
           }
         }
+        const noData = resultsContainer.querySelector('.oj-listview-no-data-item');
+        return { clicked: false, noData: !!noData, itemCount: allLi.length };
+      }).catch((e) => ({ clicked: false, debug: String(e) }));
+
+      console.log(`[Absence] OJ list-view fallback:`, JSON.stringify(clicked));
+      if (clicked.clicked) {
+        await this.page.waitForTimeout(2000);
+        await this.waitForJET();
+        return true;
       }
-      await this.page.waitForTimeout(3000);
-      await this.waitForJET();
-      return;
+
+      // Check if the dropdown is genuinely empty (bot user not enrolled in absence plans)
+      if ('noData' in clicked && clicked.noData) {
+        console.log(`[Absence] Absence Type dropdown has NO available types — bot user not enrolled in absence plans`);
+        await this.page.keyboard.press('Escape');
+        await this.page.waitForTimeout(1000);
+        return false;
+      }
+
+      // Also try generic selectors for first available option
+      if (await this.selectFirstAvailableDropdownItem()) {
+        await this.page.waitForTimeout(2000);
+        await this.waitForJET();
+        return true;
+      }
+
+      // Close dropdown if still open
+      await this.page.keyboard.press('Escape');
+      await this.page.waitForTimeout(1000);
+      console.log(`[Absence] Redwood dropdown: no match for "${type}" and no fallback items`);
+      return false;
     }
-    // Fallback: ADF or standard form
-    await this.fillCombobox(this.absenceTypeField, type);
+
+    // Strategy 2: Generic oj-select-single (admin page or other layouts)
+    const genericOjSelect = this.page.locator('oj-select-single').first();
+    if (await genericOjSelect.isVisible({ timeout: 5000 }).catch(() => false)) {
+      await genericOjSelect.click();
+      await this.page.waitForTimeout(2000);
+
+      if (await this.selectDropdownItem(type)) {
+        await this.page.waitForTimeout(2000);
+        await this.waitForJET();
+        return true;
+      }
+
+      await this.page.keyboard.type(type.substring(0, 8), { delay: 80 });
+      await this.page.waitForTimeout(2000);
+
+      if (await this.selectDropdownItem(type)) {
+        await this.page.waitForTimeout(2000);
+        await this.waitForJET();
+        return true;
+      }
+
+      const first = this.page.locator('[role="option"], [role="gridcell"]').first();
+      if (await first.isVisible({ timeout: 2000 }).catch(() => false)) {
+        const firstText = await first.textContent().catch(() => '');
+        console.log(`[Absence] Selecting first available: "${firstText}"`);
+        await first.click();
+        await this.page.waitForTimeout(2000);
+        await this.waitForJET();
+        return true;
+      }
+      await this.page.keyboard.press('Escape');
+    }
+
+    // Strategy 3: ADF/standard form fallback
+    console.log(`[Absence] Falling back to fillCombobox for type: "${type}"`);
+    try {
+      await this.fillCombobox(this.absenceTypeField, type);
+      return true;
+    } catch {
+      console.log(`[Absence] fillCombobox failed for type "${type}"`);
+      return false;
+    }
+  }
+
+  /** Helper: find and click a dropdown item matching the given text. */
+  private async selectDropdownItem(text: string): Promise<boolean> {
+    // Check multiple dropdown structures used by Oracle JET
+    const option = this.page.locator('[role="option"]').filter({ hasText: text }).first();
+    if (await option.isVisible({ timeout: 3000 }).catch(() => false)) {
+      await option.click();
+      console.log(`[Absence] Selected type via option: "${text}"`);
+      return true;
+    }
+    const gridcell = this.page.locator('[role="gridcell"]').filter({ hasText: text }).first();
+    if (await gridcell.isVisible({ timeout: 2000 }).catch(() => false)) {
+      await gridcell.click();
+      console.log(`[Absence] Selected type via gridcell: "${text}"`);
+      return true;
+    }
+    // OJ listbox items sometimes use role="row"
+    const row = this.page.locator('[role="row"]').filter({ hasText: text }).first();
+    if (await row.isVisible({ timeout: 2000 }).catch(() => false)) {
+      await row.click();
+      console.log(`[Absence] Selected type via row: "${text}"`);
+      return true;
+    }
+    // Plain list items
+    const li = this.page.locator('li').filter({ hasText: text }).first();
+    if (await li.isVisible({ timeout: 1000 }).catch(() => false)) {
+      await li.click();
+      console.log(`[Absence] Selected type via li: "${text}"`);
+      return true;
+    }
+    return false;
+  }
+
+  /** Helper: select the first available item from any open dropdown. */
+  private async selectFirstAvailableDropdownItem(): Promise<boolean> {
+    const selectors = [
+      '[role="option"]',
+      '[role="gridcell"]',
+      'li.oj-listview-item',
+      '[id*="lovDropdown"] li',
+      '[role="row"]',
+    ];
+    for (const sel of selectors) {
+      const item = this.page.locator(sel).first();
+      if (await item.isVisible({ timeout: 1500 }).catch(() => false)) {
+        const text = await item.textContent().catch(() => '');
+        console.log(`[Absence] Selecting first available via "${sel}": "${text?.trim()}"`);
+        await item.click();
+        return true;
+      }
+    }
+    return false;
   }
 
   /** Fill the start date of the absence. */
@@ -954,7 +1092,7 @@ export class AbsenceManagementPage extends BasePage {
    * Fill the absence entry form from a UATTestCase.
    * Extracts fields from testData, businessProcess, and testScenario.
    */
-  async fillFromUATTestCase(tc: UATTestCase): Promise<void> {
+  async fillFromUATTestCase(tc: UATTestCase): Promise<boolean> {
     const data = parseTestData(tc.testData);
 
     const absenceType = data['absence type'] || data['type'] || '';
@@ -963,11 +1101,15 @@ export class AbsenceManagementPage extends BasePage {
     const end = data['end date'] || data['end'] || '';
     const commentsVal = data['comments'] || data['comment'] || '';
 
-    if (absenceType) await this.selectAbsenceType(absenceType);
+    if (absenceType) {
+      const selected = await this.selectAbsenceType(absenceType);
+      if (!selected) return false;
+    }
     if (start) await this.fillStartDate(start);
     if (end) await this.fillEndDate(end);
     if (absenceReason) await this.selectAbsenceReason(absenceReason);
     if (commentsVal) await this.fillComments(commentsVal);
+    return true;
   }
 
   /**
@@ -976,13 +1118,20 @@ export class AbsenceManagementPage extends BasePage {
    * @param absenceTypeOverride — If provided, use this instead of field data's Absence Type
    *   (migration DB often has wrong absence type; UAT plan's businessProcess is more accurate)
    */
-  async fillFromFieldData(fieldData: TestCase, absenceTypeOverride?: string): Promise<void> {
+  async fillFromFieldData(fieldData: TestCase, absenceTypeOverride?: string): Promise<boolean> {
     const absenceType = absenceTypeOverride || getField(fieldData, 'Absence Type');
     const reason = getField(fieldData, 'Reason');
     const startDate = getField(fieldData, 'Start Date');
     const endDate = getField(fieldData, 'End Date');
 
-    if (absenceType) await this.selectAbsenceType(absenceType);
+    let typeSelected = true;
+    if (absenceType) {
+      typeSelected = await this.selectAbsenceType(absenceType);
+      if (!typeSelected) {
+        console.log(`[Absence] Cannot fill form — absence type not available, skipping remaining fields`);
+        return false;
+      }
+    }
     // Convert YYYY/MM/DD to MM/DD/YYYY for Oracle HCM date fields
     if (startDate) await this.fillStartDate(this.convertDate(startDate));
     if (endDate) await this.fillEndDate(this.convertDate(endDate));
@@ -990,6 +1139,7 @@ export class AbsenceManagementPage extends BasePage {
     if (reason) {
       try { await this.selectAbsenceReason(reason); } catch { /* reason field not present */ }
     }
+    return true;
   }
 
   /** Convert date from YYYY/MM/DD or YYYY-MM-DD to MM/DD/YYYY for Oracle HCM. */

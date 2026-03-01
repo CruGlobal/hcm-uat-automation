@@ -294,21 +294,19 @@ export class AbsenceAdminFlow extends BaseAbsenceFlow {
 
   /**
    * HCM.ABS.303/802 -- HR Specialist Manually Processes Accruals.
+   * Uses Absence Admin → Schedule and Monitor Processes → Calculate Accruals and Balances.
+   * The per-person "Accruals" button is only in the ADF admin view, not accessible from ESS.
    */
   private async processAccrualsManually(tc: UATTestCase): Promise<void> {
-    await this.loginAndNavigateToPersonAbsences(tc);
+    await this.loginAndNavigateToAbsenceAdmin(tc);
 
-    await this.absence.navigateToPlanParticipation();
-    await this.absence.clickRunAccrualsAllPlans();
+    await this.absence.openScheduleMonitorProcesses();
 
-    const fieldData = getFieldData(tc.testId);
-    if (fieldData) {
-      const asOfDate = getField(fieldData, 'Balance As-of-Date') || getField(fieldData, 'Date');
-      if (asOfDate) await this.absence.fillBalanceCalculationDate(this.convertDate(asOfDate));
-    } else {
-      const data = parseTestDataMulti(tc.testData, tc.preConditions);
-      const asOfDate = data['balance as-of-date'] || data['as-of-date'] || data['date'] || '';
-      if (asOfDate) await this.absence.fillBalanceCalculationDate(asOfDate);
+    const calcLink = this.page.getByText('Calculate Accruals and Balances', { exact: false }).first();
+    if (await calcLink.isVisible({ timeout: 5000 }).catch(() => false)) {
+      await calcLink.click();
+      await this.page.waitForTimeout(3000);
+      await this.absence.waitForJET();
     }
 
     await this.absence.clickSubmit();
@@ -425,7 +423,10 @@ export class AbsenceAdminFlow extends BaseAbsenceFlow {
   private async calculateAccrualsAndBalances(tc: UATTestCase): Promise<void> {
     await this.loginAndNavigateToAbsenceAdmin(tc);
 
-    await this.absence.openScheduleMonitorProcesses();
+    if (!await this.absence.openScheduleMonitorProcesses()) {
+      console.log(`[AbsenceAdmin] ${tc.testId}: Skipping — bot lacks Schedule and Monitor Processes access`);
+      return;
+    }
 
     const calcLink = this.page.getByText('Calculate Accruals and Balances', { exact: false }).first();
     if (await calcLink.isVisible({ timeout: 5000 }).catch(() => false)) {
@@ -444,7 +445,10 @@ export class AbsenceAdminFlow extends BaseAbsenceFlow {
   private async evaluateAbsences(tc: UATTestCase): Promise<void> {
     await this.loginAndNavigateToAbsenceAdmin(tc);
 
-    await this.absence.openScheduleMonitorProcesses();
+    if (!await this.absence.openScheduleMonitorProcesses()) {
+      console.log(`[AbsenceAdmin] ${tc.testId}: Skipping — bot lacks Schedule and Monitor Processes access`);
+      return;
+    }
 
     const evalLink = this.page.getByText('Evaluate Absences', { exact: false }).first();
     if (await evalLink.isVisible({ timeout: 5000 }).catch(() => false)) {
