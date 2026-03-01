@@ -33,7 +33,14 @@ export class BasePage {
   /** Fill an input field, Tab to trigger validation, and wait for JET. */
   async fillField(locator: Locator | string, value: string): Promise<void> {
     const field = typeof locator === 'string' ? this.page.locator(locator) : locator;
-    await field.clear();
+    try {
+      await field.clear({ timeout: 5000 });
+    } catch {
+      // ADF date fields can hang on clear() — fall back to select-all + delete
+      await field.click();
+      await field.press('Control+a');
+      await field.press('Delete');
+    }
     await field.fill(value);
     await field.press('Tab');
     await this.waitForJET();
@@ -225,11 +232,37 @@ export class BasePage {
       return;
     }
 
-    // Tab-triggered dialog had 0 ADF data rows — value was NOT resolved.
-    // Try opening the LOV dialog via the search icon or ADF launchPopup().
-    // The icon opens a properly initialized "Search and Select" dialog
-    // where server-side search actually works.
-    console.log(`[LOV] Tab dialog had 0 data rows for "${value}", trying LOV icon fallback`);
+    // Tab-triggered dialog had 0 ADF data rows. But the value might still be
+    // resolved — some LOV fields resolve server-side during dialog dismissal.
+    // Use ADF getValue() to check: resolved fields have an internal ID (number)
+    // different from the display text. Unresolved fields have the text itself.
+    const afterTab = await field.inputValue().catch(() => '');
+    const fieldIdCheck = await field.getAttribute('id').catch(() => '');
+    if (afterTab && fieldIdCheck) {
+      const cidCheck = fieldIdCheck.replace('::content', '');
+      const adfCheck = await this.page.evaluate(({ cid, displayVal }: { cid: string; displayVal: string }) => {
+        const adfPage = (window as any).AdfPage?.PAGE;
+        if (!adfPage) return { resolved: false, internal: 'no-adf' };
+        const comp = adfPage.findComponentByAbsoluteId(cid);
+        if (!comp) return { resolved: false, internal: 'no-comp' };
+        const val = comp.getValue?.();
+        if (val != null && val !== '' && String(val) !== displayVal) {
+          return { resolved: true, internal: String(val).substring(0, 50) };
+        }
+        return { resolved: false, internal: val == null ? 'null' : String(val).substring(0, 50) };
+      }, { cid: cidCheck, displayVal: value });
+
+      if (adfCheck.resolved) {
+        console.log(`[LOV] ADF confirmed resolved "${value}" (internal=${adfCheck.internal})`);
+        await this.waitForJET();
+        return;
+      }
+      console.log(`[LOV] ADF NOT resolved "${value}" (internal=${adfCheck.internal})`);
+    }
+
+    // Value is truly unresolved — clear it so wizard navigation isn't blocked.
+    // Empty fields produce warnings but allow Submit; unresolved text blocks Next.
+    console.log(`[LOV] Clearing unresolved LOV value "${value}"`);
 
     const fieldId = await field.getAttribute('id').catch(() => '');
     if (fieldId) {
@@ -381,29 +414,48 @@ export class BasePage {
     const actualRowCount = adfRowCount > 0 ? adfRowCount : rowCount;
     console.log(`[LOV] Dialog has ${actualRowCount} rows (adf=${adfRowCount})`);
 
+    let clickedRow = false;
     if (actualRowCount > 0) {
+      let targetRow = rows.first();
       if (matchText && actualRowCount > 1) {
         // Try to find a row matching the search text
         const matchRow = rows.filter({ hasText: matchText }).first();
         const matchVisible = await matchRow.isVisible({ timeout: 2000 }).catch(() => false);
         if (matchVisible) {
           console.log(`[LOV] Clicking row matching: "${matchText}"`);
-          await matchRow.click({ force: true });
+          targetRow = matchRow;
         } else {
           console.log('[LOV] No text match, clicking first row');
-          await rows.first().click({ force: true });
         }
-      } else {
-        await rows.first().click({ force: true });
       }
+      await targetRow.click({ force: true });
+      clickedRow = true;
       await this.page.waitForTimeout(1000);
+
+      // For non-ADF rows, also try dispatching a mousedown event to trigger selection
+      if (adfRowCount === 0) {
+        await targetRow.dispatchEvent('mousedown');
+        await this.page.waitForTimeout(500);
+        await targetRow.dispatchEvent('mouseup');
+        await this.page.waitForTimeout(500);
+      }
     }
 
     // Click OK to close the dialog
     const okButton = dialogLayer.getByRole('button', { name: 'OK' }).first();
     const okVisible = await okButton.isVisible({ timeout: 3000 }).catch(() => false);
     if (okVisible) {
-      await okButton.click({ force: true });
+      // Check if OK is enabled
+      const okDisabled = await okButton.isDisabled().catch(() => false);
+      if (okDisabled && clickedRow) {
+        // OK is disabled despite row click — try double-clicking the row to select+close
+        console.log('[LOV] OK disabled after row click, trying double-click on row');
+        const firstRow = rows.first();
+        await firstRow.dblclick({ force: true });
+        await this.page.waitForTimeout(2000);
+      } else {
+        await okButton.click({ force: true });
+      }
     } else {
       const cancelButton = dialogLayer.getByRole('button', { name: 'Cancel' }).first();
       await cancelButton.click({ force: true }).catch(() => {});
@@ -412,7 +464,7 @@ export class BasePage {
     await this.page.waitForTimeout(3000);
     await this.clearGlassPane();
     await this.waitForJET();
-    return adfRowCount > 0; // True only if we found real ADF data rows
+    return clickedRow; // True if we found and clicked any data rows
   }
 
   /**

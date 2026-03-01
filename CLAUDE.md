@@ -10,23 +10,45 @@ Oracle HCM UAT automation framework using Playwright + TypeScript. 1,201 tests a
 
 This project lives at `/home/ai/htdocs/hcm-uat-automation/` (not the parent `uat-automation` directory).
 
-## Commands
+## Running Tests
 
+**All tests should run in parallel using bot users.** The system has 19 bot user accounts, each with dedicated Oracle HCM credentials (direct login, no SSO). Each bot runs its tests in its own Playwright process with an independent Oracle HCM session. The host system can handle 30+ concurrent agents/processes.
+
+### Parallel execution (preferred — 19 bots, ~12x speedup):
 ```bash
-npx playwright test                              # Run all tests
+npx tsx scripts/run-parallel.ts                        # All bots, all their tests
+npx tsx scripts/run-parallel.ts --one-per-bot           # Smoke test: 1 test per bot (fast)
+npx tsx scripts/run-parallel.ts --module "Core HR"      # One module, parallel across bots
+npx tsx scripts/run-parallel.ts --bots 5               # Limit to 5 bots
+RUN_PASSED_ONLY=true npx tsx scripts/run-parallel.ts   # Only previously-passed tests
+```
+
+How it works:
+- `scripts/run-parallel.ts` reads the UAT Plan, groups tests by bot user (via `testerName` → bot mapping in `src/config/bot-users.ts`), and spawns one `npx playwright test` process per bot.
+- Each process sets `PARALLEL_BOT=<botName>` env var. The `isTestable()` function in `uat-plan-provider.ts` filters tests to only those assigned to that bot.
+- Uses `playwright.parallel.config.ts` (no globalSetup, no storageState — each bot logs in independently via direct Oracle login).
+- 19 concurrent Oracle HCM sessions, ~60 tests per bot, wall-clock time reduced from ~85min to ~7min.
+
+### Serial execution (single user, legacy):
+```bash
+npx playwright test                              # Run all tests serially
 npx playwright test tests/core-hr/               # Run one module
 npx playwright test -g "HR-019"                  # Run by test name/ID
 npx playwright test --list                       # List all tests without running
+```
+
+### Other commands:
+```bash
 npx playwright show-report                       # Open HTML report
 npx tsx scripts/generate-test-data.ts            # Generate field data from migration DB
 npx tsx scripts/fetch-uat-plan.ts                # Fetch UAT Plan from Google Sheets
 ```
 
-Tests run serially (`workers: 1`) because Oracle HCM sessions conflict. Timeouts: 120s/test, 60s navigation, 30s actions.
+Timeouts: 300s/test, 60s navigation, 30s actions.
 
 ## Architecture
 
-Three-layer pattern: **Page Objects → Flows → Specs**, with a shared data layer.
+Three-layer pattern: **Page Objects → Flows → Specs**, with a shared data layer and multi-user session management.
 
 ### Data Pipeline
 
@@ -67,7 +89,7 @@ UAT Plan IDs + Migration DB → scripts/generate-test-data.ts → .cache-generat
 
 ### Flows (`src/flows/`)
 Composable scenario classes between page objects and specs. Each flow orchestrates multiple page objects for a business scenario.
-- `base.flow.ts` — login → navigate to module.
+- `base.flow.ts` — login (auto-resolves correct bot user per test) → navigate to module.
 - `core-hr/base-core-hr.flow.ts` — Shared base composing all core-hr page objects, with `fillCommonSections(tc)`.
 - `core-hr/` — 8 tab-specific flows (hire, rehire, add-pending, add-nonworker, pending-to-hire, create-work-rel, assignment-change, termination) + `core-hr-uat.flow.ts` for UAT Plan routing (575 tests). When field data exists, delegates to the tab-specific flow for full form filling.
 - `payroll/` — element-entry + payroll-processing flows. PayrollProcessingFlow delegates to ElementEntryFlow when field data exists.
@@ -99,9 +121,36 @@ Composable scenario classes between page objects and specs. Each flow orchestrat
 | other/other-functions.spec.ts | 4 | Other Functions |
 | **Total** | **1,201** | |
 
+## Multi-User Bot System
+
+19 bot user accounts for parallel test execution. Each bot has dedicated Oracle HCM credentials and comprehensive security roles. Tests are assigned to bots via `testerName` → bot mapping.
+
+### Key files:
+- `src/config/bot-users.ts` — Static registry: `testerName` (from UAT Plan) → `{ botName, sheetName, personNumber }`. Includes alias mappings so all 1,200+ tests map to a bot.
+- `.config/bot-credentials.json` — Credentials (not checked in): `{ botName: { username, password } }`. Username format: `uat.<botName>`.
+- `src/config/user-session-manager.ts` — Resolves which user runs each test, tracks current session to minimize re-logins.
+- `scripts/run-parallel.ts` — Parallel orchestrator.
+- `playwright.parallel.config.ts` — Config for parallel mode (no globalSetup/storageState).
+
+### Bot login:
+- Bot users use **direct Oracle login** (native User ID/Password form, no SSO/Okta/MFA) — faster and avoids rate limiting.
+- `LoginPage.fullLogin(username, password)` → routes to `directLogin()` when no `totpSecret` is provided.
+- `base.flow.ts` `loginToHCM(tc)` resolves the correct bot via `resolveUser(tc)` and handles login switching.
+
+### Adding/modifying bot users:
+- Assign security roles: `npx tsx scripts/inspect/assign-roles.ts` (Security Console UI automation)
+- Bot credentials template: `.config/bot-credentials.example.json`
+
 ## Login Flow
 
-Authentication uses Okta SSO with TOTP MFA:
+Two login paths based on user type:
+
+**Bot users (parallel mode — preferred):** Direct Oracle login, no SSO.
+1. Navigate to Oracle HCM login page
+2. Fill "User ID" + "Password" fields on the native Oracle login form
+3. Click "Sign In" → redirect to `**/fscmUI/**`
+
+**Default user (serial mode — legacy):** Okta SSO with TOTP MFA.
 1. Navigate to Oracle HCM → click "Company Single Sign-On" (`#ssoBtn`)
 2. Okta username page → enter username (`input[name="identifier"]`)
 3. Okta password page → enter password (`input[name="credentials.passcode"]`)
@@ -129,6 +178,8 @@ Password with spaces must be quoted in `.env`: `ORACLE_HCM_PASSWORD="word1 word2
 
 ## Important Details
 
+- **Parallel is the default.** Always use `scripts/run-parallel.ts` to run tests. Serial mode (`npx playwright test`) is only for debugging a single test.
+- `PARALLEL_BOT` env var: When set, `isTestable()` filters tests to only those assigned to that bot user. Set automatically by `run-parallel.ts`.
 - `src/utils/oracle-hcm-helpers.ts` contains `waitForOracleJET()` which checks `oj.Context.getPageContext().getBusyContext()` — critical for Oracle JET apps.
 - `excelSerialToDate(serial)` converts Excel serial date numbers (e.g., "46054") to MM/DD/YYYY strings — used because Google Sheets returns dates as serial numbers.
 - Oracle HCM URLs: Home page = `**/fscmUI/faces/AtkHomePageWelcome**`, Pending Workers dashboard = `/fscmUI/redwood/employment-pending-workers/view/dashboard`.

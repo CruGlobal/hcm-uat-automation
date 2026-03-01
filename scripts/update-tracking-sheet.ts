@@ -297,9 +297,14 @@ async function main() {
   }
   console.log(`  Passed: ${counts.passed}, Failed: ${counts.failed}, Skipped: ${counts.skipped}`);
 
+  // Filter out skipped tests — don't update sheet for tests that were skipped
+  // (e.g. RUN_PASSED_ONLY filtering, deferred/cancelled tests)
+  const activeResults = results.filter(r => r.status !== 'skipped');
+  console.log(`  Active (non-skipped): ${activeResults.length}`);
+
   if (dryRun) {
     console.log('\n--- DRY RUN (no sheet updates) ---\n');
-    for (const r of results.filter((r) => r.testId)) {
+    for (const r of activeResults.filter((r) => r.testId)) {
       console.log(`  ${r.testId}: ${mapStatus(r)} — ${mapActualResult(r).substring(0, 80)}`);
     }
     return;
@@ -352,8 +357,11 @@ async function main() {
       rowsByTestId.set(testId, list);
     }
 
-    // Match results to rows
+    // Match results to rows — skip tests that were skipped by Playwright
+    // (e.g. RUN_PASSED_ONLY filtering, deferred/cancelled tests)
     for (const result of moduleResults) {
+      if (result.status === 'skipped') continue; // Don't overwrite sheet with "Skipped"
+
       const candidates = rowsByTestId.get(result.testId);
       if (!candidates || candidates.length === 0) {
         unmatched++;

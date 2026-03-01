@@ -1,10 +1,10 @@
 import { test, expect } from '../fixtures/uat-plan.fixture';
-import { loadUATModule, uatTestTitle, isTestable } from '../../src/data/uat-plan-provider';
+import { loadUATModule, sortByUser, uatTestTitle, isTestable } from '../../src/data/uat-plan-provider';
 import { OtherFunctionsFlow } from '../../src/flows/other/other-functions.flow';
 import type { UATTestCase } from '../../src/data/types';
 
 const MODULE = 'Other Functions';
-const cases = loadUATModule(MODULE);
+const cases = sortByUser(loadUATModule(MODULE));
 
 test.describe(MODULE, () => {
   for (const tc of cases) {

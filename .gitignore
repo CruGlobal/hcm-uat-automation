@@ -7,3 +7,5 @@ test-results/
 blob-report/
 .env
 *.tsbuildinfo
+.auth/
+.config/bot-credentials.json

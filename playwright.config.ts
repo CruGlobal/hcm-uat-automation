@@ -1,8 +1,12 @@
 import { defineConfig, devices } from '@playwright/test';
 import dotenv from 'dotenv';
 import path from 'path';
+import fs from 'fs';
 
 dotenv.config();
+
+const authFile = path.resolve(__dirname, '.auth/storage-state.json');
+const hasAuth = fs.existsSync(authFile);
 
 export default defineConfig({
   testDir: './tests',
@@ -10,6 +14,7 @@ export default defineConfig({
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 1 : 0,
   workers: 1, // Serial — Oracle HCM sessions conflict
+  globalSetup: './tests/fixtures/global-setup.ts',
   reporter: [
     ['html', { open: 'never' }],
     ['json', { outputFile: 'test-results/results.json' }],
@@ -27,6 +32,8 @@ export default defineConfig({
     screenshot: 'only-on-failure',
     trace: 'retain-on-failure',
     video: 'retain-on-failure',
+    // Reuse login session if available (created by global-setup.ts)
+    ...(hasAuth ? { storageState: authFile } : {}),
   },
 
   projects: [

@@ -1,6 +1,7 @@
 import { type Page } from '@playwright/test';
 import { BaseFlow } from '../base.flow';
 import { CompensationPage } from '../../pages/compensation/compensation.page';
+import type { UATTestCase } from '../../data/types';
 
 /**
  * Base flow for Workforce Compensation module.
@@ -15,8 +16,8 @@ export class BaseCompensationFlow extends BaseFlow {
   }
 
   /** Login and navigate to the Compensation area. */
-  async navigateToCompensation(): Promise<void> {
-    await this.loginToHCM();
+  async navigateToCompensation(tc?: UATTestCase): Promise<void> {
+    await this.loginToHCM(tc);
     await this.compensation.navigateToCompensation();
   }
 }

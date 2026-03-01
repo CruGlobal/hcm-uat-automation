@@ -15,6 +15,7 @@ import { CreateWorkRelationshipFlow } from './create-work-relationship.flow';
 import { AssignmentChangeFlow } from './assignment-change.flow';
 import { TerminationFlow } from './termination.flow';
 import { getFieldData } from '../../data/uat-plan-provider';
+import { getField } from '../../data/test-data-provider';
 import type { UATTestCase } from '../../data/types';
 
 /**
@@ -48,14 +49,27 @@ export class CoreHRUATFlow extends BaseFlow {
   }
 
   async execute(tc: UATTestCase): Promise<void> {
-    await this.loginToHCM();
+    await this.loginToHCM(tc);
 
     const process = tc.businessProcess.toLowerCase();
     const category = tc.transactionCategory.toLowerCase();
     const script = (tc.testScript || '').toLowerCase();
 
-    // Route based on business process
-    if (process.includes('hire') || process.includes('add pending') || process.includes('add non worker')) {
+    // Route based on business process.
+    // More specific patterns are checked BEFORE broader ones to avoid false matches.
+    // E.g., "change staff" must be checked before "hire" (business process text may contain both).
+    if (process.includes('create work rel')) {
+      await this.executeCreateWorkRelationship(tc);
+    } else if (process.includes('assignment change') || process.includes('change assignment') || process.includes('strategy change') || process.includes('change staff')) {
+      await this.executeAssignmentChange(tc);
+    } else if (
+      process.includes('hire') || process.includes('hiring') ||
+      process.includes('pending') ||
+      process.includes('nonworker') || process.includes('non worker') ||
+      process.includes('non-employee') || process.includes('non employee') ||
+      process.includes('affiliate') || process.includes('volunteer') ||
+      process.includes('subsidiary') || process.includes('consultant')
+    ) {
       await this.executeHire(tc);
     } else if (process.includes('rehire')) {
       await this.executeRehire(tc);
@@ -63,8 +77,6 @@ export class CoreHRUATFlow extends BaseFlow {
       await this.executeTermination(tc);
     } else if (process.includes('transfer') || process.includes('company change') || process.includes('global transfer')) {
       await this.executeTransfer(tc);
-    } else if (process.includes('assignment change') || process.includes('change assignment') || process.includes('strategy change')) {
-      await this.executeAssignmentChange(tc);
     } else if (process.includes('supervisor change') || process.includes('manager change') || process.includes('change manager')) {
       await this.executeManagerChange(tc);
     } else if (process.includes('personal information') || process.includes('manage employee') || process.includes('manage non employee')) {
@@ -105,11 +117,24 @@ export class CoreHRUATFlow extends BaseFlow {
     const process = tc.businessProcess.toLowerCase();
 
     if (fieldData) {
-      // Delegate to tab-specific flow which fills all form fields
-      if (process.includes('pending')) {
+      // Delegate to tab-specific flow which fills all form fields.
+      // Check for "Search for Person Number" — these are Pending-to-Hire tests
+      // that find an existing pending worker and initiate a Hire action.
+      const searchPersonNum = getField(fieldData, 'Search for Person Number');
+
+      if (process.includes('pending') && searchPersonNum) {
+        // Has a person number to search = Pending to Hire (not Add Pending Worker)
+        const flow = new PendingToHireFlow(this.page);
+        await flow.execute(fieldData);
+      } else if (process.includes('pending')) {
         const flow = new AddPendingWorkerFlow(this.page);
         await flow.execute(fieldData);
-      } else if (process.includes('non worker') || process.includes('nonworker')) {
+      } else if (
+        process.includes('non worker') || process.includes('nonworker') ||
+        process.includes('non-employee') || process.includes('non employee') ||
+        process.includes('affiliate') || process.includes('volunteer') ||
+        process.includes('subsidiary') || process.includes('consultant')
+      ) {
         const flow = new AddNonWorkerFlow(this.page);
         await flow.execute(fieldData);
       } else {
@@ -122,7 +147,12 @@ export class CoreHRUATFlow extends BaseFlow {
     // No field data — navigation-only behavior
     if (process.includes('pending')) {
       await this.homePage.goToAddPendingWorker();
-    } else if (process.includes('non worker') || process.includes('nonworker')) {
+    } else if (
+      process.includes('non worker') || process.includes('nonworker') ||
+      process.includes('non-employee') || process.includes('non employee') ||
+      process.includes('affiliate') || process.includes('volunteer') ||
+      process.includes('subsidiary') || process.includes('consultant')
+    ) {
       await this.homePage.goToAddNonworker();
     } else if (process.includes('contingent')) {
       await this.homePage.goToAddContingentWorker();
@@ -131,6 +161,34 @@ export class CoreHRUATFlow extends BaseFlow {
     }
     await this.page.waitForTimeout(5000);
     await this.person.clickAdfButton('Continue');
+    await this.page.waitForTimeout(5000);
+    await this.person.clickAdfButton('Continue');
+    await this.page.waitForTimeout(5000);
+    await this.person.clickAdfButton('Continue');
+    await this.page.waitForTimeout(5000);
+    await this.person.clickAdfButton('Next');
+    await this.page.waitForTimeout(5000);
+    await this.confirmation.clickSubmit();
+    await this.confirmation.expectSuccess();
+  }
+
+  // --- Create Work Relationship (HCM.CORE.206) ---
+
+  private async executeCreateWorkRelationship(tc: UATTestCase): Promise<void> {
+    const fieldData = getFieldData(tc.testId);
+    if (fieldData) {
+      const flow = new CreateWorkRelationshipFlow(this.page);
+      await flow.execute(fieldData);
+      return;
+    }
+
+    // No field data — navigation-only behavior
+    await this.homePage.goToPersonManagement();
+    const personName = this.extractPersonRef(tc);
+    if (personName) {
+      await this.person.searchByName(personName);
+    }
+    await this.selectPersonAction('Create Work Relationship');
     await this.page.waitForTimeout(5000);
     await this.person.clickAdfButton('Continue');
     await this.page.waitForTimeout(5000);
@@ -355,6 +413,15 @@ export class CoreHRUATFlow extends BaseFlow {
   // --- Change Location (HCM.CORE.402) ---
 
   private async executeChangeLocation(tc: UATTestCase): Promise<void> {
+    const fieldData = getFieldData(tc.testId);
+    if (fieldData) {
+      // Field data uses Assignment Change / Transfer flow structure
+      const flow = new AssignmentChangeFlow(this.page);
+      await flow.execute(fieldData);
+      return;
+    }
+
+    // No field data — navigation-only behavior
     // My Team > Quick Actions > Change Location
     await this.homePage.goToPersonManagement();
     const personName = this.extractPersonRef(tc);

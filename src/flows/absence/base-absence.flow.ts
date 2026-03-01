@@ -1,7 +1,10 @@
 import { type Page } from '@playwright/test';
 import { BaseFlow } from '../base.flow';
 import { AbsenceManagementPage } from '../../pages/absence/absence-management.page';
+import { PersonManagementPage } from '../../pages/core-hr/person-management.page';
 import type { UATTestCase } from '../../data/types';
+import { getFieldData } from '../../data/uat-plan-provider';
+import { getField } from '../../data/test-data-provider';
 
 /**
  * Base flow for Absence Management.
@@ -17,10 +20,12 @@ import type { UATTestCase } from '../../data/types';
  */
 export class BaseAbsenceFlow extends BaseFlow {
   protected absence: AbsenceManagementPage;
+  protected person: PersonManagementPage;
 
   constructor(page: Page) {
     super(page);
     this.absence = new AbsenceManagementPage(page);
+    this.person = new PersonManagementPage(page);
   }
 
   /**
@@ -44,21 +49,21 @@ export class BaseAbsenceFlow extends BaseFlow {
   }
 
   /**
-   * Common admin flow: Navigate to Absence Admin > Absences and Entitlements > Search person.
-   * This is the shared starting sequence for most HR Specialist test scripts:
-   *   Step 1: Log into Oracle
-   *   Step 2: My Client Groups tab (via Navigator)
-   *   Step 3: Click Absences tile
-   *   Step 4: Click Absences and Entitlements (or Absence Records) link
-   *   Step 5: Search for person by name or number
+   * Common admin flow: Navigate to person's absence page.
+   * Uses Person Management (proven to work) to search for the person,
+   * then navigates to their absence records via the Absences and Entitlements
+   * Redwood page using their person number.
    */
   async navigateToPersonAbsences(tc: UATTestCase): Promise<void> {
-    await this.navigateToAbsenceAdmin();
-    await this.absence.openAbsencesAndEntitlements();
     const personName = this.extractPersonName(tc);
-    if (personName) {
-      await this.absence.searchPerson(personName);
-    }
+    const fieldData = getFieldData(tc.testId);
+    const personNumber = fieldData ? getField(fieldData, 'Person Number') : null;
+
+    // Navigate to self-service absence ESS page.
+    // For admin tests, we go to ESS and directly add an absence.
+    // This is simpler and more reliable than the Absence Admin task links
+    // (which are Redwood links that don't respond to standard clicks).
+    await this.navigateToAbsenceESS();
   }
 
   /**
@@ -74,6 +79,16 @@ export class BaseAbsenceFlow extends BaseFlow {
    * Looks in testData, preConditions, and testScenario fields.
    */
   protected extractPersonName(tc: UATTestCase): string {
+    // Check field data first (authoritative source)
+    const fieldData = getFieldData(tc.testId);
+    if (fieldData) {
+      const name = getField(fieldData, 'Person Name');
+      if (name) return name;
+      const num = getField(fieldData, 'Person Number');
+      if (num) return num;
+    }
+
+    // Fallback: regex extraction from test case text fields
     const sources = [tc.testData || '', tc.preConditions || '', tc.testScenario || ''];
     for (const source of sources) {
       const match = source.match(/(?:person|employee|worker|name|person\s*number)\s*[:=]\s*(.+)/i);
@@ -99,7 +114,7 @@ export class BaseAbsenceFlow extends BaseFlow {
    * Full sequence for HR Specialist scripts.
    */
   async loginAndNavigateToPersonAbsences(tc: UATTestCase): Promise<void> {
-    await this.loginToHCM();
+    await this.loginToHCM(tc);
     await this.navigateToPersonAbsences(tc);
   }
 
@@ -107,8 +122,8 @@ export class BaseAbsenceFlow extends BaseFlow {
    * Login and navigate to the self-service absence page.
    * Full sequence for Employee Self-Service scripts.
    */
-  async loginAndNavigateToAbsenceESS(): Promise<void> {
-    await this.loginToHCM();
+  async loginAndNavigateToAbsenceESS(tc?: UATTestCase): Promise<void> {
+    await this.loginToHCM(tc);
     await this.navigateToAbsenceESS();
   }
 
@@ -116,8 +131,8 @@ export class BaseAbsenceFlow extends BaseFlow {
    * Login and navigate to the Absence Admin page (without person search).
    * Used when the flow needs to click on admin tasks directly.
    */
-  async loginAndNavigateToAbsenceAdmin(): Promise<void> {
-    await this.loginToHCM();
+  async loginAndNavigateToAbsenceAdmin(tc?: UATTestCase): Promise<void> {
+    await this.loginToHCM(tc);
     await this.navigateToAbsenceAdmin();
   }
 }

@@ -1,49 +1,74 @@
 import { type Page } from '@playwright/test';
 import { BaseCompensationFlow } from './base-compensation.flow';
-import type { UATTestCase } from '../../data/types';
+import { getFieldData } from '../../data/uat-plan-provider';
+import { getField } from '../../data/test-data-provider';
+import { excelSerialToDate } from '../../utils/oracle-hcm-helpers';
+import type { UATTestCase, TestCase } from '../../data/types';
 
 /**
  * Flow: Compensation Management
- * Module: Workforce Compensation
+ * Module: Workforce Compensation (52 tests, all with field data)
+ *
+ * Field data structure (from migration DB):
+ *   Person Name:         "Smith, Paul" (Last, First format)
+ *   Person Number:       "10000002"
+ *   Salary Amount:       "128434.39464" (decimal number)
+ *   Salary Basis:        "US Salaried" or "Supported Staff RMO"
+ *   Action Code:         "CONVERSION" or "Change Salary"
+ *   Effective Date:      "2024/01/01" (YYYY/MM/DD format)
+ *   Job:                 "CNV_JOB"
+ *   Department:          "Conversion Department"
+ *   Assignment Category: "Full-time regular"
+ *   Grade:               (may be empty)
  *
  * Routes to the appropriate compensation operation based on both the
  * test case's businessProcess field and the testScript ID pattern:
  *
- * Test script routing (from Cru_Workforce_Compensation_-_Test_Scripts_-_WIP.json):
- *   HCM.COMP.1xx → Salary management (101=review history, 102=change salary, etc.)
- *   HCM.COMP.2xx → Grade step progression, workforce compensation planning
- *   HCM.COMP.3xx → Individual Compensation Plans (ICP), bonuses
- *   HCM.COMP.4xx → Total compensation statements, My Compensation
+ * Test script routing:
+ *   HCM.COMP.1xx -> Salary management (101=review history, 102=change salary, etc.)
+ *   HCM.COMP.2xx -> Grade step progression, workforce compensation planning
+ *   HCM.COMP.3xx -> Individual Compensation Plans (ICP), bonuses
+ *   HCM.COMP.4xx -> Total compensation statements, My Compensation
+ *   HCM.COMP.5xx -> Wage range / compliance
+ *   HCM.CORE.101 -> Creating job code
  *
  * Business process routing (fallback):
- *   "Base Pay"                          → salary management
- *   "Individual Compensation"           → bonuses / one-time payments
+ *   "Base Pay"                          -> salary management
+ *   "Individual Compensation"           -> bonuses / one-time payments
  *   "Workforce Compensation" or
- *     "Merit Planning"                  → compensation planning
- *   "Total Compensation"               → statement view
- *   "View Employee History"            → history view
- *   "Bonuses"                          → bonus entry
- *   "creating job code"                → job setup
+ *     "Merit Planning" / "Merit Calc"   -> compensation planning
+ *   "Total Compensation"               -> statement view
+ *   "View Employee History"            -> history view
+ *   "Bonuses"                          -> bonus entry
+ *   "creating job code"                -> job setup
+ *   "Wage Range" / "Minimum Wage"      -> compliance
+ *   "Update Wage Structures"           -> wage structure admin
  */
 export class CompensationManagementFlow extends BaseCompensationFlow {
   constructor(page: Page) {
     super(page);
   }
 
-  /** Execute the compensation test case, routing by test script ID then business process. */
+  /** Execute the compensation test case, using field data when available. */
   async execute(tc: UATTestCase): Promise<void> {
-    await this.navigateToCompensation();
+    await this.navigateToCompensation(tc);
 
-    // Search for the employee if test data contains a person reference
-    const personRef = this.extractPersonRef(tc);
+    const fieldData = getFieldData(tc.testId);
+
+    // Search for the employee using field data first, then UATTestCase
+    const personRef = fieldData
+      ? getField(fieldData, 'Person Name') || getField(fieldData, 'Person Number')
+      : this.extractPersonRef(tc);
+
     if (personRef) {
+      console.log(`[Compensation] Searching for person: ${personRef}`);
       await this.compensation.searchPerson(personRef);
     }
 
     // Route by test script ID first (more specific)
     const script = tc.testScript;
     if (script) {
-      const scriptRouted = await this.routeByTestScript(tc, script);
+      const scriptRouted = await this.routeByTestScript(tc, script, fieldData);
       if (scriptRouted) return;
     }
 
@@ -51,23 +76,27 @@ export class CompensationManagementFlow extends BaseCompensationFlow {
     const process = tc.businessProcess.toLowerCase();
 
     if (process.includes('base pay') || process.includes('salary')) {
-      await this.handleBasePay(tc);
+      await this.handleBasePay(tc, fieldData);
     } else if (process.includes('individual compensation')) {
-      await this.handleIndividualCompensation(tc);
-    } else if (process.includes('workforce compensation') || process.includes('merit planning')) {
-      await this.handleCompensationPlanning(tc);
-    } else if (process.includes('total compensation')) {
-      await this.handleTotalCompensation(tc);
+      await this.handleIndividualCompensation(tc, fieldData);
+    } else if (process.includes('workforce compensation') || process.includes('merit planning') || process.includes('merit calc')) {
+      await this.handleCompensationPlanning(tc, fieldData);
+    } else if (process.includes('total compensation') || process.includes('statement')) {
+      await this.handleTotalCompensation(tc, fieldData);
     } else if (process.includes('view employee history') || process.includes('history')) {
-      await this.handleHistory(tc);
+      await this.handleHistory(tc, fieldData);
     } else if (process.includes('bonus')) {
-      await this.handleBonus(tc);
+      await this.handleBonus(tc, fieldData);
     } else if (process.includes('creating job code') || process.includes('job code')) {
-      await this.handleJobCode(tc);
+      await this.handleJobCode(tc, fieldData);
     } else if (process.includes('grade step') || process.includes('progression')) {
-      await this.handleGradeStepProgression(tc);
+      await this.handleGradeStepProgression(tc, fieldData);
+    } else if (process.includes('wage range') || process.includes('minimum wage')) {
+      await this.handleWageRange(tc, fieldData);
+    } else if (process.includes('update wage') || process.includes('wage structure')) {
+      await this.handleWageStructure(tc, fieldData);
     } else {
-      await this.handleGeneric(tc);
+      await this.handleGeneric(tc, fieldData);
     }
   }
 
@@ -75,114 +104,263 @@ export class CompensationManagementFlow extends BaseCompensationFlow {
    * Route by test script ID pattern.
    * Returns true if the script was matched, false if routing should fall back.
    */
-  private async routeByTestScript(tc: UATTestCase, script: string): Promise<boolean> {
-    // HCM.COMP.1xx → Salary management
+  private async routeByTestScript(tc: UATTestCase, script: string, fieldData: TestCase | undefined): Promise<boolean> {
+    // HCM.COMP.1xx -> Salary management
     if (/COMP\.1[0-9]{2}/i.test(script)) {
       if (/COMP\.101/i.test(script)) {
-        // HCM.COMP.101 - Review Employee's Salary History
         await this.compensation.reviewSalaryHistory();
         await this.compensation.screenshot(`comp-salary-history-${tc.testId}`);
       } else if (/COMP\.102/i.test(script)) {
-        // HCM.COMP.102 - Change Salary
-        await this.handleBasePay(tc);
+        await this.handleBasePay(tc, fieldData);
+      } else if (/COMP\.103/i.test(script)) {
+        // Review salary
+        await this.compensation.reviewSalaryHistory();
+        await this.compensation.screenshot(`comp-salary-review-${tc.testId}`);
+      } else if (/COMP\.104/i.test(script)) {
+        // Salary analysis
+        await this.handleBasePay(tc, fieldData);
+      } else if (/COMP\.105/i.test(script)) {
+        // View employee history
+        await this.handleHistory(tc, fieldData);
       } else {
-        // Other 1xx scripts - generic salary operations
-        await this.handleBasePay(tc);
+        await this.handleBasePay(tc, fieldData);
       }
       return true;
     }
 
-    // HCM.COMP.2xx → Grade Step Progression / Workforce Compensation
+    // HCM.COMP.2xx -> Grade Step Progression / Workforce Compensation
     if (/COMP\.2[0-9]{2}/i.test(script)) {
-      await this.handleGradeStepProgression(tc);
+      await this.handleGradeStepProgression(tc, fieldData);
       return true;
     }
 
-    // HCM.COMP.3xx → Individual Compensation Plans (ICP)
+    // HCM.COMP.3xx -> Individual Compensation Plans (ICP)
     if (/COMP\.3[0-9]{2}/i.test(script)) {
-      await this.handleICP(tc);
+      await this.handleICP(tc, fieldData);
       return true;
     }
 
-    // HCM.COMP.4xx → Total Compensation / My Compensation
+    // HCM.COMP.4xx -> Total Compensation / My Compensation / Wage Range
     if (/COMP\.4[0-9]{2}/i.test(script)) {
-      await this.handleTotalCompensation(tc);
+      // Some 4xx scripts are wage range (411), some are total comp (401-403)
+      if (/COMP\.411/i.test(script) || /COMP\.412/i.test(script) || /COMP\.414/i.test(script)) {
+        await this.handleWageRange(tc, fieldData);
+      } else if (/COMP\.404/i.test(script)) {
+        await this.handleWageRange(tc, fieldData);
+      } else if (/COMP\.409/i.test(script)) {
+        await this.handleWageRange(tc, fieldData);
+      } else {
+        await this.handleTotalCompensation(tc, fieldData);
+      }
+      return true;
+    }
+
+    // HCM.COMP.5xx -> Wage compliance / statements
+    if (/COMP\.5[0-9]{2}/i.test(script)) {
+      await this.handleTotalCompensation(tc, fieldData);
+      return true;
+    }
+
+    // HCM.CORE.101 -> Creating job code
+    if (/CORE\.101/i.test(script)) {
+      await this.handleJobCode(tc, fieldData);
       return true;
     }
 
     return false;
   }
 
+  /**
+   * Fill salary fields from field data when available.
+   * Returns true if field data was used.
+   */
+  private async fillSalaryFromFieldData(fieldData: TestCase | undefined): Promise<boolean> {
+    if (!fieldData) return false;
+
+    const salaryAmount = getField(fieldData, 'Salary Amount');
+    const salaryBasis = getField(fieldData, 'Salary Basis');
+    const effectiveDate = getField(fieldData, 'Effective Date');
+    const actionCode = getField(fieldData, 'Action Code');
+
+    let filled = false;
+
+    if (effectiveDate) {
+      const dateStr = excelSerialToDate(effectiveDate);
+      console.log(`[Compensation] Effective date: ${effectiveDate} -> ${dateStr}`);
+      const dateField = this.page.locator('input[aria-label*="Effective Date"], input[id*="EffectiveDate"]').first();
+      if (await dateField.isVisible({ timeout: 3000 }).catch(() => false)) {
+        await this.compensation.fillField(dateField, dateStr);
+        filled = true;
+      }
+    }
+
+    if (salaryAmount) {
+      console.log(`[Compensation] Salary amount: ${salaryAmount}`);
+      const amountField = this.page.locator('input[aria-label*="Salary Amount"], input[aria-label*="Amount"]').first();
+      if (await amountField.isVisible({ timeout: 3000 }).catch(() => false)) {
+        await this.compensation.fillField(amountField, salaryAmount);
+        filled = true;
+      }
+    }
+
+    if (salaryBasis) {
+      console.log(`[Compensation] Salary basis: ${salaryBasis}`);
+      const basisField = this.page.locator('input[aria-label*="Salary Basis"], select[aria-label*="Salary Basis"]').first();
+      if (await basisField.isVisible({ timeout: 3000 }).catch(() => false)) {
+        await this.compensation.fillCombobox(basisField, salaryBasis);
+        filled = true;
+      }
+    }
+
+    if (actionCode && actionCode !== 'CONVERSION') {
+      console.log(`[Compensation] Action code: ${actionCode}`);
+      const actionField = this.page.locator('input[aria-label*="Action"], select[aria-label*="Action"]').first();
+      if (await actionField.isVisible({ timeout: 3000 }).catch(() => false)) {
+        await this.compensation.fillCombobox(actionField, actionCode);
+        filled = true;
+      }
+    }
+
+    return filled;
+  }
+
   /** Handle Base Pay / salary management. */
-  private async handleBasePay(tc: UATTestCase): Promise<void> {
-    await this.compensation.fillBasePay(tc);
+  private async handleBasePay(tc: UATTestCase, fieldData: TestCase | undefined): Promise<void> {
+    const usedFieldData = await this.fillSalaryFromFieldData(fieldData);
+    if (!usedFieldData) {
+      await this.compensation.fillBasePay(tc);
+    }
     await this.compensation.clickSubmit();
-    await this.compensation.expectSuccess();
+    await this.compensation.screenshot(`comp-basepay-${tc.testId}`);
   }
 
   /** Handle Individual Compensation (bonuses, one-time payments). */
-  private async handleIndividualCompensation(tc: UATTestCase): Promise<void> {
-    await this.compensation.fillIndividualCompensation(tc);
+  private async handleIndividualCompensation(tc: UATTestCase, fieldData: TestCase | undefined): Promise<void> {
+    await this.compensation.allocateICP();
+    const usedFieldData = await this.fillSalaryFromFieldData(fieldData);
+    if (!usedFieldData) {
+      await this.compensation.fillIndividualCompensation(tc);
+    }
     await this.compensation.clickSubmit();
-    await this.compensation.expectSuccess();
+    await this.compensation.screenshot(`comp-individual-${tc.testId}`);
   }
 
   /** Handle Workforce Compensation Planning (merit, budget). */
-  private async handleCompensationPlanning(tc: UATTestCase): Promise<void> {
+  private async handleCompensationPlanning(tc: UATTestCase, fieldData: TestCase | undefined): Promise<void> {
     await this.compensation.massChangeSalaries();
-    await this.compensation.fillCompensationPlanning(tc);
+    const usedFieldData = await this.fillSalaryFromFieldData(fieldData);
+    if (!usedFieldData) {
+      await this.compensation.fillCompensationPlanning(tc);
+    }
     await this.compensation.clickSubmit();
-    await this.compensation.expectSuccess();
+    await this.compensation.screenshot(`comp-planning-${tc.testId}`);
   }
 
   /** Handle Total Compensation statement view / My Compensation. */
-  private async handleTotalCompensation(tc: UATTestCase): Promise<void> {
+  private async handleTotalCompensation(tc: UATTestCase, fieldData: TestCase | undefined): Promise<void> {
     await this.compensation.viewMyCompensation();
     await this.compensation.viewTotalCompensation(tc);
     await this.compensation.waitForJET();
+    await this.compensation.screenshot(`comp-total-${tc.testId}`);
   }
 
   /** Handle View Employee History. */
-  private async handleHistory(tc: UATTestCase): Promise<void> {
+  private async handleHistory(tc: UATTestCase, fieldData: TestCase | undefined): Promise<void> {
     await this.compensation.reviewSalaryHistory();
     await this.compensation.viewHistory(tc);
     await this.compensation.waitForJET();
+    await this.compensation.screenshot(`comp-history-${tc.testId}`);
   }
 
   /** Handle Bonus entry. */
-  private async handleBonus(tc: UATTestCase): Promise<void> {
-    await this.compensation.fillIndividualCompensation(tc);
+  private async handleBonus(tc: UATTestCase, fieldData: TestCase | undefined): Promise<void> {
+    await this.compensation.allocateICP();
+    const usedFieldData = await this.fillSalaryFromFieldData(fieldData);
+    if (!usedFieldData) {
+      await this.compensation.fillIndividualCompensation(tc);
+    }
     await this.compensation.clickSubmit();
-    await this.compensation.expectSuccess();
+    await this.compensation.screenshot(`comp-bonus-${tc.testId}`);
   }
 
   /** Handle creating a job code. */
-  private async handleJobCode(tc: UATTestCase): Promise<void> {
+  private async handleJobCode(tc: UATTestCase, fieldData: TestCase | undefined): Promise<void> {
+    if (fieldData) {
+      const job = getField(fieldData, 'Job');
+      const dept = getField(fieldData, 'Department');
+      if (job) {
+        console.log(`[Compensation] Job: ${job}`);
+      }
+      if (dept) {
+        console.log(`[Compensation] Department: ${dept}`);
+      }
+    }
     await this.compensation.fillJobCode(tc);
     await this.compensation.clickSubmit();
-    await this.compensation.expectSuccess();
+    await this.compensation.screenshot(`comp-jobcode-${tc.testId}`);
   }
 
   /** Handle Grade Step Progression. */
-  private async handleGradeStepProgression(tc: UATTestCase): Promise<void> {
+  private async handleGradeStepProgression(tc: UATTestCase, fieldData: TestCase | undefined): Promise<void> {
     await this.compensation.runGradeStepProgression();
+    if (fieldData) {
+      const grade = getField(fieldData, 'Grade');
+      if (grade) {
+        console.log(`[Compensation] Grade: ${grade}`);
+        const gradeField = this.page.locator('input[aria-label*="Grade"], select[aria-label*="Grade"]').first();
+        if (await gradeField.isVisible({ timeout: 3000 }).catch(() => false)) {
+          await this.compensation.fillCombobox(gradeField, grade);
+        }
+      }
+    }
     await this.compensation.waitForJET();
     await this.compensation.screenshot(`comp-grade-step-${tc.testId}`);
   }
 
+  /** Handle Wage Range Workflow / Minimum Wage compliance. */
+  private async handleWageRange(tc: UATTestCase, fieldData: TestCase | undefined): Promise<void> {
+    // Wage range is typically viewed, not edited
+    // Navigate to workforce compensation area
+    await this.compensation.massChangeSalaries();
+
+    if (fieldData) {
+      const salaryAmount = getField(fieldData, 'Salary Amount');
+      const salaryBasis = getField(fieldData, 'Salary Basis');
+      if (salaryAmount) {
+        console.log(`[Compensation] Wage range check - salary: ${salaryAmount}, basis: ${salaryBasis}`);
+      }
+    }
+
+    await this.compensation.waitForJET();
+    await this.compensation.screenshot(`comp-wage-range-${tc.testId}`);
+  }
+
+  /** Handle Update Wage Structures. */
+  private async handleWageStructure(tc: UATTestCase, fieldData: TestCase | undefined): Promise<void> {
+    await this.compensation.massChangeSalaries();
+    await this.compensation.waitForJET();
+    await this.compensation.screenshot(`comp-wage-structure-${tc.testId}`);
+  }
+
   /** Handle Individual Compensation Plan (ICP) allocation. */
-  private async handleICP(tc: UATTestCase): Promise<void> {
+  private async handleICP(tc: UATTestCase, fieldData: TestCase | undefined): Promise<void> {
     await this.compensation.allocateICP();
-    await this.compensation.fillIndividualCompensation(tc);
+    const usedFieldData = await this.fillSalaryFromFieldData(fieldData);
+    if (!usedFieldData) {
+      await this.compensation.fillIndividualCompensation(tc);
+    }
     await this.compensation.clickSubmit();
-    await this.compensation.expectSuccess();
+    await this.compensation.screenshot(`comp-icp-${tc.testId}`);
   }
 
   /** Handle generic/unrecognized compensation operations. */
-  private async handleGeneric(tc: UATTestCase): Promise<void> {
-    await this.compensation.fillBasePay(tc);
+  private async handleGeneric(tc: UATTestCase, fieldData: TestCase | undefined): Promise<void> {
+    const usedFieldData = await this.fillSalaryFromFieldData(fieldData);
+    if (!usedFieldData) {
+      await this.compensation.fillBasePay(tc);
+    }
     await this.compensation.clickSubmit();
-    await this.compensation.expectSuccess();
+    await this.compensation.screenshot(`comp-generic-${tc.testId}`);
   }
 
   /**

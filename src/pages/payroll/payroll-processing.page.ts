@@ -21,9 +21,9 @@ import { HomePage } from '../home.page';
 export class PayrollProcessingPage extends BasePage {
   // --- Scheduled Processes selectors (from scheduled-processes-deep.json) ---
 
-  /** "Schedule New Process" link button on the Scheduled Processes page. */
+  /** "Schedule New Process" button on the Scheduled Processes page. */
   private readonly scheduleNewProcessLink = this.page.locator(
-    'a[role="button"]:has-text("Schedule New Process")'
+    'button:has-text("Schedule New Process"), a[role="button"]:has-text("Schedule New Process")'
   ).first();
 
   /** "Resubmit" link button. */
@@ -110,9 +110,7 @@ export class PayrollProcessingPage extends BasePage {
   // --- Payroll-specific selectors for Submit a Flow / process dialogs ---
 
   /** Process name search input in the "Schedule New Process" dialog. */
-  private readonly processNameInput = this.page.locator(
-    'input[aria-label*="Name"], input[aria-label*="Process"], input[placeholder*="Search"]'
-  ).first();
+  private readonly processNameInput = this.page.getByRole('combobox', { name: 'Name' });
 
   /** Payroll name dropdown/LOV in process parameters. */
   private readonly payrollNameInput = this.page.locator(
@@ -193,24 +191,241 @@ export class PayrollProcessingPage extends BasePage {
 
   /**
    * Schedule a new process by clicking "Schedule New Process" and entering the name.
-   * Uses the real "Schedule New Process" link button from inspection data.
+   *
+   * The Name combobox in the "Schedule New Process" dialog is an ADF
+   * inputComboboxListOfValues. Typing + Tab may open a "Search and Select: Name"
+   * dialog with a collapsed search section. This method handles:
+   *   1. Type process name → Tab to trigger LOV resolution
+   *   2. If "Search and Select" dialog opens, expand search → fill Name → Search
+   *   3. Select matching row → OK to close inner dialog
+   *   4. OK on outer "Schedule New Process" dialog to proceed to parameters
    */
   async scheduleNewProcess(processName: string): Promise<void> {
     await this.scheduleNewProcessLink.click();
     await this.page.waitForTimeout(3000);
     await this.waitForJET();
 
-    // Fill the process name in the dialog
-    await this.fillCombobox(this.processNameInput, processName);
+    // Type the process name and trigger LOV resolution
+    const nameField = this.processNameInput;
+    await nameField.click();
+    await nameField.clear();
+    await nameField.pressSequentially(processName, { delay: 50 });
     await this.page.waitForTimeout(2000);
 
-    // Click OK to proceed to parameters
+    // Tab to trigger autocomplete resolution
+    await nameField.press('Tab');
+    await this.page.waitForTimeout(3000);
+
+    // Check if a "Search and Select" dialog appeared (stacked on top).
+    // Don't rely on AFModalGlassPane (may not exist for all dialog types) —
+    // instead check for the actual dialog title "Search and Select: Name".
+    const searchAndSelect = this.page.getByText('Search and Select', { exact: false }).first();
+    if (await searchAndSelect.isVisible({ timeout: 3000 }).catch(() => false)) {
+      console.log('[Payroll] Search and Select dialog detected');
+      await this.handleProcessSearchDialog(processName);
+    }
+
+    // Click OK on the "Schedule New Process" dialog to proceed to parameters
+    await this.page.waitForTimeout(2000);
     const okButton = this.page.getByRole('button', { name: 'OK' }).first();
     if (await okButton.isVisible({ timeout: 5000 }).catch(() => false)) {
-      await okButton.click();
+      const isDisabled = await okButton.isDisabled().catch(() => true);
+      if (!isDisabled) {
+        await okButton.click({ force: true });
+        await this.page.waitForTimeout(3000);
+        await this.clearGlassPane();
+        await this.waitForJET();
+      } else {
+        console.log(`[Payroll] Process "${processName}" not selected, OK disabled — cancelling`);
+        const cancelBtn = this.page.getByRole('button', { name: 'Cancel' }).first();
+        await cancelBtn.click({ force: true }).catch(() => {});
+        await this.page.waitForTimeout(2000);
+        await this.clearGlassPane();
+        throw new Error(`Scheduled process "${processName}" could not be selected`);
+      }
+    }
+  }
+
+  /**
+   * Handle the "Search and Select: Name" dialog that appears when the LOV
+   * combobox can't autocomplete the process name.
+   *
+   * The dialog starts with a collapsed search section. Steps:
+   *   1. Expand search (click ▶ Search or "Expand Search" button)
+   *   2. Fill the Name input field with the process name
+   *   3. Click the Search button to execute the query
+   *   4. Select matching row from results
+   *   5. Click OK to close this dialog (returns to "Schedule New Process")
+   */
+  private async handleProcessSearchDialog(processName: string): Promise<void> {
+    await this.clearGlassPane();
+
+    // Scope all interactions to the "Search and Select" dialog container.
+    // Find the dialog by its title text and navigate to its parent container (1 level up).
+    const titleEl = this.page.getByText('Search and Select: Name', { exact: true }).first();
+    const ssDialog = titleEl.locator('xpath=ancestor::div[1]');
+    console.log(`[Payroll] Dialog scoped, title visible: ${await titleEl.isVisible().catch(() => false)}`);
+
+    // Expand the collapsed search section within the dialog
+    const expandBtn = ssDialog.getByRole('button', { name: 'Expand Search' }).first();
+    if (await expandBtn.isVisible({ timeout: 3000 }).catch(() => false)) {
+      await expandBtn.click();
+      await this.page.waitForTimeout(2000);
+      await this.waitForJET();
+      console.log('[Payroll] Expanded Search and Select search section');
+    }
+
+    // Find the Name search textbox within the dialog
+    const nameTextbox = ssDialog.getByRole('textbox', { name: 'Name' }).first();
+    const hasTextbox = await nameTextbox.isVisible({ timeout: 3000 }).catch(() => false);
+    console.log(`[Payroll] Search textbox visible: ${hasTextbox}`);
+
+    if (hasTextbox) {
+      await nameTextbox.click();
+      await nameTextbox.fill('');
+      await this.page.waitForTimeout(300);
+      await nameTextbox.pressSequentially(processName, { delay: 30 });
+      await this.page.waitForTimeout(500);
+      console.log(`[Payroll] Typed "${processName}" in dialog search field`);
+
+      // Click the Search button within the dialog
+      const searchBtn = ssDialog.getByRole('button', { name: 'Search', exact: true }).first();
+      if (await searchBtn.isVisible({ timeout: 2000 }).catch(() => false)) {
+        await searchBtn.click();
+        console.log('[Payroll] Clicked dialog Search button');
+      } else {
+        await nameTextbox.press('Enter');
+        console.log('[Payroll] Pressed Enter to search');
+      }
+      await this.page.waitForTimeout(5000);
+      await this.waitForJET();
+
+      // Check for results
+      let resultRowCount = await ssDialog.locator('[_afrrk]').count();
+
+      // If 0 results, retry with wildcard search based on first word
+      if (resultRowCount === 0) {
+        const firstWord = processName.split(/[\s-]+/)[0]; // e.g. "Off" from "Off-Cycle Payroll"
+        console.log(`[Payroll] No results for "${processName}", retrying with "${firstWord}%"`);
+        await nameTextbox.click();
+        await nameTextbox.fill('');
+        await this.page.waitForTimeout(300);
+        await nameTextbox.pressSequentially(firstWord + '%', { delay: 30 });
+        await this.page.waitForTimeout(500);
+
+        const retryBtn = ssDialog.getByRole('button', { name: 'Search', exact: true }).first();
+        if (await retryBtn.isVisible({ timeout: 2000 }).catch(() => false)) {
+          await retryBtn.click();
+        }
+        await this.page.waitForTimeout(5000);
+        await this.waitForJET();
+      }
+    } else {
+      // No textbox: try clicking Search without criteria to list all processes
+      console.log('[Payroll] No search textbox, searching with no criteria');
+      const searchBtn = ssDialog.getByRole('button', { name: 'Search', exact: true }).first();
+      if (await searchBtn.isVisible({ timeout: 2000 }).catch(() => false)) {
+        await searchBtn.click();
+        await this.page.waitForTimeout(5000);
+        await this.waitForJET();
+      }
+    }
+
+    // Look for result rows WITHIN the dialog only (ADF rows with _afrrk attribute)
+    const resultRows = ssDialog.locator('[_afrrk]');
+    let rowCount = await resultRows.count();
+    console.log(`[Payroll] Dialog results: ${rowCount} ADF rows`);
+
+    // Also check for non-ADF table rows
+    if (rowCount === 0) {
+      const altRows = ssDialog.locator('table tbody tr')
+        .filter({ hasNot: this.page.locator('th') })
+        .filter({ hasNotText: 'No rows to display' })
+        .filter({ hasNotText: 'column headers' });
+      const altCount = await altRows.count();
+      if (altCount > 0) {
+        console.log(`[Payroll] Found ${altCount} non-ADF result rows in dialog`);
+        rowCount = altCount;
+      }
+    }
+
+    if (rowCount > 0) {
+      const rows = (await ssDialog.locator('[_afrrk]').count()) > 0
+        ? ssDialog.locator('[_afrrk]')
+        : ssDialog.locator('table tbody tr')
+            .filter({ hasNot: this.page.locator('th') })
+            .filter({ hasNotText: 'No rows to display' });
+
+      // Try to find a row matching the process name (exact or keyword match)
+      const matchRow = rows.filter({ hasText: processName }).first();
+      let targetRow = matchRow;
+      let matched = await matchRow.isVisible({ timeout: 2000 }).catch(() => false);
+
+      // If no exact match, try matching by significant keywords from the process name
+      if (!matched) {
+        const keywords = processName.split(/[\s-]+/).filter(w => w.length > 3);
+        for (const kw of keywords) {
+          const kwRow = rows.filter({ hasText: new RegExp(kw, 'i') }).first();
+          if (await kwRow.isVisible({ timeout: 1000 }).catch(() => false)) {
+            const text = await kwRow.textContent().catch(() => '');
+            console.log(`[Payroll] Found keyword "${kw}" match: "${text?.trim().substring(0, 60)}"`);
+            targetRow = kwRow;
+            matched = true;
+            break;
+          }
+        }
+      }
+
+      if (!matched) {
+        // No matching row found — don't select a random unrelated process
+        console.log(`[Payroll] No row matches "${processName}" — closing dialog`);
+        const cancelBtn = ssDialog.getByRole('button', { name: 'Cancel' }).first();
+        await cancelBtn.click({ force: true }).catch(() => {});
+        await this.page.waitForTimeout(2000);
+        await this.clearGlassPane();
+        await this.waitForJET();
+        return;
+      }
+
+      // Double-click the matching row (ADF LOV convention: dblclick = select + close)
+      const rowText = await targetRow.textContent().catch(() => '');
+      console.log(`[Payroll] Double-clicking row: "${rowText?.trim().substring(0, 80)}"`);
+      await targetRow.dblclick({ force: true });
       await this.page.waitForTimeout(3000);
       await this.waitForJET();
+
+      // If dialog still open after double-click, click OK via ADF
+      if (await titleEl.isVisible({ timeout: 2000 }).catch(() => false)) {
+        console.log('[Payroll] Dialog still open, clicking OK');
+        const okBtn = ssDialog.getByRole('button', { name: 'OK' }).first();
+        const okId = await okBtn.getAttribute('id').catch(() => '');
+        if (okId) {
+          await this.page.evaluate((id: string) => {
+            const adfPage = (window as any).AdfPage?.PAGE;
+            if (!adfPage) return;
+            const comp = adfPage.findComponentByAbsoluteId(id);
+            if (comp) { new (window as any).AdfActionEvent(comp).queue(); }
+          }, okId);
+        } else {
+          await okBtn.click({ force: true });
+        }
+        await this.page.waitForTimeout(2000);
+      }
+    } else {
+      // No results — close the dialog
+      console.log(`[Payroll] No results for "${processName}"`);
+      const closeLink = ssDialog.getByRole('link', { name: 'Close' }).first();
+      if (await closeLink.isVisible({ timeout: 2000 }).catch(() => false)) {
+        await closeLink.click({ force: true });
+      } else {
+        const cancelBtn = ssDialog.getByRole('button', { name: 'Cancel' }).first();
+        await cancelBtn.click({ force: true }).catch(() => {});
+      }
     }
+
+    await this.page.waitForTimeout(3000);
+    await this.clearGlassPane();
+    await this.waitForJET();
   }
 
   /** Select payroll flow type by scheduling a new process with the given name. */
@@ -580,15 +795,34 @@ export class PayrollProcessingPage extends BasePage {
 
   // --- Verification ---
 
-  /** Verify payroll result by checking for success indicators. */
+  /**
+   * Verify payroll result by checking for success indicators.
+   * Uses soft verification since payroll processes may take time
+   * and show various status indicators (Submitted, Running, Succeeded, etc.).
+   */
   async verifyResult(): Promise<void> {
     const successIndicator = this.page.locator(
       ':text("Succeeded"), :text("completed"), :text("submitted"), ' +
-      '[class*="success"], [class*="confirmation"]'
+      ':text("Running"), :text("Pending"), :text("Ready"), ' +
+      '[class*="success"], [class*="confirmation"], ' +
+      '.oj-message-summary, .fnd-notification-detail'
     ).first();
-    await successIndicator.waitFor({ state: 'visible', timeout: 30_000 }).catch(() => {
-      // Process may still be running; check for pending/running status
-    });
+
+    const visible = await successIndicator.waitFor({ state: 'visible', timeout: 15_000 }).then(() => true).catch(() => false);
+    if (visible) {
+      const text = await successIndicator.textContent().catch(() => '');
+      console.log(`[Payroll] Result: ${text?.substring(0, 100)}`);
+    } else {
+      // Check for error
+      const errorIndicator = this.page.locator(':text("Error"), [class*="error"]').first();
+      const hasError = await errorIndicator.isVisible({ timeout: 3000 }).catch(() => false);
+      if (hasError) {
+        const errText = await errorIndicator.textContent().catch(() => '');
+        console.log(`[Payroll] Error: ${errText?.substring(0, 200)}`);
+      } else {
+        console.log('[Payroll] No explicit result indicator visible');
+      }
+    }
   }
 
   /** Save current form. */

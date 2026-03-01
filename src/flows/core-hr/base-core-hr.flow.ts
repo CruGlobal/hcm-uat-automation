@@ -53,8 +53,29 @@ export class BaseCoreHRFlow extends BaseFlow {
 
   /** Click the Next button in the ADF wizard. */
   async clickNext(): Promise<void> {
+    await this.dismissMatchingPersonDialog();
     await this.person.clickAdfButton('Next');
     await this.page.waitForTimeout(10_000); // ADF wizard step transitions are slow
+    await this.dismissMatchingPersonDialog();
+  }
+
+  /**
+   * Dismiss the "Matching Person Records" dialog if it appears.
+   * Oracle HCM shows this when personal details (name + DOB) match an existing person.
+   * Clicking "Continue" proceeds with creating a new record.
+   */
+  async dismissMatchingPersonDialog(): Promise<void> {
+    const dialog = this.page.getByText('Matching Person Records');
+    const visible = await dialog.isVisible({ timeout: 2000 }).catch(() => false);
+    if (visible) {
+      console.log('[CoreHR] "Matching Person Records" dialog detected — clicking Continue');
+      const continueBtn = this.page.getByRole('button', { name: 'Continue' }).first();
+      if (await continueBtn.isVisible({ timeout: 3000 }).catch(() => false)) {
+        await continueBtn.click();
+        await this.page.waitForTimeout(5000);
+        await this.person.waitForJET();
+      }
+    }
   }
 
   /** Click the Submit button in the ADF wizard. */

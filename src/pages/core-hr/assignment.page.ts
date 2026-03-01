@@ -17,9 +17,16 @@ export class AssignmentPage extends BasePage {
    * Migration DB values that don't match Oracle HCM LOV values.
    * The migration DB uses codes/placeholders; the LOV expects display names.
    */
-  private readonly lovValueMapping: Record<string, Record<string, string>> = {
+  /**
+   * Migration DB values that don't match Oracle HCM display values.
+   * Maps: field name → { migration value → Oracle HCM value }
+   */
+  private readonly valueMapping: Record<string, Record<string, string>> = {
     'Location': {
       'CRU_HQ': 'Cru World Headquarters',
+    },
+    'Hourly Salary': {
+      'Salary': 'Salaried',
     },
   };
 
@@ -65,7 +72,7 @@ export class AssignmentPage extends BasePage {
       let value = getField(tc, key);
       if (value) {
         // Apply value mapping for migration→HCM translations
-        const mapped = this.lovValueMapping[key]?.[value];
+        const mapped = this.valueMapping[key]?.[value];
         if (mapped) {
           console.log(`[Assignment] Mapped LOV ${key}: "${value}" → "${mapped}"`);
           value = mapped;
@@ -89,8 +96,14 @@ export class AssignmentPage extends BasePage {
     ];
 
     for (const [locator, key] of readonlyFields) {
-      const value = getField(tc, key);
+      let value = getField(tc, key);
       if (value) {
+        // Apply value mapping for migration→HCM translations
+        const mapped = this.valueMapping[key]?.[value];
+        if (mapped) {
+          console.log(`[Assignment] Mapped ${key}: "${value}" → "${mapped}"`);
+          value = mapped;
+        }
         console.log(`[Assignment] Setting readonly ${key} = "${value}"`);
         await this.setReadonlyCombobox(locator, value);
         const afterValue = await locator.inputValue().catch(() => '(no value)');
@@ -167,32 +180,37 @@ export class AssignmentPage extends BasePage {
       const normalize = (s: string) => s.toLowerCase().replace(/[-_\s]+/g, ' ').trim();
       const normalizedVal = normalize(val);
       const items = comp.getSelectItems?.();
+      const labels = items ? items.map((it: any) => `${it.getLabel?.() || '(null)'}=${it.getValue?.()}`) : [];
+      const itemCount = items?.length || 0;
+      const currentVal = comp.getValue?.();
+
       if (items && items.length > 0) {
         for (let i = 0; i < items.length; i++) {
           if (items[i].getLabel?.() === val || items[i].getValue?.() === val) {
             comp.setValue(items[i].getValue());
-            return { success: true, matched: 'exact' };
+            return { success: true, matched: 'exact', setValue: items[i].getValue(), itemCount, labels, currentVal };
           }
         }
         for (let i = 0; i < items.length; i++) {
           const normalizedLabel = normalize(items[i].getLabel?.() || '');
+          if (!normalizedLabel) continue; // Skip null/empty labels
           if (normalizedLabel === normalizedVal || normalizedLabel.includes(normalizedVal) || normalizedVal.includes(normalizedLabel)) {
             comp.setValue(items[i].getValue());
-            return { success: true, matched: 'normalized' };
+            return { success: true, matched: 'normalized', setValue: items[i].getValue(), itemCount, labels, currentVal };
           }
         }
-        return { success: false, reason: 'no match found' };
+        return { success: false, reason: 'no match found', labels, itemCount, currentVal };
       }
       comp.setValue(val);
-      return { success: true, matched: 'fallback' };
+      return { success: true, matched: 'fallback', setValue: val, itemCount, labels, currentVal };
     }, { pid: parentId, val: value });
 
-    const success = result.success;
-
-    if (success) {
+    console.log(`[ADF] Result: ${JSON.stringify(result)}`);
+    if (result.success) {
       await this.page.waitForTimeout(2000);
       await this.waitForJET();
     } else {
+      console.log(`[ADF] setReadonlyCombobox failed: ${(result as any).reason}`);
       // ADF component not found — try normal combobox
       await this.fillCombobox(locator, value);
     }

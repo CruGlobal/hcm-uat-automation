@@ -1,6 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 import type { UATTestCase, TestCase } from './types';
+import { getBotForTester } from '../config/bot-users';
 
 const CACHE_FILE = path.resolve(process.cwd(), '.cache', 'uat-plan.json');
 const FIELD_DATA_FILE = path.resolve(process.cwd(), '.cache-generated', 'field-data.json');
@@ -87,10 +88,29 @@ export function uatTestTitle(tc: UATTestCase): string {
   return `${tc.testId}: ${desc.substring(0, 80)}`;
 }
 
-/** Check if a UAT test case is not deferred/cancelled. */
+/**
+ * Check if a UAT test case should run.
+ *
+ * Filters applied (in order):
+ * 1. Skip deferred/cancelled tests
+ * 2. Skip empty rows (no business process, test script, or transaction category)
+ * 3. RUN_PASSED_ONLY — only tests with "passed"/"pass" status
+ * 4. PARALLEL_BOT — only tests assigned to the specified bot user (for parallel execution)
+ */
 export function isTestable(tc: UATTestCase): boolean {
   const status = tc.status.toLowerCase();
-  return status !== 'deferred' && status !== 'cancelled';
+  if (status === 'deferred' || status === 'cancelled') return false;
+  // Skip empty rows: no business process, no test script, and no transaction category
+  if (!tc.businessProcess && !tc.testScript && !tc.transactionCategory) return false;
+  if (process.env.RUN_PASSED_ONLY) {
+    if (status !== 'passed' && status !== 'pass') return false;
+  }
+  // Parallel mode: only run tests assigned to the specified bot
+  if (process.env.PARALLEL_BOT) {
+    const bot = getBotForTester(tc.testerName);
+    if (bot.botName !== process.env.PARALLEL_BOT) return false;
+  }
+  return true;
 }
 
 /**
@@ -108,4 +128,30 @@ export function getFieldData(testId: string): TestCase | undefined {
     }
   }
   return _fieldDataCache.get(testId);
+}
+
+/**
+ * Sort test cases to minimize login switches.
+ * Default-user tests first, then grouped by bot user (largest groups first).
+ * Preserves original order within each group.
+ */
+export function sortByUser(cases: UATTestCase[]): UATTestCase[] {
+  const defaultGroup: UATTestCase[] = [];
+  const botGroups = new Map<string, UATTestCase[]>();
+
+  for (const tc of cases) {
+    const bot = getBotForTester(tc.testerName);
+    if (!bot) {
+      defaultGroup.push(tc);
+    } else {
+      const group = botGroups.get(bot.botName) || [];
+      group.push(tc);
+      botGroups.set(bot.botName, group);
+    }
+  }
+
+  // Sort bot groups by size (largest first) to minimize switches
+  const sortedBotGroups = [...botGroups.values()].sort((a, b) => b.length - a.length);
+
+  return [...defaultGroup, ...sortedBotGroups.flat()];
 }

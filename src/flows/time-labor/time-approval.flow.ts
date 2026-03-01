@@ -1,20 +1,19 @@
 import { type Page } from '@playwright/test';
 import { BaseTimeLaborFlow } from './base-time-labor.flow';
-import type { UATTestCase } from '../../data/types';
+import type { UATTestCase, TestCase } from '../../data/types';
 
 /**
- * Flow: Time Approval (Manager)
+ * Flow: Time Approval (Manager Self-Service)
  * Module: Time and Labor
  *
- * Handles these test script categories:
- * - HCM.OTL.4xx: Edit Existing Timecard in Redwood UI (manager)
- * - HCM.OTL.5xx: Mass Action Using Existing Timecard (Redwood)
- * - HCM.OTL.7xx: Edit Timecard in Classic UI (manager)
- * - HCM.OTL.8xx: Mass Action of Timecard in Classic UI (manager)
- * - HCM.OTL.1402: Manager View Team Time Change Requests
- * - HCM.OTL.1501/1801: Manager Approves Via Bell
- * - HCM.OTL.1502: Manager Approves Time Change Requests from UI
- * - HCM.OTL.1802: Manager Approves Time Card from Redwood UI
+ * Handles Manager Self-Service operations:
+ * - Time Approval: approve/reject submitted timecards via bell or Team Time Cards
+ * - Manager Timecard Entry: create timecards for team members
+ * - Manager Absence on Timecard: absence entries on behalf of team
+ * - Timecard Amendments: return timecards for correction
+ * - Manager Update: update existing team timecards
+ *
+ * Routing uses getFlowAction() which combines script number + business process + category.
  */
 export class TimeApprovalFlow extends BaseTimeLaborFlow {
   constructor(page: Page) {
@@ -22,12 +21,40 @@ export class TimeApprovalFlow extends BaseTimeLaborFlow {
   }
 
   async execute(tc: UATTestCase): Promise<void> {
-    await this.loginToHCM();
+    await this.loginToHCM(tc);
 
-    const category = this.getScriptCategory(tc.testScript);
-    const bp = tc.businessProcess.toLowerCase();
+    const action = this.getFlowAction(tc);
+    console.log(`[TimeApproval] ${tc.testId} action="${action}" bp="${tc.businessProcess}" script="${tc.testScript}"`);
 
-    switch (category) {
+    switch (action) {
+      case 'approve-via-bell':
+        await this.approveViaBell(tc);
+        break;
+
+      case 'manager-approve-redwood':
+        await this.managerApproveRedwood(tc);
+        break;
+
+      case 'manager-create':
+        await this.managerCreateTimecard(tc);
+        break;
+
+      case 'manager-update':
+        await this.managerUpdateTimecard(tc);
+        break;
+
+      case 'manager-absence-on-timecard':
+        await this.managerAbsenceOnTimecard(tc);
+        break;
+
+      case 'timecard-amendments':
+        await this.timecardAmendments(tc);
+        break;
+
+      case 'time-change-request':
+        await this.viewTeamTimeChangeRequests(tc);
+        break;
+
       case 'edit-redwood':
         await this.editTimecardRedwood(tc);
         break;
@@ -44,39 +71,87 @@ export class TimeApprovalFlow extends BaseTimeLaborFlow {
         await this.massActionClassic(tc);
         break;
 
-      case 'approve-via-bell':
-        await this.approveViaBell(tc);
-        break;
-
-      case 'manager-approve-redwood':
-        await this.managerApproveRedwood(tc);
-        break;
-
       default:
-        await this.executeByBusinessProcess(tc, bp);
+        // Fallback: determine from business process text
+        await this.executeByBusinessProcess(tc);
         break;
     }
   }
 
   /**
-   * HCM.OTL.401.00: Edit Existing Timecard in Redwood UI.
-   * Steps:
-   * 1. My Client Groups > Quick Actions > Show More > Team Time Cards in Redwood UI
-   * 2. Search for employee and Time Card week (From/To Date)
-   * 3. Select timecard checkbox > Action > Edit
-   * 4. Update Time Type and/or hours, or add new row
-   * 5. Click Submit from Actions
+   * Manager approves via the notification bell.
+   * Steps: Click bell > Open time notification > Approve
    */
-  private async editTimecardRedwood(tc: UATTestCase): Promise<void> {
+  private async approveViaBell(tc: UATTestCase): Promise<void> {
+    await this.timecardPage.approveViaBell();
+    await this.timecardPage.expectSuccess();
+  }
+
+  /**
+   * Manager approves from Redwood Team Time Cards UI.
+   * Steps: Team Time Cards > Filter submitted > Select > Approve
+   */
+  private async managerApproveRedwood(tc: UATTestCase): Promise<void> {
     await this.navigateToTeamTimeCards();
 
+    await this.timecardPage.setStatusFilter('Submitted');
+
+    const fd = this.getTestFieldData(tc.testId);
+    const personName = this.extractFieldWithFallback(fd, tc.testData, 'Person Name', 'person');
+    if (personName) await this.timecardPage.searchPerson(personName);
+
+    await this.timecardPage.clickSearch();
+
+    const bp = tc.businessProcess.toLowerCase();
+    if (bp.includes('reject')) {
+      const reason = this.extractFieldWithFallback(fd, tc.testData, 'Reason', 'reason');
+      await this.timecardPage.rejectTimecard(undefined, reason);
+    } else {
+      await this.timecardPage.approveTimecard();
+    }
+
+    await this.timecardPage.expectSuccess();
+  }
+
+  /**
+   * Manager creates a timecard for a team member.
+   * Steps: Team Time Cards > Create > Search person > Fill > Submit
+   */
+  private async managerCreateTimecard(tc: UATTestCase): Promise<void> {
+    await this.navigateToTeamTimeCards();
+
+    // Click create button
+    await this.timecardPage.clickCreateTimecard();
+
+    // Search and select employee
+    const fd = this.getTestFieldData(tc.testId);
+    const personName = this.extractFieldWithFallback(fd, tc.testData, 'Person Name', 'person');
+    if (personName) {
+      await this.timecardPage.searchPerson(personName);
+    }
+
+    // Fill timecard data
+    await this.timecardPage.fillFromTestCase(tc, fd);
+
+    // Submit
+    await this.timecardPage.submitTimecard();
+    await this.timecardPage.expectSuccess();
+  }
+
+  /**
+   * Manager updates an existing team timecard.
+   * Steps: Team Time Cards > Search > Edit > Update > Submit
+   */
+  private async managerUpdateTimecard(tc: UATTestCase): Promise<void> {
+    await this.navigateToTeamTimeCards();
+
+    const fd = this.getTestFieldData(tc.testId);
     await this.timecardPage.editTimecardRedwood({
-      personName: this.extractField(tc.testData, 'person'),
-      fromDate: this.extractField(tc.testData, 'from'),
-      toDate: this.extractField(tc.testData, 'to'),
-      hoursType: this.extractField(tc.testData, 'hours type') ||
-                 this.extractField(tc.testData, 'time type'),
-      hours: this.extractField(tc.testData, 'hours'),
+      personName: this.extractFieldWithFallback(fd, tc.testData, 'Person Name', 'person'),
+      fromDate: this.extractFieldWithFallback(fd, tc.testData, 'From Date', 'from'),
+      toDate: this.extractFieldWithFallback(fd, tc.testData, 'To Date', 'to'),
+      hoursType: this.extractFieldWithFallback(fd, tc.testData, 'Hours Type', 'hours type'),
+      hours: this.extractFieldWithFallback(fd, tc.testData, 'Hours', 'hours'),
     });
 
     await this.timecardPage.submitTimecard();
@@ -84,24 +159,102 @@ export class TimeApprovalFlow extends BaseTimeLaborFlow {
   }
 
   /**
-   * HCM.OTL.501.00: Mass Action Using Existing Timecard in Redwood UI.
-   * Steps:
-   * 1. My Client Groups > Quick Actions > Show More > Team Time Cards in Redwood UI
-   * 2. Search for employees and date range
-   * 3. Select timecards (checkbox or select all)
-   * 4. Click Actions > Submit or Approve
+   * Manager enters absence on timecard for a team member.
+   * Steps: Team Time Cards > Create > Fill absence hours > Submit
+   */
+  private async managerAbsenceOnTimecard(tc: UATTestCase): Promise<void> {
+    await this.navigateToTeamTimeCards();
+    await this.timecardPage.clickCreateTimecard();
+
+    const fd = this.getTestFieldData(tc.testId);
+    const personName = this.extractFieldWithFallback(fd, tc.testData, 'Person Name', 'person');
+    if (personName) await this.timecardPage.searchPerson(personName);
+
+    await this.timecardPage.fillFromTestCase(tc, fd);
+    await this.timecardPage.submitTimecard();
+    await this.timecardPage.expectSuccess();
+  }
+
+  /**
+   * Timecard amendments: return a submitted timecard for correction and resubmission.
+   * Steps: Team Time Cards > Search submitted > Select > Return for Correction
+   */
+  private async timecardAmendments(tc: UATTestCase): Promise<void> {
+    await this.navigateToTeamTimeCards();
+
+    const fd = this.getTestFieldData(tc.testId);
+    const personName = this.extractFieldWithFallback(fd, tc.testData, 'Person Name', 'person');
+    if (personName) await this.timecardPage.searchPerson(personName);
+
+    await this.timecardPage.clickSearch();
+    await this.timecardPage.selectFirstTimecardRow();
+
+    // Try "Return for Correction" or "Request More Info"
+    const returnBtn = this.page.getByRole('button', { name: /Return for Correction/i })
+      .or(this.page.locator('a:has-text("Return for Correction")'))
+      .first();
+    const hasReturn = await returnBtn.isVisible({ timeout: 3000 }).catch(() => false);
+    if (hasReturn) {
+      await returnBtn.click();
+    } else {
+      await this.timecardPage.requestMoreInfo();
+    }
+
+    await this.page.waitForTimeout(5000);
+    await this.timecardPage.waitForJET();
+    await this.timecardPage.handleConfirmationDialog();
+    await this.timecardPage.expectSuccess();
+  }
+
+  /**
+   * View team time change requests.
+   * Steps: My Team > Quick Actions > Team Change Requests > View pending
+   */
+  private async viewTeamTimeChangeRequests(tc: UATTestCase): Promise<void> {
+    await this.navigateToTeamChangeRequests();
+    const pendingLink = this.page.getByText(/Pending Approval/i).first();
+    const hasPending = await pendingLink.isVisible({ timeout: 5000 }).catch(() => false);
+    if (hasPending) {
+      await pendingLink.click();
+      await this.page.waitForTimeout(3000);
+    }
+    await this.timecardPage.approveTimecard();
+    await this.timecardPage.expectSuccess();
+  }
+
+  /**
+   * Edit Existing Timecard in Redwood UI (manager).
+   */
+  private async editTimecardRedwood(tc: UATTestCase): Promise<void> {
+    await this.navigateToTeamTimeCards();
+
+    const fd = this.getTestFieldData(tc.testId);
+    await this.timecardPage.editTimecardRedwood({
+      personName: this.extractFieldWithFallback(fd, tc.testData, 'Person Name', 'person'),
+      fromDate: this.extractFieldWithFallback(fd, tc.testData, 'From Date', 'from'),
+      toDate: this.extractFieldWithFallback(fd, tc.testData, 'To Date', 'to'),
+      hoursType: this.extractFieldWithFallback(fd, tc.testData, 'Hours Type', 'hours type') ||
+                 this.extractFieldWithFallback(fd, tc.testData, 'Time Type', 'time type'),
+      hours: this.extractFieldWithFallback(fd, tc.testData, 'Hours', 'hours'),
+    });
+
+    await this.timecardPage.submitTimecard();
+    await this.timecardPage.expectSuccess();
+  }
+
+  /**
+   * Mass Action Using Existing Timecard in Redwood UI.
    */
   private async massActionRedwood(tc: UATTestCase): Promise<void> {
     await this.navigateToTeamTimeCards();
 
-    const personName = this.extractField(tc.testData, 'person');
-    if (personName) {
-      await this.timecardPage.searchPerson(personName);
-    }
+    const fd = this.getTestFieldData(tc.testId);
+    const personName = this.extractFieldWithFallback(fd, tc.testData, 'Person Name', 'person');
+    if (personName) await this.timecardPage.searchPerson(personName);
 
-    const fromDate = this.extractField(tc.testData, 'from');
+    const fromDate = this.extractFieldWithFallback(fd, tc.testData, 'From Date', 'from');
     if (fromDate) await this.timecardPage.setFromDate(fromDate);
-    const toDate = this.extractField(tc.testData, 'to');
+    const toDate = this.extractFieldWithFallback(fd, tc.testData, 'To Date', 'to');
     if (toDate) await this.timecardPage.setToDate(toDate);
 
     await this.timecardPage.clickSearch();
@@ -113,24 +266,18 @@ export class TimeApprovalFlow extends BaseTimeLaborFlow {
   }
 
   /**
-   * HCM.OTL.701.00: Edit Timecard in Classic UI.
-   * Steps:
-   * 1. My Client Groups > Time Management > Team Time Cards
-   * 2. Search by person name/number and date range
-   * 3. Click Search
-   * 4. Click on the date range hyperlink to open timecard
-   * 5. Update Time Type and/or hours
-   * 6. Save and Close or Submit
+   * Edit Timecard in Classic UI (manager).
    */
   private async editTimecardClassic(tc: UATTestCase): Promise<void> {
     await this.navigateToTimeAdmin();
 
+    const fd = this.getTestFieldData(tc.testId);
     await this.timecardPage.editTimecardClassic({
-      personName: this.extractField(tc.testData, 'person'),
-      fromDate: this.extractField(tc.testData, 'from'),
-      toDate: this.extractField(tc.testData, 'to'),
-      timeType: this.extractField(tc.testData, 'time type'),
-      hours: this.extractField(tc.testData, 'hours'),
+      personName: this.extractFieldWithFallback(fd, tc.testData, 'Person Name', 'person'),
+      fromDate: this.extractFieldWithFallback(fd, tc.testData, 'From Date', 'from'),
+      toDate: this.extractFieldWithFallback(fd, tc.testData, 'To Date', 'to'),
+      timeType: this.extractFieldWithFallback(fd, tc.testData, 'Time Type', 'time type'),
+      hours: this.extractFieldWithFallback(fd, tc.testData, 'Hours', 'hours'),
     });
 
     const bp = tc.businessProcess.toLowerCase();
@@ -144,23 +291,19 @@ export class TimeApprovalFlow extends BaseTimeLaborFlow {
   }
 
   /**
-   * HCM.OTL.801.00: Mass Action of Timecard in Classic UI.
-   * Steps:
-   * 1. My Client Groups > Time Management > Team Time Cards
-   * 2. Search by person/date range
-   * 3. Select rows (select all via top-left checkbox)
-   * 4. Click Submit or Approve
+   * Mass Action of Timecard in Classic UI (manager).
    */
   private async massActionClassic(tc: UATTestCase): Promise<void> {
     await this.navigateToTimeAdmin();
     await this.timecardPage.clickTeamTimeCards();
 
-    const personName = this.extractField(tc.testData, 'person');
+    const fd = this.getTestFieldData(tc.testId);
+    const personName = this.extractFieldWithFallback(fd, tc.testData, 'Person Name', 'person');
     if (personName) await this.timecardPage.searchPerson(personName);
 
-    const fromDate = this.extractField(tc.testData, 'from');
+    const fromDate = this.extractFieldWithFallback(fd, tc.testData, 'From Date', 'from');
     if (fromDate) await this.timecardPage.setFromDate(fromDate);
-    const toDate = this.extractField(tc.testData, 'to');
+    const toDate = this.extractFieldWithFallback(fd, tc.testData, 'To Date', 'to');
     if (toDate) await this.timecardPage.setToDate(toDate);
 
     await this.timecardPage.clickSearch();
@@ -172,54 +315,19 @@ export class TimeApprovalFlow extends BaseTimeLaborFlow {
   }
 
   /**
-   * HCM.OTL.1501.00 / HCM.OTL.1801.00: Manager Approves Via Bell.
-   * Steps:
-   * 1. Click notifications icon (bell) at top-right
-   * 2. Click on the notification to view details
-   * 3. Take approval action (Approve/Reject)
-   * 4. Return to home page
+   * Fallback: determine action from business process text and transaction category.
    */
-  private async approveViaBell(_tc: UATTestCase): Promise<void> {
-    await this.timecardPage.approveViaBell();
-    await this.timecardPage.expectSuccess();
-  }
-
-  /**
-   * HCM.OTL.1802.00: Manager Approves Time Card from Redwood UI.
-   * Steps:
-   * 1. My Team > Quick Actions > Show More > Team Time Cards
-   * 2. Filter by status = Submitted
-   * 3. Select timecards > Actions > Approve
-   */
-  private async managerApproveRedwood(tc: UATTestCase): Promise<void> {
-    await this.navigateToTeamTimeCards();
-
-    await this.timecardPage.setStatusFilter('Submitted');
-
-    const personName = this.extractField(tc.testData, 'person');
-    if (personName) await this.timecardPage.searchPerson(personName);
-
-    await this.timecardPage.clickSearch();
-
+  private async executeByBusinessProcess(tc: UATTestCase): Promise<void> {
+    const fd = this.getTestFieldData(tc.testId);
     const bp = tc.businessProcess.toLowerCase();
-    if (bp.includes('reject')) {
-      const reason = this.extractField(tc.testData, 'reason');
-      await this.timecardPage.rejectTimecard(undefined, reason);
-    } else {
-      await this.timecardPage.approveTimecard();
-    }
+    const cat = (tc.transactionCategory || '').toLowerCase();
 
-    await this.timecardPage.expectSuccess();
-  }
+    console.log(`[TimeApproval] Fallback routing: bp="${bp}" cat="${cat}"`);
 
-  /**
-   * Fallback: determine action from business process text.
-   */
-  private async executeByBusinessProcess(tc: UATTestCase, bp: string): Promise<void> {
     if (bp.includes('reject')) {
       await this.navigateToTeamTimeCards();
-      const reason = this.extractField(tc.testData, 'reason');
-      const personName = this.extractField(tc.testData, 'person');
+      const reason = this.extractFieldWithFallback(fd, tc.testData, 'Reason', 'reason');
+      const personName = this.extractFieldWithFallback(fd, tc.testData, 'Person Name', 'person');
       await this.timecardPage.rejectTimecard(personName, reason);
     } else if (bp.includes('request') && bp.includes('info')) {
       await this.navigateToTeamTimeCards();
@@ -239,20 +347,33 @@ export class TimeApprovalFlow extends BaseTimeLaborFlow {
         await this.page.waitForTimeout(3000);
       }
       await this.timecardPage.approveTimecard();
-    } else {
+    } else if (bp.includes('approv') || bp.includes('approval')) {
+      // Default approval via Team Time Cards
       await this.navigateToTeamTimeCards();
-      const personName = this.extractField(tc.testData, 'person');
+      const personName = this.extractFieldWithFallback(fd, tc.testData, 'Person Name', 'person');
+      await this.timecardPage.approveTimecard(personName);
+    } else if (bp.includes('entry') || bp.includes('create') || bp.includes('add')) {
+      // Manager creating timecard for team member
+      await this.navigateToTeamTimeCards();
+      await this.timecardPage.clickCreateTimecard();
+      const personName = this.extractFieldWithFallback(fd, tc.testData, 'Person Name', 'person');
+      if (personName) await this.timecardPage.searchPerson(personName);
+      await this.timecardPage.fillFromTestCase(tc, fd);
+      await this.timecardPage.submitTimecard();
+    } else if (bp.includes('absence on timecard') || bp.includes('absence')) {
+      await this.navigateToTeamTimeCards();
+      await this.timecardPage.clickCreateTimecard();
+      const personName = this.extractFieldWithFallback(fd, tc.testData, 'Person Name', 'person');
+      if (personName) await this.timecardPage.searchPerson(personName);
+      await this.timecardPage.fillFromTestCase(tc, fd);
+      await this.timecardPage.submitTimecard();
+    } else {
+      // Default: navigate to Team Time Cards and approve
+      await this.navigateToTeamTimeCards();
+      const personName = this.extractFieldWithFallback(fd, tc.testData, 'Person Name', 'person');
       await this.timecardPage.approveTimecard(personName);
     }
 
     await this.timecardPage.expectSuccess();
-  }
-
-  /** Extract a field value from testData string using partial key match. */
-  private extractField(testData: string, key: string): string | undefined {
-    if (!testData) return undefined;
-    const regex = new RegExp(`${key}[:\\s]+([^\\n,;]+)`, 'i');
-    const match = testData.match(regex);
-    return match ? match[1].trim() : undefined;
   }
 }

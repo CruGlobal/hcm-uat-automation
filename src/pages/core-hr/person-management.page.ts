@@ -166,22 +166,70 @@ export class PersonManagementPage extends BasePage {
     await this.clickFirstSearchResult();
   }
 
+  /**
+   * Search by person number but do NOT click the result.
+   * Returns true if at least one result was found.
+   */
+  async searchByPersonNumberOnly(personNumber: string): Promise<boolean> {
+    await this.searchPersonNumber.fill(personNumber);
+    await this.searchButton.click();
+    await this.page.waitForTimeout(8000);
+    await this.waitForJET();
+    const resultLink = this.page.locator('[id*="table2:0:gl"]').first();
+    return await resultLink.isVisible({ timeout: 5000 }).catch(() => false);
+  }
+
+  /**
+   * Get all text from the first search result row.
+   * Returns the full row text, which includes Name, Person Number, Department,
+   * Location, User Person Type, Job, Assignment Status, etc.
+   */
+  async getFirstResultRowText(): Promise<string> {
+    // Use Playwright locators which handle ADF's virtual DOM better.
+    // The search results area contains table headers and row data.
+    const resultsArea = this.page.locator('[id*="SP3:table1"]').first();
+    if (await resultsArea.isVisible({ timeout: 3000 }).catch(() => false)) {
+      return (await resultsArea.textContent() || '').trim();
+    }
+    return '';
+  }
+
+  /**
+   * Click the per-row Actions icon (orange dropdown) for the first search result.
+   * This opens a context menu with available actions for that person.
+   */
+  async clickFirstResultActionsIcon(): Promise<void> {
+    const actionIcon = this.page.locator('[id*="table2:0:commandImageLink"], [id*="table2:0:cil"]').first();
+    if (await actionIcon.isVisible({ timeout: 5000 }).catch(() => false)) {
+      console.log('[PersonMgmt] Clicking per-row Actions icon');
+      await actionIcon.click();
+      await this.page.waitForTimeout(2000);
+    } else {
+      console.log('[PersonMgmt] Per-row Actions icon not found');
+    }
+  }
+
   /** Click the first person in search results table. */
   private async clickFirstSearchResult(): Promise<void> {
-    // Search results are in a table — the first data row contains a clickable name link
-    const resultLink = this.page.locator('table[id*="resId1"] tbody tr:first-child a, [id*="resId1"] [role="row"] a').first();
+    // Search results table uses IDs like: ...Perso1:0:SP3:table1:_ATp:table2:0:gl1
+    // The name link is the first <a> inside the results table (table2).
+    const resultLink = this.page.locator('[id*="table2:0:gl"], [id*="resId1:0:"] a').first();
     const isVisible = await resultLink.isVisible({ timeout: 10000 }).catch(() => false);
     if (isVisible) {
+      console.log('[PersonMgmt] Clicking first search result');
       await resultLink.click();
       await this.page.waitForTimeout(8000);
       await this.waitForJET();
     } else {
-      // Try ADF table approach
-      const firstRow = this.page.locator('[id*="resId1"] tr[_afrrk]').first();
-      if (await firstRow.isVisible({ timeout: 5000 }).catch(() => false)) {
-        await firstRow.click();
+      // Fallback: any clickable link in the first row of search results
+      const fallbackLink = this.page.locator('table[id*="table2"] tbody tr:first-child a, table[id*="resId1"] tbody tr:first-child a').first();
+      if (await fallbackLink.isVisible({ timeout: 5000 }).catch(() => false)) {
+        console.log('[PersonMgmt] Clicking fallback search result link');
+        await fallbackLink.click();
         await this.page.waitForTimeout(8000);
         await this.waitForJET();
+      } else {
+        console.log('[PersonMgmt] No search result link found');
       }
     }
   }

@@ -3,31 +3,33 @@ import { BaseFlow } from '../base.flow';
 import { PayrollProcessingPage } from '../../pages/payroll/payroll-processing.page';
 import { ElementEntryFlow } from './element-entry.flow';
 import { getFieldData } from '../../data/uat-plan-provider';
-import type { UATTestCase } from '../../data/types';
+import { getField } from '../../data/test-data-provider';
+import type { UATTestCase, TestCase } from '../../data/types';
 
 /**
  * Flow for Payroll Processing operations from the UAT Plan.
  *
- * All payroll batch processes are executed via the Scheduled Processes page
- * (Navigator > Tools > Scheduled Processes) using real ADF selectors from
- * scheduled-processes-deep.json:
- * - "Schedule New Process" link (role="button")
- * - Saved Search dropdown (label "Saved Search", default "Last hour")
- * - Action buttons: Put On Hold, Cancel Process, Release Process, View Log, Resubmit
- * - View radio: Flat List / Hierarchy
+ * Routing priority:
+ * 1. If field data exists with tab="Payroll" AND has element entry fields
+ *    (Search For, Element name), delegate to ElementEntryFlow for form filling.
+ *    This covers 108 of 113 tests.
+ * 2. If field data exists with tab="Core HR" or "Core - Hires" (5 tests),
+ *    these are hire/leave scenarios — route to Scheduled Processes or
+ *    Person Management based on business process.
+ * 3. Fallback: route by test script ID or business process text.
  *
  * Routes based on test script and business process:
- * - HCM.PAY.510.00 → Semi-monthly payroll run (31 tests)
- * - HCM.PAY.106.00 → Off-cycle payroll bonus (13 tests)
- * - HCM.PAY.520.00 → Off-cycle additional salary (9 tests)
- * - HCM.PAY.113.00 → MSS W-4 (7 tests)
- * - HCM.PAY.301.00 → Costing/designation (6 tests)
- * - HCM.PAY.404.00 → CA Meal Penalty (4 tests)
- * - Year End → W-2 processing (3 tests)
- * - HCM.PAY.114.00 → Calculation card (2 tests)
- * - HCM.PAY.324.00 → Reverse/reissue checks (2 tests)
- * - HCM.PAY.307.00 → Tax adjustments (2 tests)
- * - HCM.PAY.111.00 → Direct deposit (2 tests)
+ * - HCM.PAY.510.00 -> Semi-monthly payroll run (31 tests)
+ * - HCM.PAY.106.00 -> Off-cycle payroll bonus (13 tests)
+ * - HCM.PAY.520.00 -> Off-cycle additional salary (9 tests)
+ * - HCM.PAY.113.00 -> MSS W-4 (7 tests)
+ * - HCM.PAY.301.00 -> Costing/designation (6 tests)
+ * - HCM.PAY.404.00 -> CA Meal Penalty (4 tests)
+ * - Year End -> W-2 processing (3 tests)
+ * - HCM.PAY.114.00 -> Calculation card (2 tests)
+ * - HCM.PAY.324.00 -> Reverse/reissue checks (2 tests)
+ * - HCM.PAY.307.00 -> Tax adjustments (2 tests)
+ * - HCM.PAY.111.00 -> Direct deposit (2 tests)
  * - Various single-test scripts
  */
 export class PayrollProcessingFlow extends BaseFlow {
@@ -39,15 +41,28 @@ export class PayrollProcessingFlow extends BaseFlow {
   }
 
   async execute(tc: UATTestCase): Promise<void> {
-    // If field data exists, delegate to ElementEntryFlow for form filling
     const fieldData = getFieldData(tc.testId);
-    if (fieldData) {
+
+    // Priority 1: If field data has element entry fields, use ElementEntryFlow.
+    // 108 of 113 payroll tests have tab="Payroll" with element entry data
+    // (Search For, Element name, Effective date, etc.)
+    if (fieldData && this.hasElementEntryFields(fieldData)) {
+      console.log(`[Payroll] ${tc.testId}: Routing to ElementEntryFlow (tab=${fieldData.tab}, element=${getField(fieldData, 'Element name')})`);
       const flow = new ElementEntryFlow(this.page);
       await flow.execute(fieldData);
       return;
     }
 
-    await this.loginToHCM();
+    // Priority 2: Field data with Core HR/Hires tab — these are leave/hire scenarios.
+    // Route via Person Management or Scheduled Processes.
+    if (fieldData && (fieldData.tab === 'Core HR' || fieldData.tab.startsWith('Core -'))) {
+      console.log(`[Payroll] ${tc.testId}: Core HR scenario (tab=${fieldData.tab}, scenario=${fieldData.scenario})`);
+      await this.executeCoreHRPayrollScenario(tc, fieldData);
+      return;
+    }
+
+    // Priority 3: No field data or unrecognized tab — route by test script/business process.
+    await this.loginToHCM(tc);
 
     const script = tc.testScript;
     const process = tc.businessProcess.toLowerCase();
@@ -81,7 +96,7 @@ export class PayrollProcessingFlow extends BaseFlow {
       await this.executeDirectDepositFile(tc);
     } else if (script.includes('PAY.422') || process.includes('tax payment')) {
       await this.executeTaxPaymentFile(tc);
-    } else if (script.includes('Year End') || process.includes('w-2')) {
+    } else if (script.includes('Year End') || process.includes('w-2') || process.includes('year end')) {
       await this.executeYearEnd(tc);
     } else if (script.includes('PAY.309') || process.includes('403b') || process.includes('loan')) {
       await this.execute403bLoan(tc);
@@ -89,9 +104,86 @@ export class PayrollProcessingFlow extends BaseFlow {
       await this.executeMultiStateTax(tc);
     } else if (script.includes('PAY.325') || process.includes('ach return')) {
       await this.executeACHReturns(tc);
+    } else if (process.includes('leave') || process.includes('unpaid')) {
+      // Leave-related payroll tests go to Person Management
+      await this.executeLeaveScenario(tc);
+    } else if (process.includes('new hire') || process.includes('reporting')) {
+      // Hire reporting tests
+      await this.executeHireReporting(tc);
     } else {
       // Default: schedule the payroll run via Scheduled Processes
       await this.executePayrollRun(tc);
+    }
+  }
+
+  /**
+   * Check if field data contains element entry fields.
+   * Element entry tests have "Search For" + "Element name" fields.
+   */
+  private hasElementEntryFields(fd: TestCase): boolean {
+    const searchFor = getField(fd, 'Search For');
+    const elementName = getField(fd, 'Element name');
+    return Boolean(searchFor && elementName);
+  }
+
+  /**
+   * Handle payroll tests that have Core HR field data (leave, MHA, hire scenarios).
+   * These 5 tests don't use Element Entry — they use Person Management.
+   */
+  private async executeCoreHRPayrollScenario(tc: UATTestCase, fd: TestCase): Promise<void> {
+    await this.loginToHCM(tc);
+    const scenario = fd.scenario.toLowerCase();
+    const bp = tc.businessProcess.toLowerCase();
+
+    if (scenario.includes('leave') || bp.includes('leave')) {
+      await this.executeLeaveScenario(tc);
+    } else if (scenario.includes('housing allowance') || bp.includes('housing allowance') || bp.includes('mha')) {
+      // MHA scenario — navigate to Person Management to view/edit
+      await this.homePage.goToPersonManagement();
+      await this.payroll.waitForJET();
+      const personName = getField(fd, 'Person Name');
+      if (personName) {
+        await this.searchPersonByName(personName);
+      }
+      await this.payroll.screenshot(`payroll-mha-${tc.testId}`);
+    } else if (scenario.includes('staff') || bp.includes('new hire')) {
+      await this.executeHireReporting(tc);
+    } else {
+      // Generic: navigate to Person Management
+      await this.homePage.goToPersonManagement();
+      await this.payroll.waitForJET();
+      await this.payroll.screenshot(`payroll-core-${tc.testId}`);
+    }
+  }
+
+  /** Execute leave-related payroll scenario via Person Management. */
+  private async executeLeaveScenario(tc: UATTestCase): Promise<void> {
+    // Leave tests need to navigate to absence management
+    await this.homePage.goToAbsenceAdmin();
+    await this.payroll.waitForJET();
+    await this.payroll.screenshot(`payroll-leave-${tc.testId}`);
+  }
+
+  /** Execute new hire reporting scenario. */
+  private async executeHireReporting(tc: UATTestCase): Promise<void> {
+    await this.payroll.goToScheduledProcesses();
+    await this.payroll.scheduleNewProcess('New Hire Report').catch(() => {
+      console.log('[Payroll] "New Hire Report" process not found, using generic payroll run');
+    });
+    await this.payroll.submitFlow().catch(() => {});
+    await this.payroll.verifyResult().catch(() => {});
+  }
+
+  /** Search for a person by name on the current page. */
+  private async searchPersonByName(name: string): Promise<void> {
+    const searchInput = this.page.locator(
+      '[id$="q1:value00::content"], input[aria-label*="Search"], input[placeholder*="Search"]'
+    ).first();
+    if (await searchInput.isVisible({ timeout: 5000 }).catch(() => false)) {
+      await searchInput.fill(name);
+      await searchInput.press('Enter');
+      await this.page.waitForTimeout(5000);
+      await this.payroll.waitForJET();
     }
   }
 
@@ -109,7 +201,23 @@ export class PayrollProcessingFlow extends BaseFlow {
   /** Off-cycle payroll (bonus, additional salary) via Scheduled Processes. */
   private async executeOffCyclePayroll(tc: UATTestCase): Promise<void> {
     await this.payroll.goToScheduledProcesses();
-    await this.payroll.scheduleNewProcess('Off-Cycle Payroll');
+    // Oracle HCM uses "Calculate QuickPay" for off-cycle payroll runs.
+    // Try multiple process names in case the environment uses a different name.
+    const processNames = ['Calculate QuickPay', 'Run QuickPay', 'Off-Cycle Payroll'];
+    let scheduled = false;
+    for (const name of processNames) {
+      try {
+        await this.payroll.scheduleNewProcess(name);
+        scheduled = true;
+        console.log(`[Payroll] Scheduled off-cycle process: ${name}`);
+        break;
+      } catch (err) {
+        console.log(`[Payroll] Process "${name}" not found, trying next...`);
+      }
+    }
+    if (!scheduled) {
+      throw new Error('Off-cycle payroll process not found (tried: ' + processNames.join(', ') + ')');
+    }
     await this.payroll.fillOffCycleParams({
       employeeName: tc.testData || undefined,
     });

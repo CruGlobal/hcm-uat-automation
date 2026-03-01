@@ -1,10 +1,10 @@
 import { test } from '../fixtures/uat-plan.fixture';
 import { OneAppFlow } from '../../src/flows/oneapp/oneapp.flow';
-import { loadUATModule, uatTestTitle, isTestable } from '../../src/data/uat-plan-provider';
+import { loadUATModule, sortByUser, uatTestTitle, isTestable } from '../../src/data/uat-plan-provider';
 
 const MODULE = 'OneApp';
 
-const cases = loadUATModule(MODULE);
+const cases = sortByUser(loadUATModule(MODULE));
 
 for (const tc of cases) {
   test(`${uatTestTitle(tc)}`, async ({ page }) => {

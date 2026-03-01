@@ -1,6 +1,8 @@
 import { type Page } from '@playwright/test';
 import { BaseAbsenceFlow } from './base-absence.flow';
 import type { UATTestCase } from '../../data/types';
+import { getFieldData } from '../../data/uat-plan-provider';
+import { getField } from '../../data/test-data-provider';
 import { parseTestDataMulti } from '../../utils/test-data-parser';
 
 /**
@@ -13,23 +15,24 @@ import { parseTestDataMulti } from '../../utils/test-data-parser';
  * - Scheduled processes (Update Accrual Plan Enrollments)
  * - Work schedule assignments
  * - Evaluate absences
+ * - Employee views absence balance (ESS)
  *
  * Routing by test script ID patterns:
- * - HCM.ABS.1xx — Review/Add enrollment scripts
- * - HCM.ABS.2xx — Update enrollment / Review accrual balance
- * - HCM.ABS.3xx — Balance adjustment / Accrual processing / Review balance
- * - HCM.ABS.4xx — Review enrollment / Add absence / Review balance
- * - HCM.ABS.5xx — Review enrollment / Disburse balance
- * - HCM.ABS.6xx — Review enrollment / Update accrual plan enrollments process
- * - HCM.ABS.7xx — Review / Delete enrollment
- * - HCM.ABS.8xx — Review / Manual accrual processing
- * - HCM.ABS.9xx — Review / Withdraw accruals
- * - HCM.ABS.10xx — Scheduled processes (Update Accrual Plan Enrollments)
- * - HCM.ABS.1101.xx — Employee views absence balance (ESS)
- * - HCM.ABS.1801.xx — Calculate Accruals and Balances
- * - HCM.ABS.1901.xx — Evaluate Absences
- * - HCM.ABS.23xx — HR Specialist adds Work Schedule Assignment
- * - HCM.ABS.24xx — Manager adds Work Schedule Assignment
+ * - HCM.ABS.1xx -- Review/Add enrollment scripts
+ * - HCM.ABS.2xx -- Update enrollment / Review accrual balance
+ * - HCM.ABS.3xx -- Balance adjustment / Accrual processing / Review balance
+ * - HCM.ABS.4xx -- Review enrollment / Add absence / Review balance
+ * - HCM.ABS.5xx -- Review enrollment / Disburse balance
+ * - HCM.ABS.6xx -- Review enrollment / Update accrual plan enrollments process
+ * - HCM.ABS.7xx -- Review / Delete enrollment
+ * - HCM.ABS.8xx -- Review / Manual accrual processing
+ * - HCM.ABS.9xx -- Review / Withdraw accruals
+ * - HCM.ABS.10xx -- Scheduled processes (Update Accrual Plan Enrollments)
+ * - HCM.ABS.1101.xx -- Employee views absence balance (ESS)
+ * - HCM.ABS.1801.xx -- Calculate Accruals and Balances
+ * - HCM.ABS.1901.xx -- Evaluate Absences
+ * - HCM.ABS.23xx -- HR Specialist adds Work Schedule Assignment
+ * - HCM.ABS.24xx -- Manager adds Work Schedule Assignment
  */
 export class AbsenceAdminFlow extends BaseAbsenceFlow {
   constructor(page: Page) {
@@ -38,7 +41,9 @@ export class AbsenceAdminFlow extends BaseAbsenceFlow {
 
   async execute(tc: UATTestCase): Promise<void> {
     const scriptId = (tc.testScript || '').toUpperCase();
-    const process = (tc.businessProcess + ' ' + tc.testScenario).toLowerCase();
+    const bp = (tc.businessProcess || '').toLowerCase();
+
+    console.log(`[AbsenceAdmin] ${tc.testId} bp="${tc.businessProcess}" cat="${tc.transactionCategory}" script="${tc.testScript}"`);
 
     // Route based on script ID patterns
     if (this.matchScript(scriptId, ['101', '201', '301', '401', '501', '601', '701', '801', '901'])) {
@@ -73,32 +78,54 @@ export class AbsenceAdminFlow extends BaseAbsenceFlow {
       await this.hrAddWorkScheduleAssignment(tc);
     } else if (this.matchScript(scriptId, ['2401'])) {
       await this.managerAddWorkScheduleAssignment(tc);
-    } else if (process.includes('enroll') && process.includes('add')) {
-      await this.addEnrollment(tc);
-    } else if (process.includes('enroll') && (process.includes('update') || process.includes('edit'))) {
-      await this.updateEnrollment(tc);
-    } else if (process.includes('enroll') && process.includes('delete')) {
-      await this.deleteEnrollment(tc);
-    } else if (process.includes('balance') && process.includes('adjust')) {
-      await this.adjustBalance(tc);
-    } else if (process.includes('disburse')) {
-      await this.disburseBalance(tc);
-    } else if (process.includes('accrual') && (process.includes('run') || process.includes('process'))) {
-      await this.processAccrualsManually(tc);
-    } else if (process.includes('accrual') && process.includes('withdraw')) {
-      await this.withdrawAccruals(tc);
-    } else if (process.includes('balance') && process.includes('review')) {
-      await this.reviewAccrualBalance(tc);
-    } else if (process.includes('work schedule')) {
-      await this.hrAddWorkScheduleAssignment(tc);
-    } else if (process.includes('evaluate')) {
-      await this.evaluateAbsences(tc);
     } else {
-      // Default: review enrollments
-      await this.reviewEnrollments(tc);
+      // Fallback: route by business process keywords
+      await this.routeByBusinessProcess(tc, bp);
     }
 
     await this.absence.screenshot(`absence-admin-${tc.testId}`);
+  }
+
+  /**
+   * Route by business process text for tests without a recognized script ID.
+   */
+  private async routeByBusinessProcess(tc: UATTestCase, bp: string): Promise<void> {
+    if (bp.includes('enroll') && bp.includes('add')) {
+      await this.addEnrollment(tc);
+    } else if (bp.includes('enroll') && (bp.includes('update') || bp.includes('edit'))) {
+      await this.updateEnrollment(tc);
+    } else if (bp.includes('enroll') && bp.includes('delete')) {
+      await this.deleteEnrollment(tc);
+    } else if (bp.includes('review') && bp.includes('enroll')) {
+      await this.reviewEnrollments(tc);
+    } else if (bp.includes('balance') && bp.includes('adjust')) {
+      await this.adjustBalance(tc);
+    } else if (bp.includes('disburse')) {
+      await this.disburseBalance(tc);
+    } else if (bp.includes('accrual') && (bp.includes('run') || bp.includes('process'))) {
+      await this.processAccrualsManually(tc);
+    } else if (bp.includes('accrual') && bp.includes('withdraw')) {
+      await this.withdrawAccruals(tc);
+    } else if (bp.includes('balance') && bp.includes('review')) {
+      await this.reviewAccrualBalance(tc);
+    } else if (bp.includes('view absence balance') || bp.includes('view') && bp.includes('balance')) {
+      await this.employeeViewsAbsenceBalance(tc);
+    } else if (bp.includes('work schedule')) {
+      await this.hrAddWorkScheduleAssignment(tc);
+    } else if (bp.includes('evaluate')) {
+      await this.evaluateAbsences(tc);
+    } else if (bp.includes('calculate') && bp.includes('accrual')) {
+      await this.calculateAccrualsAndBalances(tc);
+    } else if (bp.includes('accrual plan enroll')) {
+      await this.runUpdateAccrualPlanEnrollments(tc);
+    } else if (bp.includes('withdraw')) {
+      // HR Specialist withdraw absence
+      await this.hrWithdrawAbsence(tc);
+    } else {
+      // Default: review enrollments (most common admin action)
+      console.log(`[AbsenceAdmin] Default route: review enrollments for bp="${bp}"`);
+      await this.reviewEnrollments(tc);
+    }
   }
 
   /** Check if script ID matches any of the given suffixes. */
@@ -107,82 +134,91 @@ export class AbsenceAdminFlow extends BaseAbsenceFlow {
   }
 
   /**
-   * HCM.ABS.101/201/301/401/501/601/701/801/901 — Review Current Enrollments.
-   * Steps: Login -> Admin -> Absences and Entitlements -> Search person ->
-   *        Plan Participation -> Click plan name to review details
+   * Extract plan name from field data or test case text.
+   */
+  private extractPlanNameFromFieldData(tc: UATTestCase): string | undefined {
+    const fieldData = getFieldData(tc.testId);
+    if (fieldData) {
+      const plan = getField(fieldData, 'Plan Name') || getField(fieldData, 'Plan');
+      if (plan) return plan;
+    }
+    // Fallback to text extraction
+    const name = this.extractPlanName(tc);
+    return name || undefined;
+  }
+
+  /**
+   * HCM.ABS.101/201/301/401/501/601/701/801/901 -- Review Current Enrollments.
+   * Steps: Login -> ESS -> Navigate to Plan Participation -> View plan details
    */
   private async reviewEnrollments(tc: UATTestCase): Promise<void> {
     await this.loginAndNavigateToPersonAbsences(tc);
 
-    // Step 6: Navigate to Plan Participation
+    // Navigate to Plan Participation
     await this.absence.navigateToPlanParticipation();
 
-    // Step 7: Click on a plan name to review details
-    const planName = this.extractPlanName(tc);
-    await this.absence.clickPlanName(planName || undefined);
+    // Click on a plan name to review details
+    const planName = this.extractPlanNameFromFieldData(tc);
+    await this.absence.clickPlanName(planName);
 
-    // The popup shows accrual balance summary and details
-    // Close with OK when done
+    // Close the popup
     await this.absence.clickOk();
   }
 
   /**
-   * HCM.ABS.102 — HR Specialist Adds a New Enrollment.
-   * Steps: Login -> Admin -> Absences and Entitlements -> Search person ->
-   *        Plan Participation -> Add Enrollment link/dropdown ->
-   *        Select Plan -> Enter Start Date -> Submit
+   * HCM.ABS.102 -- HR Specialist Adds a New Enrollment.
    */
   private async addEnrollment(tc: UATTestCase): Promise<void> {
     await this.loginAndNavigateToPersonAbsences(tc);
 
-    // Step 6: Navigate to Plan Participation
     await this.absence.navigateToPlanParticipation();
-
-    // Step 7: Click Add Enrollment
     await this.absence.clickAddEnrollment();
 
-    // Step 8: Select plan from the dropdown in the dialog
-    const planName = this.extractPlanName(tc);
+    const planName = this.extractPlanNameFromFieldData(tc);
     if (planName) {
       await this.absence.selectPlan(planName);
     }
 
-    // Step 9: Enter Start Date
-    const data = parseTestDataMulti(tc.testData, tc.preConditions);
-    if (data['start date'] || data['start']) {
-      await this.absence.fillEnrollmentStartDate(data['start date'] || data['start']);
+    // Enter Start Date from field data or test data
+    const fieldData = getFieldData(tc.testId);
+    if (fieldData) {
+      const startDate = getField(fieldData, 'Start Date');
+      if (startDate) await this.absence.fillEnrollmentStartDate(this.convertDate(startDate));
+    } else {
+      const data = parseTestDataMulti(tc.testData, tc.preConditions);
+      if (data['start date'] || data['start']) {
+        await this.absence.fillEnrollmentStartDate(data['start date'] || data['start']);
+      }
     }
 
-    // Submit
     await this.absence.clickSubmit();
     await this.absence.confirmDialog();
   }
 
   /**
-   * HCM.ABS.202 — HR Specialist Updates an Existing Enrollment.
-   * Steps: Login -> Admin -> Absences and Entitlements -> Search person ->
-   *        Plan Participation -> Select plan -> Update Enrollment ->
-   *        Update Start/End Date -> Submit
+   * HCM.ABS.202 -- HR Specialist Updates an Existing Enrollment.
    */
   private async updateEnrollment(tc: UATTestCase): Promise<void> {
     await this.loginAndNavigateToPersonAbsences(tc);
 
-    // Step 6: Navigate to Plan Participation
     await this.absence.navigateToPlanParticipation();
-
-    // Step 7: Select a plan row
     await this.absence.selectPlanRow(0);
-
-    // Step 8: Click Update Enrollment
     await this.absence.clickUpdateEnrollment();
 
-    // Steps 9-10: Update Start/End dates, then submit
-    const data = parseTestDataMulti(tc.testData, tc.preConditions);
-    if (data['start date'] || data['start']) {
-      await this.absence.fillEnrollmentStartDate(data['start date'] || data['start']);
-    }
-    if (data['end date'] || data['end']) {
-      await this.absence.fillEnrollmentEndDate(data['end date'] || data['end']);
+    const fieldData = getFieldData(tc.testId);
+    if (fieldData) {
+      const startDate = getField(fieldData, 'Start Date');
+      const endDate = getField(fieldData, 'End Date');
+      if (startDate) await this.absence.fillEnrollmentStartDate(this.convertDate(startDate));
+      if (endDate) await this.absence.fillEnrollmentEndDate(this.convertDate(endDate));
+    } else {
+      const data = parseTestDataMulti(tc.testData, tc.preConditions);
+      if (data['start date'] || data['start']) {
+        await this.absence.fillEnrollmentStartDate(data['start date'] || data['start']);
+      }
+      if (data['end date'] || data['end']) {
+        await this.absence.fillEnrollmentEndDate(data['end date'] || data['end']);
+      }
     }
 
     await this.absence.clickSubmit();
@@ -190,9 +226,7 @@ export class AbsenceAdminFlow extends BaseAbsenceFlow {
   }
 
   /**
-   * HCM.ABS.702 — HR Specialist Deletes an Existing Enrollment.
-   * Steps: Login -> Admin -> Absences and Entitlements -> Search person ->
-   *        Plan Participation -> Select plan -> Delete Enrollment -> Confirm
+   * HCM.ABS.702 -- HR Specialist Deletes an Existing Enrollment.
    */
   private async deleteEnrollment(tc: UATTestCase): Promise<void> {
     await this.loginAndNavigateToPersonAbsences(tc);
@@ -204,37 +238,32 @@ export class AbsenceAdminFlow extends BaseAbsenceFlow {
   }
 
   /**
-   * HCM.ABS.203/304/403/603 — HR Specialist Reviews Accrual Balance.
-   * Steps: Login -> Admin -> Absences and Entitlements -> Search person ->
-   *        Plan Participation -> Click plan name -> Enter Balance Calculation Date ->
-   *        View Summary/Details tabs -> OK
+   * HCM.ABS.203/304/403/603 -- HR Specialist Reviews Accrual Balance.
    */
   private async reviewAccrualBalance(tc: UATTestCase): Promise<void> {
     await this.loginAndNavigateToPersonAbsences(tc);
 
-    // Navigate to Plan Participation
     await this.absence.navigateToPlanParticipation();
 
-    // Click on a plan name to open the accrual balance popup
-    const planName = this.extractPlanName(tc);
-    await this.absence.clickPlanName(planName || undefined);
+    const planName = this.extractPlanNameFromFieldData(tc);
+    await this.absence.clickPlanName(planName);
 
-    // Enter a Balance Calculation Date if provided
-    const data = parseTestDataMulti(tc.testData, tc.preConditions);
-    const calcDate = data['balance calculation date'] || data['calculation date'] || data['date'] || '';
-    if (calcDate) {
-      await this.absence.fillBalanceCalculationDate(calcDate);
+    // Enter Balance Calculation Date if available
+    const fieldData = getFieldData(tc.testId);
+    if (fieldData) {
+      const calcDate = getField(fieldData, 'Balance Calculation Date') || getField(fieldData, 'Date');
+      if (calcDate) await this.absence.fillBalanceCalculationDate(this.convertDate(calcDate));
+    } else {
+      const data = parseTestDataMulti(tc.testData, tc.preConditions);
+      const calcDate = data['balance calculation date'] || data['calculation date'] || data['date'] || '';
+      if (calcDate) await this.absence.fillBalanceCalculationDate(calcDate);
     }
 
-    // View the balance, then close
     await this.absence.clickOk();
   }
 
   /**
-   * HCM.ABS.302 — HR Specialist Performs a Balance Adjustment.
-   * Steps: Login -> Admin -> Absences and Entitlements -> Search person ->
-   *        Plan Participation -> Select plan -> Enrollments and Adjustments dropdown ->
-   *        Adjust Balance -> Select Reason, Enter Amount, Enter Date -> Submit
+   * HCM.ABS.302 -- HR Specialist Performs a Balance Adjustment.
    */
   private async adjustBalance(tc: UATTestCase): Promise<void> {
     await this.loginAndNavigateToPersonAbsences(tc);
@@ -242,52 +271,52 @@ export class AbsenceAdminFlow extends BaseAbsenceFlow {
     await this.absence.navigateToPlanParticipation();
     await this.absence.selectPlanRow(0);
 
-    // Click Adjust Balance from the dropdown
     await this.absence.clickAdjustBalance();
 
-    // Fill adjustment details
-    const data = parseTestDataMulti(tc.testData, tc.preConditions);
-    const reason = data['reason'] || '';
-    const amount = data['adjustment amount'] || data['amount'] || '';
-    const date = data['date'] || '';
-    await this.absence.fillBalanceAdjustment(reason, amount, date);
+    const fieldData = getFieldData(tc.testId);
+    if (fieldData) {
+      const reason = getField(fieldData, 'Reason');
+      const amount = getField(fieldData, 'Adjustment Amount') || getField(fieldData, 'Amount');
+      const date = getField(fieldData, 'Date');
+      await this.absence.fillBalanceAdjustment(
+        reason || '', amount || '', date ? this.convertDate(date) : ''
+      );
+    } else {
+      const data = parseTestDataMulti(tc.testData, tc.preConditions);
+      await this.absence.fillBalanceAdjustment(
+        data['reason'] || '', data['adjustment amount'] || data['amount'] || '', data['date'] || ''
+      );
+    }
 
     await this.absence.clickSubmit();
     await this.absence.confirmDialog();
   }
 
   /**
-   * HCM.ABS.303/802 — HR Specialist Manually Processes Accruals.
-   * Steps: Login -> Admin -> Absences and Entitlements -> Search person ->
-   *        Plan Participation -> Accruals dropdown ->
-   *        Run Accruals for All Active Plans -> Enter Balance As-of-Date ->
-   *        Calculate accruals and balances -> Submit
+   * HCM.ABS.303/802 -- HR Specialist Manually Processes Accruals.
    */
   private async processAccrualsManually(tc: UATTestCase): Promise<void> {
     await this.loginAndNavigateToPersonAbsences(tc);
 
     await this.absence.navigateToPlanParticipation();
-
-    // Click Accruals dropdown and run accruals
     await this.absence.clickRunAccrualsAllPlans();
 
-    // Enter a Balance As-of-Date if provided
-    const data = parseTestDataMulti(tc.testData, tc.preConditions);
-    const asOfDate = data['balance as-of-date'] || data['as-of-date'] || data['date'] || '';
-    if (asOfDate) {
-      await this.absence.fillBalanceCalculationDate(asOfDate);
+    const fieldData = getFieldData(tc.testId);
+    if (fieldData) {
+      const asOfDate = getField(fieldData, 'Balance As-of-Date') || getField(fieldData, 'Date');
+      if (asOfDate) await this.absence.fillBalanceCalculationDate(this.convertDate(asOfDate));
+    } else {
+      const data = parseTestDataMulti(tc.testData, tc.preConditions);
+      const asOfDate = data['balance as-of-date'] || data['as-of-date'] || data['date'] || '';
+      if (asOfDate) await this.absence.fillBalanceCalculationDate(asOfDate);
     }
 
-    // Submit to run accrual calculation
     await this.absence.clickSubmit();
     await this.absence.confirmDialog();
   }
 
   /**
-   * HCM.ABS.502 — HR Specialist Disburses from Balance.
-   * Steps: Login -> Admin -> Absences and Entitlements -> Search person ->
-   *        Plan Participation -> Select plan -> Enrollments and Adjustments ->
-   *        Disburse Balance -> Enter Date and Disbursement Amount -> Submit
+   * HCM.ABS.502 -- HR Specialist Disburses from Balance.
    */
   private async disburseBalance(tc: UATTestCase): Promise<void> {
     await this.loginAndNavigateToPersonAbsences(tc);
@@ -295,31 +324,32 @@ export class AbsenceAdminFlow extends BaseAbsenceFlow {
     await this.absence.navigateToPlanParticipation();
     await this.absence.selectPlanRow(0);
 
-    // Click Disburse Balance from the dropdown
     await this.absence.clickDisburseBalance();
 
-    // Fill disbursement details
-    const data = parseTestDataMulti(tc.testData, tc.preConditions);
-    const amount = data['disbursement amount'] || data['amount'] || '';
-    const date = data['date'] || '';
-    await this.absence.fillDisbursement(amount, date);
+    const fieldData = getFieldData(tc.testId);
+    if (fieldData) {
+      const amount = getField(fieldData, 'Disbursement Amount') || getField(fieldData, 'Amount');
+      const date = getField(fieldData, 'Date');
+      await this.absence.fillDisbursement(amount || '', date ? this.convertDate(date) : '');
+    } else {
+      const data = parseTestDataMulti(tc.testData, tc.preConditions);
+      await this.absence.fillDisbursement(
+        data['disbursement amount'] || data['amount'] || '', data['date'] || ''
+      );
+    }
 
     await this.absence.clickSubmit();
     await this.absence.confirmDialog();
   }
 
   /**
-   * HCM.ABS.602 — HR Specialist Runs Update Accrual Plan Enrollments Process.
-   * Steps: Login -> Admin -> Absences -> Schedule and Monitor Absence Processes ->
-   *        Select process -> Submit
+   * HCM.ABS.602 -- HR Specialist Runs Update Accrual Plan Enrollments Process.
    */
   private async runUpdateAccrualPlanEnrollments(tc: UATTestCase): Promise<void> {
-    await this.loginAndNavigateToAbsenceAdmin();
+    await this.loginAndNavigateToAbsenceAdmin(tc);
 
-    // Click "Schedule and Monitor Absence Processes"
     await this.absence.openScheduleMonitorProcesses();
 
-    // Select the "Update Accrual Plan Enrollments" process
     const processLink = this.page.getByText('Update Accrual Plan Enrollments', { exact: false }).first();
     if (await processLink.isVisible({ timeout: 5000 }).catch(() => false)) {
       await processLink.click();
@@ -327,21 +357,18 @@ export class AbsenceAdminFlow extends BaseAbsenceFlow {
       await this.absence.waitForJET();
     }
 
-    // Submit the process
     await this.absence.clickSubmit();
     await this.absence.confirmDialog();
   }
 
   /**
-   * HCM.ABS.902 — HR Specialist Manually Withdraws Accruals.
-   * Similar to manual processing but with withdraw action.
+   * HCM.ABS.902 -- HR Specialist Manually Withdraws Accruals.
    */
   private async withdrawAccruals(tc: UATTestCase): Promise<void> {
     await this.loginAndNavigateToPersonAbsences(tc);
 
     await this.absence.navigateToPlanParticipation();
 
-    // Open Accruals dropdown and select withdraw option
     await this.absence.openAccrualsDropdown();
     const withdrawOption = this.page.getByText('Withdraw Accruals', { exact: false })
       .or(this.page.getByText('Reverse Accruals', { exact: false }))
@@ -357,16 +384,13 @@ export class AbsenceAdminFlow extends BaseAbsenceFlow {
   }
 
   /**
-   * HCM.ABS.1001 — Runs Update Accrual Plan Enrollments via Scheduled Processes.
-   * Steps: Login -> Tools -> Scheduled Processes -> Submit process
+   * HCM.ABS.1001 -- Runs Update Accrual Plan Enrollments via Scheduled Processes.
    */
   private async runScheduledProcess(tc: UATTestCase): Promise<void> {
-    await this.loginToHCM();
+    await this.loginToHCM(tc);
 
-    // Navigate to Scheduled Processes via Navigator > Tools
     await this.homePage.goToScheduledProcesses();
 
-    // Look for the submit/schedule new process button
     const submitNewProcess = this.page.getByText('Schedule New Process', { exact: false })
       .or(this.page.getByText('Submit New Process', { exact: false }))
       .first();
@@ -376,7 +400,6 @@ export class AbsenceAdminFlow extends BaseAbsenceFlow {
       await this.absence.waitForJET();
     }
 
-    // Search for the process name
     const processSearch = this.page.locator(
       'input[aria-label*="Name"], input[aria-label*="Process"], input[placeholder*="Search"]'
     ).first();
@@ -384,27 +407,23 @@ export class AbsenceAdminFlow extends BaseAbsenceFlow {
       await this.absence.fillField(processSearch, 'Update Accrual Plan Enrollments');
     }
 
-    // Submit
     await this.absence.clickSubmit();
     await this.absence.confirmDialog();
   }
 
   /**
-   * HCM.ABS.1101 — Employee Views Absence Balance (ESS).
-   * Steps: Login -> Me -> Time and Absences -> Absence Balance tile
+   * HCM.ABS.1101 -- Employee Views Absence Balance (ESS).
    */
   private async employeeViewsAbsenceBalance(tc: UATTestCase): Promise<void> {
-    await this.loginAndNavigateToAbsenceESS();
+    await this.loginAndNavigateToAbsenceESS(tc);
     await this.absence.clickAbsenceBalanceTile();
   }
 
   /**
-   * HCM.ABS.1801 — Calculate Accruals and Balances by HR Specialist.
-   * Steps: Login -> Absences Admin -> Schedule and Monitor ->
-   *        Calculate Accruals and Balances -> Submit
+   * HCM.ABS.1801 -- Calculate Accruals and Balances by HR Specialist.
    */
   private async calculateAccrualsAndBalances(tc: UATTestCase): Promise<void> {
-    await this.loginAndNavigateToAbsenceAdmin();
+    await this.loginAndNavigateToAbsenceAdmin(tc);
 
     await this.absence.openScheduleMonitorProcesses();
 
@@ -420,12 +439,10 @@ export class AbsenceAdminFlow extends BaseAbsenceFlow {
   }
 
   /**
-   * HCM.ABS.1901 — Evaluate Absences by HR Specialist.
-   * Steps: Login -> Absences Admin -> Schedule and Monitor ->
-   *        Evaluate Absences -> Submit
+   * HCM.ABS.1901 -- Evaluate Absences by HR Specialist.
    */
   private async evaluateAbsences(tc: UATTestCase): Promise<void> {
-    await this.loginAndNavigateToAbsenceAdmin();
+    await this.loginAndNavigateToAbsenceAdmin(tc);
 
     await this.absence.openScheduleMonitorProcesses();
 
@@ -441,23 +458,18 @@ export class AbsenceAdminFlow extends BaseAbsenceFlow {
   }
 
   /**
-   * HCM.ABS.2301 — HR Specialist Adds Work Schedule Assignment.
-   * Steps: Login -> Absences Admin -> Work Schedule Assignment ->
-   *        Search person -> Add assignment -> Fill details -> Submit
+   * HCM.ABS.2301 -- HR Specialist Adds Work Schedule Assignment.
    */
   private async hrAddWorkScheduleAssignment(tc: UATTestCase): Promise<void> {
-    await this.loginAndNavigateToAbsenceAdmin();
+    await this.loginAndNavigateToAbsenceAdmin(tc);
 
-    // Click Work Schedule Assignment task
     await this.absence.openWorkScheduleAssignment();
 
-    // Search for the person
     const personName = this.extractPersonName(tc);
     if (personName) {
       await this.absence.searchPerson(personName);
     }
 
-    // Add a new work schedule assignment
     const addButton = this.page.locator(
       'button:has-text("Add"), a:has-text("Add"), a[role="button"]:has-text("Add")'
     ).first();
@@ -467,20 +479,42 @@ export class AbsenceAdminFlow extends BaseAbsenceFlow {
       await this.absence.waitForJET();
     }
 
-    // Fill details from test case
-    await this.absence.fillFromUATTestCase(tc);
+    // Fill from field data if available
+    const fieldData = getFieldData(tc.testId);
+    if (fieldData) {
+      await this.absence.fillFromFieldData(fieldData);
+    } else {
+      await this.absence.fillFromUATTestCase(tc);
+    }
 
     await this.absence.clickSubmit();
     await this.absence.confirmDialog();
   }
 
   /**
-   * HCM.ABS.2401 — Manager Adds Work Schedule Assignment.
+   * HCM.ABS.2401 -- Manager Adds Work Schedule Assignment.
    * Same flow as HR Specialist but from manager perspective.
    */
   private async managerAddWorkScheduleAssignment(tc: UATTestCase): Promise<void> {
-    // Manager uses the same admin navigation for work schedule
     await this.hrAddWorkScheduleAssignment(tc);
   }
 
+  /**
+   * HR Specialist withdraws an absence (fallback for tests with empty script IDs).
+   */
+  private async hrWithdrawAbsence(tc: UATTestCase): Promise<void> {
+    await this.loginAndNavigateToAbsenceESS(tc);
+
+    await this.absence.clickExistingAbsencesTile();
+    await this.absence.selectAbsenceRow(0);
+
+    await this.absence.clickWithdraw();
+  }
+
+  /** Convert date from YYYY/MM/DD or YYYY-MM-DD to MM/DD/YYYY for Oracle HCM. */
+  private convertDate(date: string): string {
+    const match = date.match(/^(\d{4})[/-](\d{2})[/-](\d{2})/);
+    if (match) return `${match[2]}/${match[3]}/${match[1]}`;
+    return date;
+  }
 }

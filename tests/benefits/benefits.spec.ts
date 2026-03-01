@@ -1,11 +1,11 @@
 import { test, expect } from '../fixtures/uat-plan.fixture';
-import { loadUATModule, uatTestTitle, isTestable } from '../../src/data/uat-plan-provider';
+import { loadUATModule, sortByUser, uatTestTitle, isTestable } from '../../src/data/uat-plan-provider';
 import { BenefitsEnrollmentFlow } from '../../src/flows/benefits/benefits-enrollment.flow';
 import { BenefitsAdminFlow } from '../../src/flows/benefits/benefits-admin.flow';
 import type { UATTestCase } from '../../src/data/types';
 
 const MODULE = 'Benefits';
-const cases = loadUATModule(MODULE);
+const cases = sortByUser(loadUATModule(MODULE));
 
 test.describe(MODULE, () => {
   for (const tc of cases) {
