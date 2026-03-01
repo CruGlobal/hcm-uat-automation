@@ -351,8 +351,10 @@ export class OutcomeValidator {
     const isViewOnly = bp.includes('view') || bp.includes('history') || bp.includes('look') ||
         bp.includes('merit') || bp.includes('planning') || bp.includes('proration') ||
         bp.includes('total compensation') || bp.includes('statement') ||
-        bp.includes('individual compensation') ||
+        bp.includes('individual compensation') || bp.includes('bonus') ||
+        bp.includes('wage range') || bp.includes('eligib') ||
         scenario.includes('review') || scenario.includes('history') || scenario.includes('view') ||
+        scenario.includes('criteria') || scenario.includes('eligib') ||
         /comp\.10[135]/i.test(script) ||
         /comp\.3[0-9]{2}/i.test(script) ||
         /comp\.[45][0-9]{2}/i.test(script);
