@@ -115,6 +115,10 @@ export class CoreHRUATFlow extends BaseFlow {
       process.includes('remove affiliate') || process.includes('remove non employee')
     ) {
       await this.executeTermination(tc);
+    } else if (process.includes('mha')) {
+      // "MHA query for pending requests" and other MHA processes contain "pending"
+      // which would falsely match the hire block below — check MHA first.
+      await this.executeGenericHRAction(tc);
     } else if (
       process.includes('hire') || process.includes('hiring') ||
       process.includes('pending') ||
