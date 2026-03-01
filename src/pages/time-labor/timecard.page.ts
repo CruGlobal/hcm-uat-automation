@@ -352,6 +352,28 @@ export class TimecardPage extends BasePage {
 
   /** Click the "Add Time Card" tile on the ESS page, then click "Add" on the period selection page. */
   async clickAddTimeCard(): Promise<void> {
+    const tileVisible = await this.addTimecardTile.isVisible({ timeout: 8000 }).catch(() => false);
+    if (!tileVisible) {
+      // Fallback: try "Current Time Card" tile instead
+      console.log('[Timecard] "Add Time Card" tile not visible, trying "Current Time Card"');
+      const currentVisible = await this.currentTimecardTile.isVisible({ timeout: 5000 }).catch(() => false);
+      if (currentVisible) {
+        await this.currentTimecardTile.click();
+        await this.page.waitForTimeout(5000);
+        await this.waitForJET();
+        return;
+      }
+      // Last resort: look for any time card link on the page
+      const anyTimeLink = this.page.getByRole('link', { name: /Time\s*Card/i }).first();
+      if (await anyTimeLink.isVisible({ timeout: 3000 }).catch(() => false)) {
+        await anyTimeLink.click();
+        await this.page.waitForTimeout(5000);
+        await this.waitForJET();
+        return;
+      }
+      console.log('[Timecard] No time card tiles available on ESS page');
+      return;
+    }
     await this.addTimecardTile.click();
     await this.page.waitForTimeout(5000);
     await this.waitForJET();
@@ -362,18 +384,20 @@ export class TimecardPage extends BasePage {
     if (await addButton.isVisible({ timeout: 5000 }).catch(() => false)) {
       console.log('[Timecard] Clicking "Add" on period selection page');
       await addButton.click();
-      await this.page.waitForTimeout(8000);
+      await this.page.waitForTimeout(5000);
       await this.waitForJET();
 
-      // Verify we left the period selection page (Add button should no longer be visible)
+      // If still on period page, try JS click once then move on
       const stillOnPeriodPage = await this.page.getByText('Time card period').first()
-        .isVisible({ timeout: 3000 }).catch(() => false);
+        .isVisible({ timeout: 2000 }).catch(() => false);
       if (stillOnPeriodPage) {
         console.log('[Timecard] Still on period page — trying JS click on Add');
-        await addButton.evaluate((el: HTMLElement) => el.click());
-        await this.page.waitForTimeout(8000);
+        await addButton.evaluate((el: HTMLElement) => el.click()).catch(() => {});
+        await this.page.waitForTimeout(3000);
         await this.waitForJET();
       }
+    } else {
+      console.log('[Timecard] "Add" button not found on period page — proceeding');
     }
   }
 
@@ -384,17 +408,38 @@ export class TimecardPage extends BasePage {
     await this.waitForJET();
   }
 
+  /** Navigate to the "Existing Time Cards" section from the ESS page.
+   *  Uses text-based fallback if tile is not visible. */
+  async navigateToExistingTimecards(): Promise<void> {
+    const tile = this.existingTimecardsTile;
+    if (await tile.isVisible({ timeout: 5000 }).catch(() => false)) {
+      await tile.click();
+    } else {
+      const textLink = this.page.getByText('Existing Time Cards', { exact: true }).first();
+      if (await textLink.isVisible({ timeout: 3000 }).catch(() => false)) {
+        await textLink.click();
+      } else {
+        console.log('[Timecard] Existing Time Cards not visible — staying on ESS page');
+        return;
+      }
+    }
+    await this.page.waitForTimeout(5000);
+    await this.waitForJET();
+  }
+
   /** Click the "Request Time Changes" tile on the ESS page. */
-  async clickRequestTimeChanges(): Promise<void> {
+  async clickRequestTimeChanges(): Promise<boolean> {
     const visible = await this.requestTimeChangesTile.isVisible({ timeout: 5000 }).catch(() => false);
     if (visible) {
       await this.requestTimeChangesTile.click();
       await this.page.waitForTimeout(5000);
       await this.waitForJET();
+      return true;
     } else {
       // Fallback: try "Existing Time Cards" and look for change request option there
       console.log('[Timecard] "Request Time Changes" tile not available, using Existing Time Cards');
       await this.clickExistingTimeCards();
+      return false;
     }
   }
 

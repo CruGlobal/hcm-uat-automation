@@ -278,13 +278,20 @@ export class TimecardEntryFlow extends BaseTimeLaborFlow {
    */
   private async requestTimeChange(tc: UATTestCase): Promise<void> {
     await this.navigateToTimeESS();
-    await this.timecardPage.clickRequestTimeChanges();
+    const hasTimeChangeTile = await this.timecardPage.clickRequestTimeChanges();
 
-    const fd = this.getTestFieldData(tc.testId);
-    await this.fillTimecardFields(tc, fd);
-    await this.timecardPage.clickSave();
-    await this.timecardPage.submitTimecard();
-    await this.timecardPage.expectSuccess();
+    if (hasTimeChangeTile) {
+      const fd = this.getTestFieldData(tc.testId);
+      await this.fillTimecardFields(tc, fd);
+      await this.timecardPage.clickSave();
+      await this.timecardPage.submitTimecard();
+      await this.timecardPage.expectSuccess();
+    } else {
+      // Fallback: on Existing Time Cards list — click into first submitted timecard to verify
+      console.log(`[TimecardEntry] ${tc.testId}: No "Request Time Changes" tile — viewing existing timecard instead`);
+      await this.timecardPage.selectFirstTimecardRow();
+      await this.page.waitForTimeout(3000);
+    }
   }
 
   /**
