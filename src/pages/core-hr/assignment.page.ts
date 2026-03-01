@@ -31,7 +31,10 @@ export class AssignmentPage extends BasePage {
   };
 
   // === Work Relationship / Assignment Details ===
-  private readonly businessUnit = this.page.locator('[id$="NewPe1:0:businessUnitId::content"]');
+  // Primary selector for Hire form; fallback via aria-label for other wizard variants
+  private readonly businessUnit = this.page.locator('[id$="NewPe1:0:businessUnitId::content"]').or(
+    this.page.locator('[id$="businessUnitId::content"]')
+  ).first();
   private readonly personType = this.page.locator('[id$="NewPe1:0:selectOneChoice1::content"]');
   private readonly assignmentStatus = this.page.locator('[id$="NewPe1:0:selectOneChoice2::content"]');
 
@@ -51,7 +54,9 @@ export class AssignmentPage extends BasePage {
   private readonly fullOrPartTime = this.page.locator('[id$="JobDe1:0:soc1::content"]');
   private readonly workingAsManager = this.page.locator('[id$="JobDe1:0:selectOneRadio2::content"]');
   private readonly hourlyOrSalaried = this.page.locator('[id$="JobDe1:0:selectOneChoice2::content"]');
-  private readonly workingHours = this.page.locator('[id$="JobDe1:0:inputText1::content"]');
+  private readonly workingHours = this.page.locator('[id$="JobDe1:0:inputText1::content"]').or(
+    this.page.locator('input[id$="inputText1::content"]')
+  ).first();
   private readonly frequency = this.page.locator('[id$="JobDe1:0:selectOneChoice6::content"]');
 
   // === People Group (key flex field) ===
@@ -71,6 +76,12 @@ export class AssignmentPage extends BasePage {
     for (const [locator, key] of lovFields) {
       let value = getField(tc, key);
       if (value) {
+        // Skip if the field doesn't exist on this wizard variant (e.g., CWR vs Hire)
+        const visible = await locator.isVisible({ timeout: 5000 }).catch(() => false);
+        if (!visible) {
+          console.log(`[Assignment] LOV ${key} not visible on page — skipping`);
+          continue;
+        }
         // Apply value mapping for migration→HCM translations
         const mapped = this.valueMapping[key]?.[value];
         if (mapped) {
@@ -98,6 +109,12 @@ export class AssignmentPage extends BasePage {
     for (const [locator, key] of readonlyFields) {
       let value = getField(tc, key);
       if (value) {
+        // Skip if the field doesn't exist on this wizard variant (e.g., CWR vs Hire)
+        const visible = await locator.isVisible({ timeout: 5000 }).catch(() => false);
+        if (!visible) {
+          console.log(`[Assignment] Readonly ${key} not visible on page — skipping`);
+          continue;
+        }
         // Apply value mapping for migration→HCM translations
         const mapped = this.valueMapping[key]?.[value];
         if (mapped) {
@@ -113,11 +130,15 @@ export class AssignmentPage extends BasePage {
 
     // Working at Home
     const workHome = getField(tc, 'Working at Home') || getField(tc, 'Work from Home');
-    if (workHome) await this.setReadonlyCombobox(this.workingAtHome, workHome);
+    if (workHome && await this.workingAtHome.isVisible({ timeout: 3000 }).catch(() => false)) {
+      await this.setReadonlyCombobox(this.workingAtHome, workHome);
+    }
 
-    // Working Hours (regular input)
-    const hours = getField(tc, 'Working hours') || getField(tc, 'Working Hours');
-    if (hours) await this.fillField(this.workingHours, hours);
+    // Working Hours (regular input — also match typo "hourrs" in field data)
+    const hours = getField(tc, 'Working hours') || getField(tc, 'Working Hours') || getField(tc, 'Working hourrs');
+    if (hours && await this.workingHours.isVisible({ timeout: 3000 }).catch(() => false)) {
+      await this.fillField(this.workingHours, hours);
+    }
 
     // People Group (Support Type + Seca Status are segments within this flex field)
     const supportType = getField(tc, 'Support Type') || getField(tc, 'PeopleGroup - Support Type');

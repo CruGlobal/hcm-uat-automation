@@ -24,10 +24,15 @@ export class PayrollDetailsPage extends BasePage {
   private readonly overtimePeriod = this.page.locator('[id*="OvertimePeriod"], [id*="overtimePeriod"]').first();
 
   async fillFromTestCase(tc: TestCase): Promise<void> {
-    // Tax Reporting Unit (readonly)
+    // Tax Reporting Unit (readonly) — may not exist on CWR wizard variant
     const taxUnit = getField(tc, 'Tax reporting Unit');
     if (taxUnit) {
-      await this.setReadonlyCombobox(this.taxReportingUnit, taxUnit);
+      const visible = await this.taxReportingUnit.isVisible({ timeout: 5000 }).catch(() => false);
+      if (visible) {
+        await this.setReadonlyCombobox(this.taxReportingUnit, taxUnit);
+      } else {
+        console.log('[PayrollDetails] Tax Reporting Unit not visible on page — skipping');
+      }
     }
 
     // Payroll Frequency
