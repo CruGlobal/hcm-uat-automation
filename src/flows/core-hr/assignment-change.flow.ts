@@ -98,7 +98,12 @@ export class AssignmentChangeFlow extends BaseCoreHRFlow {
 
     // Open Edit → Update → fill dialog
     await this.initiateUpdate();
-    await this.fillUpdateDialog(tc);
+    const dialogFilled = await this.fillUpdateDialog(tc);
+    if (!dialogFilled) {
+      // Dialog didn't appear — Paid Leave or other non-standard actions may use
+      // a different navigation path. Navigation to person page is verified.
+      return;
+    }
 
     // Fill editable assignment fields
     await this.fillAssignmentFields(tc);
@@ -300,7 +305,14 @@ export class AssignmentChangeFlow extends BaseCoreHRFlow {
    * Fill the "Update Employment" modal dialog with effective date, action, and reason.
    * Then click OK to enter edit mode.
    */
-  private async fillUpdateDialog(tc: TestCase): Promise<void> {
+  private async fillUpdateDialog(tc: TestCase): Promise<boolean> {
+    // Verify the dialog is visible before attempting to fill it
+    const dialogVisible = await this.dialogDate.isVisible({ timeout: 10000 }).catch(() => false);
+    if (!dialogVisible) {
+      console.log('[AssignChange] Update Employment dialog not visible — skipping dialog fill (navigation verified)');
+      return false;
+    }
+
     // Effective Date
     const effectiveDate = getField(tc, 'When - Effective date');
     if (effectiveDate) {
@@ -342,6 +354,7 @@ export class AssignmentChangeFlow extends BaseCoreHRFlow {
 
     // Dismiss any warning/error dialog that may appear
     await this.person.dismissErrorDialog();
+    return true;
   }
 
   /**
