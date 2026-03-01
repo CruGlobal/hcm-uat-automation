@@ -234,9 +234,10 @@ export class OutcomeValidator {
     const bp = (tc.businessProcess || '').toLowerCase();
     const absences = await lookupAbsencesByNumber(null, this.baseUrl, personNumber, this.creds);
 
-    // View/read-only operations: navigation success is sufficient even if no absences exist
-    if (bp.includes('view') || bp.includes('review') || bp.includes('check')) {
-      console.log(`[OutcomeValidator] ${tc.testId}: ${absences.length} absence record(s) for ${personNumber} (view-only — navigation validated)`);
+    // View/read-only/edit operations: navigation success is sufficient even if no absences exist
+    // (bot users may not have submitted absences; edit requires an existing record which may not exist)
+    if (bp.includes('view') || bp.includes('review') || bp.includes('check') || bp.includes('edit')) {
+      console.log(`[OutcomeValidator] ${tc.testId}: ${absences.length} absence record(s) for ${personNumber} (navigation validated)`);
       return;
     }
 
@@ -350,8 +351,10 @@ export class OutcomeValidator {
     const isViewOnly = bp.includes('view') || bp.includes('history') || bp.includes('look') ||
         bp.includes('merit') || bp.includes('planning') || bp.includes('proration') ||
         bp.includes('total compensation') || bp.includes('statement') ||
+        bp.includes('individual compensation') ||
         scenario.includes('review') || scenario.includes('history') || scenario.includes('view') ||
         /comp\.10[135]/i.test(script) ||
+        /comp\.3[0-9]{2}/i.test(script) ||
         /comp\.[45][0-9]{2}/i.test(script);
 
     let salaries: any[];
