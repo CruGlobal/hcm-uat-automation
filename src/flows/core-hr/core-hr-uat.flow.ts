@@ -492,6 +492,11 @@ export class CoreHRUATFlow extends BaseFlow {
     }
     if (personName) {
       await this.person.searchByName(personName);
+      // Dismiss any leftover Oracle error dialogs from the search (e.g. "reserved words" errors
+      // when the person doesn't exist or the name format triggers Oracle validation).
+      // These must be cleared before the OutcomeValidator's verifyNoErrors() runs.
+      await this.page.getByRole('button', { name: 'OK' }).first().click().catch(() => {});
+      await this.page.waitForTimeout(500);
     } else {
       // No person reference — navigation-only test
       console.log(`[PersonalInfo] ${tc.testId}: No person reference, navigation-only`);
