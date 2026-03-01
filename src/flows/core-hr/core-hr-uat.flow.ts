@@ -110,6 +110,12 @@ export class CoreHRUATFlow extends BaseFlow {
     ) {
       await this.executePersonalInfoUpdate(tc);
     } else if (
+      // "Remove affiliate/non employee" must be checked before generic hire patterns
+      // because "non employee" appears in both add and remove business processes.
+      process.includes('remove affiliate') || process.includes('remove non employee')
+    ) {
+      await this.executeTermination(tc);
+    } else if (
       process.includes('hire') || process.includes('hiring') ||
       process.includes('pending') ||
       process.includes('nonworker') || process.includes('non worker') ||
@@ -122,8 +128,7 @@ export class CoreHRUATFlow extends BaseFlow {
     } else if (
       process.includes('terminat') || process.includes('end assignment') ||
       process.includes('end work relationship') || process.includes('end additional') ||
-      /\bterm\b/.test(process) || process.includes('withdraw') ||
-      process.includes('remove affiliate') || process.includes('remove non employee')
+      /\bterm\b/.test(process) || process.includes('withdraw')
     ) {
       await this.executeTermination(tc);
     } else if (process.includes('transfer') || process.includes('company change') || process.includes('global transfer')) {
