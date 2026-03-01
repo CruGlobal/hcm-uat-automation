@@ -39,25 +39,32 @@ export class MPDXPage extends BasePage {
 
   /**
    * Navigate to Scheduled Processes page via HomePage.
-   * Returns false if the bot user lacks access to Scheduled Processes.
+   * Falls back to direct URL if Navigator link is not available.
    */
   async goToScheduledProcesses(): Promise<boolean> {
     const home = new HomePage(this.page);
-    await home.openNavigator();
-    const spLink = this.page.locator(
-      'a[title="Scheduled Processes"], a:has-text("Scheduled Processes")'
+    try {
+      await home.goToScheduledProcesses();
+    } catch {
+      console.log('[MPDX] Navigator fallback: direct URL for Scheduled Processes');
+      await this.page.goto(
+        '/fscmUI/faces/FuseOverview?fndGlobalItemNodeId=itemNode_tools_scheduled_processes',
+        { timeout: 60_000 }
+      );
+      await this.page.waitForLoadState('networkidle', { timeout: 60_000 }).catch(() => {});
+      await this.page.waitForTimeout(5000);
+    }
+    await this.waitForJET();
+
+    // Verify we landed on Scheduled Processes
+    const indicator = this.page.locator(
+      'a[role="button"]:has-text("Schedule New Process"), :text("Scheduled Processes")'
     ).first();
-    const hasAccess = await spLink.isVisible({ timeout: 5000 }).catch(() => false);
-    if (!hasAccess) {
-      console.log('[MPDX] Scheduled Processes not available — bot may lack admin/tools role');
-      await this.page.keyboard.press('Escape');
-      await this.page.waitForTimeout(1000);
+    const onPage = await indicator.isVisible({ timeout: 10_000 }).catch(() => false);
+    if (!onPage) {
+      console.log('[MPDX] Scheduled Processes page not accessible after navigation');
       return false;
     }
-    await spLink.click({ force: true });
-    await this.page.waitForLoadState('networkidle', { timeout: 60_000 });
-    await this.page.waitForTimeout(3000);
-    await this.waitForJET();
     return true;
   }
 
@@ -135,6 +142,10 @@ export class MPDXPage extends BasePage {
       const empField = this.page.locator(
         'input[aria-label*="Person"], input[aria-label*="Employee"]'
       ).first();
+      if (!await empField.isVisible({ timeout: 10_000 }).catch(() => false)) {
+        console.log('[MPDX] Person/Employee field not found — form may not have loaded');
+        return;
+      }
       await this.fillCombobox(empField, params.employeeName);
     }
     if (params.maritalStatus) {
