@@ -56,7 +56,7 @@ export class CreateWorkRelationshipFlow extends BaseCoreHRFlow {
 
     // Step 3: Employment Information — wait extra for CWR form to load
     await this.person.waitForJET();
-    await this.page.waitForTimeout(5000);
+    await this.page.waitForTimeout(2000);
 
     // Check if we're actually on Step 3 (assignment fields visible)
     const assignmentField = this.page.locator('[id*="businessUnitId"], [id*="NewPe1"], [id*="Assignment"]').first();
@@ -110,7 +110,7 @@ export class CreateWorkRelationshipFlow extends BaseCoreHRFlow {
       console.log(`[CWR] Searching by "Search for Person": "${namePart}"`);
       await searchNameField.fill(namePart);
       await searchButton.click();
-      await this.page.waitForTimeout(8000);
+      await this.page.waitForTimeout(3000);
       await this.person.waitForJET();
       return;
     }
@@ -121,7 +121,7 @@ export class CreateWorkRelationshipFlow extends BaseCoreHRFlow {
       console.log(`[CWR] Searching by person number: ${personNumber}`);
       await searchNumberField.fill(personNumber);
       await searchButton.click();
-      await this.page.waitForTimeout(8000);
+      await this.page.waitForTimeout(3000);
       await this.person.waitForJET();
       return;
     }
@@ -134,7 +134,7 @@ export class CreateWorkRelationshipFlow extends BaseCoreHRFlow {
       console.log(`[CWR] Searching by name: "${searchName}"`);
       await searchNameField.fill(searchName);
       await searchButton.click();
-      await this.page.waitForTimeout(8000);
+      await this.page.waitForTimeout(3000);
       await this.person.waitForJET();
 
       // Check if results appeared
@@ -154,7 +154,7 @@ export class CreateWorkRelationshipFlow extends BaseCoreHRFlow {
         await this.page.waitForTimeout(1000);
       }
       await searchButton.click();
-      await this.page.waitForTimeout(8000);
+      await this.page.waitForTimeout(3000);
       await this.person.waitForJET();
 
       if (await resultLink.isVisible({ timeout: 5000 }).catch(() => false)) {
@@ -175,7 +175,7 @@ export class CreateWorkRelationshipFlow extends BaseCoreHRFlow {
         }
         await searchNameField.fill(lastName);
         await searchButton.click();
-        await this.page.waitForTimeout(8000);
+        await this.page.waitForTimeout(3000);
         await this.person.waitForJET();
       }
       return;
@@ -187,7 +187,7 @@ export class CreateWorkRelationshipFlow extends BaseCoreHRFlow {
       console.log(`[CWR] Searching by Person Name: "${personName}"`);
       await searchNameField.fill(personName);
       await searchButton.click();
-      await this.page.waitForTimeout(8000);
+      await this.page.waitForTimeout(3000);
       await this.person.waitForJET();
       return;
     }
@@ -218,7 +218,7 @@ export class CreateWorkRelationshipFlow extends BaseCoreHRFlow {
         const nameLink = this.page.locator('[id*="table2:0:gl"]').first();
         if (await nameLink.isVisible({ timeout: 5000 }).catch(() => false)) {
           await nameLink.click();
-          await this.page.waitForTimeout(10000);
+          await this.page.waitForTimeout(4000);
           await this.person.waitForJET();
           await this.person.dismissPopups();
         }
@@ -233,7 +233,7 @@ export class CreateWorkRelationshipFlow extends BaseCoreHRFlow {
         await this.person.waitForJET();
         const cwrClicked = await this.tryClickCWROption();
         if (cwrClicked) {
-          await this.page.waitForTimeout(10000);
+          await this.page.waitForTimeout(4000);
           await this.person.waitForJET();
           await this.person.clearGlassPane();
           return;
@@ -262,7 +262,7 @@ export class CreateWorkRelationshipFlow extends BaseCoreHRFlow {
     }
 
     // Wait for CWR wizard to load — verify we navigated away from search page
-    await this.page.waitForTimeout(15000);
+    await this.page.waitForTimeout(5000);
     await this.person.waitForJET();
     await this.person.clearGlassPane();
 
@@ -388,7 +388,7 @@ export class CreateWorkRelationshipFlow extends BaseCoreHRFlow {
     if (await nameLink.isVisible({ timeout: 5000 }).catch(() => false)) {
       console.log('[CWR] Clicking person name to go to detail page');
       await nameLink.click();
-      await this.page.waitForTimeout(10000);
+      await this.page.waitForTimeout(4000);
       await this.person.waitForJET();
       await this.person.dismissPopups();
 
@@ -830,10 +830,24 @@ export class CreateWorkRelationshipFlow extends BaseCoreHRFlow {
     };
     let action = getField(tc, "Use Person > What's the way") || getField(tc, "What's the way") || getField(tc, 'Action');
     if (action) {
-      const mapped = cwrActionMap[action.toLowerCase()];
+      let mapped = cwrActionMap[action.toLowerCase()];
       if (mapped) {
         console.log(`[CWR] Mapped Action: "${action}" → "${mapped}"`);
         action = mapped;
+      } else if (!mapped) {
+        // Generic "Create Work Relationship" — derive action from Worker Type
+        const wt = (getField(tc, 'Use Person > Worker Type') || getField(tc, 'Worker Type') || '').toLowerCase();
+        const workerTypeActionMap: Record<string, string> = {
+          'employee': 'Add Employee Work Relationship',
+          'nonworker': 'Add Non-Worker Work Relationship',
+          'contingent worker': 'Add Contingent Work Relationship',
+          'offer': 'Add Pending Work Relationship',
+        };
+        mapped = workerTypeActionMap[wt] || '';
+        if (mapped) {
+          console.log(`[CWR] Derived Action from Worker Type "${wt}": "${action}" → "${mapped}"`);
+          action = mapped;
+        }
       }
       await fillAdfSelect('Action', action,
         ['[id$="SP1:action::content"]', '[id$="SP1:selectOneChoice1::content"]']);

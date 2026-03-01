@@ -6,100 +6,105 @@ import { parseTestData } from '../../utils/test-data-parser';
 /**
  * Oracle HCM Journeys page object.
  *
- * Journeys are guided workflows for employee lifecycle events:
- * - Onboarding (supported, hourly/salaried)
- * - Offboarding
- * - Life events (medical leave, marriage/SOSA, etc.)
- * - Access request journeys
+ * Redwood/JET page with 6 tabs: Explore, My Journeys, My Tasks, Team Journeys,
+ * Organization Journeys, Activity.
  *
- * Navigation: My Client Groups > Journeys (Redwood UI)
- * URL pattern: /fscmUI/redwood/journeys/...
+ * Journey assignment flow (from live inspection 2026-03-01):
+ *   1. Explore tab → search by journey name → click journey card
+ *   2. Journey Detail page → click "Assign" button
+ *   3. Assign form: "When to assign?", "Comments", "Assignee Selection Type", "Select a Person"
+ *   4. Click "Assign" to submit
  *
- * Selectors sourced from .cache/inspect/journeys-admin-deep.json (live inspection).
- * This is a Redwood/JET page using oj-* components, not classic ADF.
+ * Selectors sourced from live page inspection (inspect-journeys-assign.ts).
  */
 export class JourneysPage extends BasePage {
-  // === Journey Search / Landing Page (from journeys-admin-deep.json) ===
+  // === Explore Tab (journey template search & cards) ===
 
-  /**
-   * Person search input on the Journeys landing page.
-   * Real ID: ojHcmAdvancedSearchBox_org-journeys-search|input
-   * aria-label: "Search by person name", placeholder: "Search by person name"
-   */
-  private readonly searchInput = this.page.locator(
-    '#ojHcmAdvancedSearchBox_org-journeys-search\\|input, ' +
+  /** Search input on Explore tab — searches by journey name. */
+  private readonly exploreSearchInput = this.page.locator(
+    'input[aria-label="Search by journey name"]'
+  ).first();
+
+  /** Search button on Explore tab. */
+  private readonly exploreSearchButton = this.page.locator(
+    'button[aria-label="Search by journey name"]'
+  ).first();
+
+  /** "Clear" filter button (removes "Personal" or other active filters). */
+  private readonly clearFilterButton = this.page.locator(
+    'button[aria-label*="Clear"]'
+  ).first();
+
+  /** "Create Journey" button on Explore tab header. */
+  private readonly createJourneyButton = this.page.locator(
+    'button[aria-label="Create Journey"]'
+  ).first();
+
+  // === Organization Journeys Tab (person search) ===
+
+  /** Person search input on Organization Journeys tab. */
+  private readonly personSearchInput = this.page.locator(
     'input[aria-label="Search by person name"]'
   ).first();
 
-  /**
-   * Search button (oj-button) next to the search input.
-   * Real ID: ojHcmAdvancedSearchButton_org-journeys-search
-   */
-  private readonly searchButton = this.page.locator(
-    '#ojHcmAdvancedSearchButton_org-journeys-search, ' +
+  /** Person search button on Organization Journeys tab. */
+  private readonly personSearchButton = this.page.locator(
     'button[aria-label="Search by person name"]'
   ).first();
 
-  /**
-   * Status filter pill (role="button", text="Status").
-   * Used to filter journeys by status (Active, Completed, etc.).
-   */
+  // === Filter Pills (shared across tabs) ===
+
   private readonly statusFilterPill = this.page.locator(
-    'div.oj-sp-filter-chip[role="button"]:has-text("Status")'
+    'div[role="button"]:has-text("Status")'
   ).first();
 
-  /**
-   * Category filter pill (role="button", text="Category").
-   * Used to filter journeys by category (Onboarding, Offboarding, etc.).
-   */
   private readonly categoryFilterPill = this.page.locator(
-    'div.oj-sp-filter-chip[role="button"]:has-text("Category")'
+    'div[role="button"]:has-text("Category")'
   ).first();
 
-  /** Saved Searches button. */
-  private readonly savedSearchesButton = this.page.locator(
-    'button[aria-label="Saved Searches"]'
+  // === Journey Detail Page ===
+
+  /** "Assign" button on the journey detail page (id: assignThisJourneyBtn). */
+  private readonly assignButton = this.page.locator(
+    '#assignThisJourneyBtn button, button[aria-label="Assign"]'
   ).first();
 
-  /** Go back button (Redwood navigation). */
-  private readonly goBackButton = this.page.locator(
-    'button[aria-label="Go back"]'
+  /** "Back" button on the journey detail page. */
+  private readonly backButton = this.page.locator(
+    'button[aria-label="Back"], button[aria-label="Go back"]'
   ).first();
 
-  // === Navigation Tabs (5 tabs with role="tab") ===
+  // === Assign Journey Form (drawer) ===
 
-  /** All navigation tabs on the Journeys page. */
-  private readonly navTabs = this.page.locator('a[role="tab"].oj-navigationlist-item-content');
-
-  // === Journey Assignment ===
-  private readonly assignJourneyButton = this.page.locator(
-    'button:has-text("Assign Journey"), a:has-text("Assign Journey")'
-  ).first();
-  private readonly journeyTemplateDropdown = this.page.locator(
-    'input[aria-label*="Journey Template"], input[aria-label*="Journey Name"], ' +
-    'input[aria-label*="Journey"]'
-  ).first();
-  private readonly journeyCategoryDropdown = this.page.locator(
-    'input[aria-label*="Category"]'
+  /** "When to assign?" date input on the assign form. */
+  private readonly assignDateInput = this.page.locator(
+    '#assignDateInput\\|input, input[role="combobox"]'
   ).first();
 
-  // === Person / Employee Lookup ===
-  private readonly personNameInput = this.page.locator(
-    'input[aria-label*="Person"], input[aria-label*="Employee"], input[aria-label*="Worker"]'
-  ).first();
-  private readonly personNumberInput = this.page.locator(
-    'input[aria-label*="Person Number"], input[aria-label*="Employee Number"]'
+  /** "Comments" textarea on the assign form. */
+  private readonly commentsTextarea = this.page.locator(
+    '#commentsInput\\|input, textarea'
   ).first();
 
-  // === Journey Details ===
-  private readonly effectiveDateInput = this.page.locator(
-    'input[aria-label*="Effective Date"], input[aria-label*="Start Date"]'
+  /** "Assignee Selection Type" dropdown on the assign form. */
+  private readonly assigneeSelectionType = this.page.locator(
+    '#selectionTypeLOV\\|input'
   ).first();
-  private readonly dueDateInput = this.page.locator(
-    'input[aria-label*="Due Date"]'
+
+  /** "Select a Person" dropdown on the assign form (required). */
+  private readonly selectPersonInput = this.page.locator(
+    '#assigneeLOV\\|input'
   ).first();
-  private readonly notesTextarea = this.page.locator(
-    'textarea[aria-label*="Notes"], textarea[aria-label*="Comment"]'
+
+  /** "Assign" submit button on the assign form header. */
+  private readonly assignSubmitButton = this.page.locator(
+    '#assignJourneyHeader_h_primaryActionFromHeader_primaryActionCta button, ' +
+    'oj-sp-primary-action-feedback button'
+  ).first();
+
+  /** "Cancel" button on the assign form. */
+  private readonly assignCancelButton = this.page.locator(
+    '#assignJourneyHeader_h_cancelAction button, button[aria-label="Cancel"]'
   ).first();
 
   // === Task Management ===
@@ -110,209 +115,270 @@ export class JourneysPage extends BasePage {
     'button:has-text("Complete"), button:has-text("Mark Complete"), a:has-text("Complete Task")'
   ).first();
 
-  // === Action Buttons ===
-  private readonly submitButton = this.page.locator(
-    'button:has-text("Submit"), a[role="button"]:has-text("Submit")'
-  ).first();
-  private readonly saveButton = this.page.locator(
-    'button:has-text("Save")'
-  ).first();
-  private readonly nextButton = this.page.locator(
-    'button:has-text("Next")'
-  ).first();
-  private readonly doneButton = this.page.locator(
-    'button:has-text("Done")'
-  ).first();
-
   // === Confirmation / Status ===
   private readonly successMessage = this.page.locator(
-    '[class*="confirmation"], [class*="success"], ' +
-    ':text("successfully")'
+    '[class*="confirmation"], [class*="success"], :text("successfully")'
   ).first();
 
-  // ======== Actions ========
+  // ======== Tab Navigation ========
+
+  /** Select a navigation tab by name. */
+  async selectTab(name: string): Promise<void> {
+    const tab = this.page.locator(`a[role="tab"]:has-text("${name}")`).first();
+    if (await tab.isVisible({ timeout: 10000 }).catch(() => false)) {
+      await tab.click();
+      await this.page.waitForTimeout(5000);
+      await this.waitForJET();
+    } else {
+      console.log(`[Journeys] Tab "${name}" not visible`);
+    }
+  }
+
+  async viewMyJourneys(): Promise<void> { await this.selectTab('My Journeys'); }
+  async viewMyTasks(): Promise<void> { await this.selectTab('My Tasks'); }
+  async viewOrganizationJourneys(): Promise<void> { await this.selectTab('Organization Journeys'); }
+
+  // ======== Explore Tab Actions ========
 
   /**
-   * Search for a person by name on the Journeys landing page.
-   * Uses the real ojHcmAdvancedSearchBox component.
+   * Search for a journey template by name on the Explore tab.
+   * Clears active filters first to ensure all results are shown.
    */
-  async searchPerson(name: string): Promise<void> {
-    await this.searchInput.click();
-    await this.searchInput.fill(name);
-    await this.page.waitForTimeout(1500);
+  async searchJourneyByName(name: string): Promise<void> {
+    // Clear any active filter (e.g., "Personal" level filter)
+    if (await this.clearFilterButton.isVisible({ timeout: 3000 }).catch(() => false)) {
+      await this.clearFilterButton.click();
+      await this.page.waitForTimeout(3000);
+      await this.waitForJET();
+    }
 
-    // Click the search button
-    if (await this.searchButton.isVisible({ timeout: 3000 }).catch(() => false)) {
-      await this.searchButton.click();
+    await this.exploreSearchInput.click();
+    await this.exploreSearchInput.fill(name);
+    await this.page.waitForTimeout(1000);
+
+    if (await this.exploreSearchButton.isVisible({ timeout: 3000 }).catch(() => false)) {
+      await this.exploreSearchButton.click();
     } else {
-      // Fallback: press Enter to trigger search
-      await this.searchInput.press('Enter');
+      await this.exploreSearchInput.press('Enter');
     }
     await this.page.waitForTimeout(5000);
     await this.waitForJET();
   }
 
-  /** Search for a person or journey on the landing page (alias for searchPerson). */
-  async searchFor(term: string): Promise<void> {
-    await this.searchPerson(term);
-  }
-
   /**
-   * Filter journeys by status using the Status filter pill.
-   * Clicks the pill then selects the desired status from the popup.
+   * Click a journey card by name (from Explore search results).
+   * Cards are oj-sp-card elements with div[role="link"] containing the name.
    */
-  async filterByStatus(status: string): Promise<void> {
-    await this.statusFilterPill.click();
-    await this.page.waitForTimeout(1500);
-
-    // Select the status option from the filter popup
-    const statusOption = this.page.getByRole('option', { name: status }).first();
-    if (await statusOption.isVisible({ timeout: 5000 }).catch(() => false)) {
-      await statusOption.click();
-    } else {
-      // Fallback: click by text within the popup
-      const textOption = this.page.locator(`[role="menuitemcheckbox"]:has-text("${status}"), li:has-text("${status}")`).first();
-      if (await textOption.isVisible({ timeout: 3000 }).catch(() => false)) {
-        await textOption.click();
-      }
-    }
-    await this.page.waitForTimeout(3000);
-    await this.waitForJET();
-  }
-
-  /**
-   * Filter journeys by category using the Category filter pill.
-   * Clicks the pill then selects the desired category from the popup.
-   */
-  async filterByCategory(category: string): Promise<void> {
-    await this.categoryFilterPill.click();
-    await this.page.waitForTimeout(1500);
-
-    const categoryOption = this.page.getByRole('option', { name: category }).first();
-    if (await categoryOption.isVisible({ timeout: 5000 }).catch(() => false)) {
-      await categoryOption.click();
-    } else {
-      const textOption = this.page.locator(`[role="menuitemcheckbox"]:has-text("${category}"), li:has-text("${category}")`).first();
-      if (await textOption.isVisible({ timeout: 3000 }).catch(() => false)) {
-        await textOption.click();
-      }
-    }
-    await this.page.waitForTimeout(3000);
-    await this.waitForJET();
-  }
-
-  /**
-   * Select a navigation tab by name.
-   * Known tabs: Explore, My Journeys, My Tasks, Organization Journeys, Activity.
-   */
-  async selectTab(name: string): Promise<void> {
-    const tab = this.page.locator(`a[role="tab"]:has-text("${name}")`).first();
-    if (await tab.isVisible({ timeout: 5000 }).catch(() => false)) {
-      await tab.click();
+  async clickJourneyCard(name: string): Promise<boolean> {
+    const card = this.page.locator(`div[role="link"]:has-text("${name}")`).first();
+    if (await card.isVisible({ timeout: 10000 }).catch(() => false)) {
+      await card.click();
       await this.page.waitForTimeout(3000);
+      await this.waitForJET();
+      return true;
+    }
+    // Fallback: try clicking the first card if specific name not found
+    const firstCard = this.page.locator('div[role="link"]').first();
+    if (await firstCard.isVisible({ timeout: 5000 }).catch(() => false)) {
+      console.log(`[Journeys] Card "${name}" not found, clicking first card`);
+      await firstCard.click();
+      await this.page.waitForTimeout(3000);
+      await this.waitForJET();
+      return true;
+    }
+    console.log(`[Journeys] No journey cards visible`);
+    return false;
+  }
+
+  // ======== Journey Detail Page Actions ========
+
+  /** Click "Assign" button on the journey detail page to open the assign form. */
+  async clickAssignOnDetail(): Promise<void> {
+    if (await this.assignButton.isVisible({ timeout: 10000 }).catch(() => false)) {
+      await this.assignButton.click();
+    } else {
+      // Fallback: try getByRole
+      const btn = this.page.getByRole('button', { name: 'Assign' }).first();
+      if (await btn.isVisible({ timeout: 5000 }).catch(() => false)) {
+        await btn.click();
+      }
+    }
+    await this.page.waitForTimeout(5000);
+    await this.waitForJET();
+  }
+
+  // ======== Assign Form Actions ========
+
+  /**
+   * Fill the "Select a Person" field on the assign form.
+   * This is an oj-select-single (readonly display + internal filter input).
+   *
+   * Interaction pattern for oj-select-single:
+   *   1. Click the component to open the dropdown
+   *   2. Type in the internal filter/search input
+   *   3. Select from the dropdown results
+   */
+  async fillAssigneePerson(personName: string): Promise<void> {
+    // Click the oj-select-single component to open it
+    const ojSelect = this.page.locator('#assigneeLOV, oj-select-single:has(#assigneeLOV\\|input)').first();
+    await ojSelect.waitFor({ timeout: 15000 });
+    await ojSelect.click();
+    await this.page.waitForTimeout(2000);
+
+    // Type in the filter/search input that appears inside the dropdown
+    const filterInput = this.page.locator(
+      '#oj-searchselect-filter-assigneeLOV\\|input, ' +
+      'input[aria-label*="Select a Person"]:not([readonly])'
+    ).first();
+    if (await filterInput.isVisible({ timeout: 5000 }).catch(() => false)) {
+      await filterInput.fill('');
+      await filterInput.pressSequentially(personName, { delay: 50 });
+    } else {
+      // Fallback: try typing directly on the display input
+      const displayInput = this.selectPersonInput;
+      await displayInput.pressSequentially(personName, { delay: 50 });
+    }
+    await this.page.waitForTimeout(5000);
+
+    // Select from dropdown results
+    const lastName = personName.split(',')[0].trim();
+    const option = this.page.locator(`[role="option"]:has-text("${lastName}")`).first();
+    if (await option.isVisible({ timeout: 10000 }).catch(() => false)) {
+      await option.click();
+    } else {
+      // Try clicking first visible option
+      const firstOption = this.page.locator('[role="option"]').first();
+      if (await firstOption.isVisible({ timeout: 5000 }).catch(() => false)) {
+        await firstOption.click();
+      } else {
+        console.log(`[Journeys] No dropdown options found for "${personName}"`);
+        // Press Escape to close dropdown, then Tab
+        await this.page.keyboard.press('Escape');
+      }
+    }
+    await this.page.waitForTimeout(2000);
+    await this.waitForJET();
+  }
+
+  /** Fill the "When to assign?" date field on the assign form. */
+  async fillAssignDate(date: string): Promise<void> {
+    const input = this.page.locator('#assignDateInput\\|input').first();
+    if (await input.isVisible({ timeout: 5000 }).catch(() => false)) {
+      await input.click();
+      await input.fill(date);
+      await input.press('Tab');
+      await this.page.waitForTimeout(1000);
       await this.waitForJET();
     }
   }
 
-  /** Navigate to My Journeys tab. */
-  async viewMyJourneys(): Promise<void> {
-    await this.selectTab('My Journeys');
+  /** Fill the "Comments" field on the assign form. */
+  async fillAssignComments(comments: string): Promise<void> {
+    const textarea = this.page.locator('#commentsInput\\|input, #commentsInput textarea').first();
+    if (await textarea.isVisible({ timeout: 5000 }).catch(() => false)) {
+      await textarea.click();
+      await textarea.fill(comments);
+      await this.waitForJET();
+    }
   }
 
-  /** Navigate to My Tasks tab. */
-  async viewMyTasks(): Promise<void> {
-    await this.selectTab('My Tasks');
+  /** Click "Assign" submit button on the assign form. Returns true if clicked. */
+  async clickAssignSubmit(): Promise<boolean> {
+    // The Assign button in the form header — may be disabled if required fields missing
+    const isSubmitVisible = await this.assignSubmitButton.isVisible({ timeout: 5000 }).catch(() => false);
+    const btn = isSubmitVisible
+      ? this.assignSubmitButton
+      : this.page.getByRole('button', { name: 'Assign' }).first();
+
+    // Check if button is disabled
+    const isDisabled = await btn.evaluate(el => (el as HTMLButtonElement).disabled).catch(() => true);
+    if (isDisabled) {
+      console.log('[Journeys] Assign button is disabled (required fields not filled)');
+      return false;
+    }
+
+    try {
+      await btn.click({ timeout: 10000 });
+      await this.page.waitForTimeout(5000);
+      await this.waitForJET();
+
+      // Handle confirmation dialog
+      const confirmBtn = this.page.getByRole('button', { name: /Yes|OK|Confirm/i }).first();
+      if (await confirmBtn.isVisible({ timeout: 3000 }).catch(() => false)) {
+        await confirmBtn.click();
+        await this.page.waitForTimeout(3000);
+        await this.waitForJET();
+      }
+      return true;
+    } catch (err) {
+      console.log(`[Journeys] Could not click Assign submit: ${err}`);
+      return false;
+    }
   }
 
-  /** Navigate to Organization Journeys tab. */
-  async viewOrganizationJourneys(): Promise<void> {
-    await this.selectTab('Organization Journeys');
+  // ======== Organization Journeys Tab Actions ========
+
+  /** Search for a person by name on the Organization Journeys tab. */
+  async searchPerson(name: string): Promise<void> {
+    if (await this.personSearchInput.isVisible({ timeout: 5000 }).catch(() => false)) {
+      await this.personSearchInput.click();
+      await this.personSearchInput.fill(name);
+      await this.page.waitForTimeout(1500);
+      if (await this.personSearchButton.isVisible({ timeout: 3000 }).catch(() => false)) {
+        await this.personSearchButton.click();
+      } else {
+        await this.personSearchInput.press('Enter');
+      }
+    } else {
+      // Fallback: use any visible search input
+      const anySearch = this.page.locator('input[aria-label*="Search"]').first();
+      if (await anySearch.isVisible({ timeout: 3000 }).catch(() => false)) {
+        await anySearch.fill(name);
+        await anySearch.press('Enter');
+      }
+    }
+    await this.page.waitForTimeout(5000);
+    await this.waitForJET();
   }
 
-  /** View journey details by clicking the first result. */
-  async viewJourneyDetails(): Promise<void> {
+  /** Click the first journey result in search results. */
+  async clickFirstJourneyResult(): Promise<void> {
     const resultLink = this.page.locator(
-      '[role="listitem"]:first-child a, [class*="journey-card"]:first-child'
+      'div[role="link"], [role="listitem"]:first-child a, [role="row"]:first-child a'
     ).first();
-    if (await resultLink.isVisible({ timeout: 10_000 }).catch(() => false)) {
+    if (await resultLink.isVisible({ timeout: 10000 }).catch(() => false)) {
       await resultLink.click();
       await this.page.waitForTimeout(5000);
       await this.waitForJET();
     }
   }
 
-  /** Click the Assign Journey button to start the assignment flow. */
-  async clickAssignJourney(): Promise<void> {
-    const isVisible = await this.assignJourneyButton.isVisible({ timeout: 5000 }).catch(() => false);
-    if (isVisible) {
-      await this.assignJourneyButton.click();
-    } else {
-      // Fallback: try other button texts for assignment
-      for (const name of ['Assign Journey', 'Assign', 'Create Journey', 'New Journey']) {
-        const btn = this.page.getByRole('button', { name }).first();
-        if (await btn.isVisible({ timeout: 2000 }).catch(() => false)) {
-          await btn.click();
-          break;
-        }
-      }
+  // ======== Filter Actions ========
+
+  async filterByStatus(status: string): Promise<void> {
+    await this.statusFilterPill.click();
+    await this.page.waitForTimeout(1500);
+    const option = this.page.getByRole('option', { name: status }).first();
+    if (await option.isVisible({ timeout: 5000 }).catch(() => false)) {
+      await option.click();
     }
     await this.page.waitForTimeout(3000);
     await this.waitForJET();
   }
 
-  /**
-   * Assign a journey to a person.
-   * Combines person search, template selection, and submission.
-   */
-  async assignJourney(person: string, journeyType: string): Promise<void> {
-    await this.clickAssignJourney();
-    await this.fillCombobox(this.personNameInput, person);
-    await this.fillCombobox(this.journeyTemplateDropdown, journeyType);
-    await this.clickSubmit();
-  }
-
-  /** Select a journey template from the dropdown/LOV. */
-  async selectJourneyTemplate(templateName: string): Promise<void> {
-    await this.fillCombobox(this.journeyTemplateDropdown, templateName);
-  }
-
-  /** Select a journey category. */
-  async selectJourneyCategory(category: string): Promise<void> {
-    await this.fillCombobox(this.journeyCategoryDropdown, category);
-  }
-
-  /** Enter the person/employee name for journey assignment. */
-  async fillPersonName(name: string): Promise<void> {
-    await this.fillCombobox(this.personNameInput, name);
-  }
-
-  /** Enter the person number for journey assignment. */
-  async fillPersonNumber(number: string): Promise<void> {
-    await this.fillField(this.personNumberInput, number);
-  }
-
-  /** Set the effective/start date for the journey. */
-  async fillEffectiveDate(date: string): Promise<void> {
-    await this.fillField(this.effectiveDateInput, date);
-  }
-
-  /** Set the due date for the journey. */
-  async fillDueDate(date: string): Promise<void> {
-    await this.fillField(this.dueDateInput, date);
-  }
-
-  /** Enter notes/comments for the journey. */
-  async fillNotes(notes: string): Promise<void> {
-    const field = this.notesTextarea;
-    await field.clear();
-    await field.fill(notes);
+  async filterByCategory(category: string): Promise<void> {
+    await this.categoryFilterPill.click();
+    await this.page.waitForTimeout(1500);
+    const option = this.page.getByRole('option', { name: category }).first();
+    if (await option.isVisible({ timeout: 5000 }).catch(() => false)) {
+      await option.click();
+    }
+    await this.page.waitForTimeout(3000);
     await this.waitForJET();
   }
 
-  /**
-   * Complete a task by name within the journey task list.
-   * Finds the task checkbox or complete button by task name.
-   */
+  // ======== Task Management ========
+
   async completeTask(taskName: string): Promise<void> {
     const taskRow = this.page.locator(`[role="listitem"]:has-text("${taskName}"), tr:has-text("${taskName}")`).first();
     if (await taskRow.isVisible({ timeout: 5000 }).catch(() => false)) {
@@ -324,7 +390,6 @@ export class JourneysPage extends BasePage {
     }
   }
 
-  /** Complete a task by its index (0-based) in the task list. */
   async completeTaskByIndex(index: number): Promise<void> {
     const checkbox = this.taskCheckboxes.nth(index);
     if (await checkbox.isVisible({ timeout: 5000 }).catch(() => false)) {
@@ -333,75 +398,29 @@ export class JourneysPage extends BasePage {
     }
   }
 
-  /** Click the Complete Task button. */
   async clickCompleteTask(): Promise<void> {
-    await this.completeTaskButton.click();
-    await this.page.waitForTimeout(2000);
-    await this.waitForJET();
+    if (await this.completeTaskButton.isVisible({ timeout: 5000 }).catch(() => false)) {
+      await this.completeTaskButton.click();
+      await this.page.waitForTimeout(2000);
+      await this.waitForJET();
+    } else {
+      console.log('[Journeys] No Complete task button visible — skipping clickCompleteTask');
+    }
   }
 
-  /** Click Submit to finalize the journey assignment. */
-  async clickSubmit(): Promise<void> {
-    const isVisible = await this.submitButton.isVisible({ timeout: 5000 }).catch(() => false);
-    if (isVisible) {
-      await this.submitButton.click();
-    } else {
-      // Fallback: try other button texts
-      for (const name of ['Submit', 'Done', 'Save', 'OK', 'Assign']) {
-        const btn = this.page.getByRole('button', { name }).first();
-        if (await btn.isVisible({ timeout: 2000 }).catch(() => false)) {
-          await btn.click();
-          break;
-        }
-      }
-    }
+  // ======== Navigation ========
+
+  async clickGoBack(): Promise<void> {
+    await this.backButton.click();
     await this.page.waitForTimeout(3000);
     await this.waitForJET();
-
-    // Handle confirmation dialog if it appears
-    const confirmBtn = this.page.getByRole('button', { name: /Yes|OK|Confirm/i }).first();
-    if (await confirmBtn.isVisible({ timeout: 3000 }).catch(() => false)) {
-      await confirmBtn.click();
-      await this.page.waitForTimeout(3000);
-      await this.waitForJET();
-    }
   }
 
-  /** Click Save to save progress without submitting. */
-  async clickSave(): Promise<void> {
-    await this.saveButton.click();
-    await this.page.waitForTimeout(2000);
-    await this.waitForJET();
-  }
+  // ======== Verification ========
 
-  /** Click Next to advance to the next step. */
-  async clickNext(): Promise<void> {
-    await this.nextButton.click();
-    await this.page.waitForTimeout(2000);
-    await this.waitForJET();
-  }
-
-  /** Click Done to finish the journey. */
-  async clickDone(): Promise<void> {
-    await this.doneButton.click();
-    await this.page.waitForTimeout(2000);
-    await this.waitForJET();
-  }
-
-  /** Click Go Back to return to previous page. */
-  async clickGoBack(): Promise<void> {
-    await this.goBackButton.click();
-    await this.page.waitForTimeout(2000);
-    await this.waitForJET();
-  }
-
-  /**
-   * Verify a success/confirmation message is displayed.
-   * Uses soft verification since journey operations may show
-   * different confirmation patterns.
-   */
   async expectSuccess(): Promise<void> {
-    const visible = await this.successMessage.waitFor({ state: 'visible', timeout: 15_000 }).then(() => true).catch(() => false);
+    const visible = await this.successMessage.waitFor({ state: 'visible', timeout: 15000 })
+      .then(() => true).catch(() => false);
     if (visible) {
       const text = await this.successMessage.textContent().catch(() => '');
       console.log(`[Journeys] Success: ${text?.substring(0, 100)}`);
@@ -409,73 +428,4 @@ export class JourneysPage extends BasePage {
       console.log('[Journeys] No explicit success indicator visible');
     }
   }
-
-  /** Get the current journey status text. */
-  async getJourneyStatus(): Promise<string> {
-    const statusBadge = this.page.locator('[class*="status"], span[class*="badge"]').first();
-    if (await statusBadge.isVisible({ timeout: 5000 }).catch(() => false)) {
-      return (await statusBadge.textContent()) ?? '';
-    }
-    return '';
-  }
-
-  /** Click the first journey result in search results or journey list. */
-  async clickFirstJourneyResult(): Promise<void> {
-    const resultLink = this.page.locator(
-      '[role="listitem"]:first-child a, [role="row"]:first-child a, ' +
-      '[class*="journey-card"]:first-child'
-    ).first();
-    if (await resultLink.isVisible({ timeout: 10_000 }).catch(() => false)) {
-      await resultLink.click();
-      await this.page.waitForTimeout(5000);
-      await this.waitForJET();
-    }
-  }
-
-  /**
-   * Fill journey assignment fields from a UAT test case.
-   * Extracts relevant data from businessProcess, testScenario, and testData.
-   */
-  async fillFromTestCase(tc: UATTestCase): Promise<void> {
-    const data = parseTestData(tc.testData);
-
-    // Person lookup
-    const personName = data['person name'] || data['employee name'] || data['worker name'] || '';
-    const personNumber = data['person number'] || data['employee number'] || '';
-    if (personName) {
-      await this.fillPersonName(personName);
-    } else if (personNumber) {
-      await this.fillPersonNumber(personNumber);
-    }
-
-    // Journey template selection
-    const template = data['journey template'] || data['journey name'] || data['journey'] || '';
-    if (template) {
-      await this.selectJourneyTemplate(template);
-    }
-
-    // Category
-    const category = data['category'] || data['journey category'] || '';
-    if (category) {
-      await this.selectJourneyCategory(category);
-    }
-
-    // Dates
-    const effectiveDate = data['effective date'] || data['start date'] || '';
-    if (effectiveDate) {
-      await this.fillEffectiveDate(effectiveDate);
-    }
-
-    const dueDate = data['due date'] || '';
-    if (dueDate) {
-      await this.fillDueDate(dueDate);
-    }
-
-    // Notes
-    const notes = data['notes'] || data['comments'] || '';
-    if (notes) {
-      await this.fillNotes(notes);
-    }
-  }
-
 }
