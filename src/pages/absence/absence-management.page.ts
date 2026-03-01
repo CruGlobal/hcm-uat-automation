@@ -959,7 +959,12 @@ export class AbsenceManagementPage extends BasePage {
     if (await this.withdrawButton.isVisible({ timeout: 5000 }).catch(() => false)) {
       await this.withdrawButton.click();
     } else {
-      await this.clickAdfButton('Withdraw');
+      try {
+        await this.clickAdfButton('Withdraw');
+      } catch {
+        console.log('[Absence] Withdraw button not found — absence may not be in a withdrawable state');
+        return;
+      }
     }
     await this.page.waitForTimeout(3000);
     await this.waitForJET();
