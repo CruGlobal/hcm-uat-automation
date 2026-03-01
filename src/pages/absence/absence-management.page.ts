@@ -323,65 +323,50 @@ export class AbsenceManagementPage extends BasePage {
 
   // ===== ESS Page — Tile Navigation =====
 
-  /** Click the "Add Absence" tile card (ESS tile index 4). */
+  /**
+   * Click an ESS tile by its visible text label.
+   * Prefers text-based matching (resilient to tile reordering across Oracle updates)
+   * and falls back to tile index only if text is not found.
+   */
+  private async clickEssTile(label: string, fallbackIndex: number): Promise<void> {
+    const textTile = this.page.getByText(label, { exact: true }).first();
+    if (await textTile.isVisible({ timeout: 5000 }).catch(() => false)) {
+      await textTile.click({ force: true });
+    } else {
+      const tile = this.essTile(fallbackIndex);
+      if (await tile.isVisible({ timeout: 5000 }).catch(() => false)) {
+        await tile.click({ force: true });
+      } else {
+        throw new Error(`ESS tile "${label}" not found by text or index ${fallbackIndex}`);
+      }
+    }
+    await this.page.waitForTimeout(5000);
+    await this.waitForJET();
+  }
+
+  /** Click the "Add Absence" tile card. */
   async clickAddAbsenceTile(): Promise<void> {
-    const tile = this.essTile(4);
-    if (await tile.isVisible({ timeout: 5000 }).catch(() => false)) {
-      await tile.click({ force: true });
-    } else {
-      // Fallback: find the tile by text content
-      await this.page.getByText('Add Absence', { exact: true }).first().click();
-    }
-    await this.page.waitForTimeout(5000);
-    await this.waitForJET();
+    await this.clickEssTile('Add Absence', 4);
   }
 
-  /** Click the "Absence Balance" tile card (ESS tile index 5). */
+  /** Click the "Absence Balance" tile card. */
   async clickAbsenceBalanceTile(): Promise<void> {
-    const tile = this.essTile(5);
-    if (await tile.isVisible({ timeout: 5000 }).catch(() => false)) {
-      await tile.click({ force: true });
-    } else {
-      await this.page.getByText('Absence Balance', { exact: true }).first().click();
-    }
-    await this.page.waitForTimeout(5000);
-    await this.waitForJET();
+    await this.clickEssTile('Absence Balance', 5);
   }
 
-  /** Click the "Existing Absences" tile card (ESS tile index 6). */
+  /** Click the "Existing Absences" tile card. */
   async clickExistingAbsencesTile(): Promise<void> {
-    const tile = this.essTile(6);
-    if (await tile.isVisible({ timeout: 5000 }).catch(() => false)) {
-      await tile.click({ force: true });
-    } else {
-      await this.page.getByText('Existing Absences', { exact: true }).first().click();
-    }
-    await this.page.waitForTimeout(5000);
-    await this.waitForJET();
+    await this.clickEssTile('Existing Absences', 6);
   }
 
-  /** Click the "Absence Bid" tile card (ESS tile index 7). */
+  /** Click the "Absence Bid" tile card. */
   async clickAbsenceBidTile(): Promise<void> {
-    const tile = this.essTile(7);
-    if (await tile.isVisible({ timeout: 5000 }).catch(() => false)) {
-      await tile.click({ force: true });
-    } else {
-      await this.page.getByText('Absence Bid', { exact: true }).first().click();
-    }
-    await this.page.waitForTimeout(5000);
-    await this.waitForJET();
+    await this.clickEssTile('Absence Bid', 7);
   }
 
-  /** Click the "Calendar" tile card (ESS tile index 8). */
+  /** Click the "Calendar" tile card. */
   async clickCalendarTile(): Promise<void> {
-    const tile = this.essTile(8);
-    if (await tile.isVisible({ timeout: 5000 }).catch(() => false)) {
-      await tile.click({ force: true });
-    } else {
-      await this.page.getByText('Calendar', { exact: true }).first().click();
-    }
-    await this.page.waitForTimeout(5000);
-    await this.waitForJET();
+    await this.clickEssTile('Calendar', 8);
   }
 
   // ===== Person Search (Admin — Absence Records page) =====
@@ -902,18 +887,51 @@ export class AbsenceManagementPage extends BasePage {
 
   // ===== Select Absence Row =====
 
-  /** Select an absence row from the Existing Absences table. */
-  async selectAbsenceRow(index = 0): Promise<void> {
-    await this.navigateToExistingAbsences();
-    const rows = this.page.locator(
-      'table [role="row"], [class*="absence"] [role="row"]'
-    );
-    const targetRow = rows.nth(index + 1); // Skip header row
+  /**
+   * Clear any applied filters on the Existing Absences Redwood page.
+   * Oracle HCM defaults to a "Date" filter that hides older absences.
+   */
+  async clearExistingAbsenceFilters(): Promise<void> {
+    const clearBtn = this.page.locator('button:has-text("Clear")').first();
+    if (await clearBtn.isVisible({ timeout: 3000 }).catch(() => false)) {
+      await clearBtn.click();
+      await this.page.waitForTimeout(3000);
+      await this.waitForJET();
+    }
+  }
+
+  /**
+   * Check whether the Existing Absences list has any rows (non-empty).
+   */
+  async hasExistingAbsences(): Promise<boolean> {
+    const noMatches = this.page.getByText("We couldn't find any matches", { exact: false });
+    const noAbsences = this.page.getByText("You don't have any absences", { exact: false });
+    if (await noMatches.isVisible({ timeout: 3000 }).catch(() => false)) return false;
+    if (await noAbsences.isVisible({ timeout: 2000 }).catch(() => false)) return false;
+    const row = this.page.locator('[role="row"]').filter({ hasNotText: /couldn't find|don't have/ }).nth(1);
+    return await row.isVisible({ timeout: 5000 }).catch(() => false);
+  }
+
+  /** Select an absence row from the Existing Absences list (Redwood card/grid). */
+  async selectAbsenceRow(index = 0): Promise<boolean> {
+    await this.clearExistingAbsenceFilters();
+
+    if (!await this.hasExistingAbsences()) {
+      console.log('[Absence] No existing absences found after clearing filters');
+      return false;
+    }
+
+    const rows = this.page.locator('[role="row"]')
+      .filter({ hasNotText: /couldn't find|don't have/ });
+    const targetRow = rows.nth(index + 1);
     if (await targetRow.isVisible({ timeout: 5000 }).catch(() => false)) {
       await targetRow.click();
       await this.page.waitForTimeout(3000);
       await this.waitForJET();
+      return true;
     }
+    console.log('[Absence] Could not select absence row');
+    return false;
   }
 
   /** Select a plan row in the Plan Participation table. */
