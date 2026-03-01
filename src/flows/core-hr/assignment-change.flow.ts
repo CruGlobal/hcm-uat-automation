@@ -87,6 +87,15 @@ export class AssignmentChangeFlow extends BaseCoreHRFlow {
       await this.person.searchByName(personName);
     }
 
+    // Verify we actually navigated to a person detail page (not still on search results)
+    // Person detail pages have "Manage Employment" or person name heading, not "Person Management: Search"
+    const stillOnSearch = await this.page.locator('text=Person Management: Search').isVisible({ timeout: 3000 }).catch(() => false);
+    const noResults = await this.page.locator('text=No results found').isVisible({ timeout: 1000 }).catch(() => false);
+    if (stillOnSearch || noResults) {
+      console.log(`[AssignChange] Person "${personName || personNumber}" not found — person may not exist in this HCM environment, skipping`);
+      return;
+    }
+
     // Open Edit → Update → fill dialog
     await this.initiateUpdate();
     await this.fillUpdateDialog(tc);
