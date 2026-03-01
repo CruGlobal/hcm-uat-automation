@@ -146,6 +146,9 @@ export class CoreHRUATFlow extends BaseFlow {
       await this.executeApprovalDelegation(tc);
     } else if (process.includes('work schedule')) {
       await this.executeWorkSchedule(tc);
+    } else if (process.includes('salary calculation') || process.includes('salary calc form')) {
+      // "Salary Calculation Form Exceptions" is an EIT, not a salary change
+      await this.executePersonalInfoUpdate(tc);
     } else if (process.includes('salary') || process.includes('compensation') || process.includes('pay change')) {
       await this.executeSalaryChange(tc);
     } else if (process.includes('change location')) {
@@ -467,7 +470,14 @@ export class CoreHRUATFlow extends BaseFlow {
 
   private async executePersonalInfoUpdate(tc: UATTestCase): Promise<void> {
     await this.homePage.goToPersonManagement();
-    const personName = this.extractPersonRef(tc);
+    let personName = this.extractPersonRef(tc);
+    // Fallback: check field data for person name
+    if (!personName) {
+      const fieldData = getFieldData(tc.testId);
+      if (fieldData) {
+        personName = getField(fieldData, 'Person Name') || null;
+      }
+    }
     if (personName) {
       await this.person.searchByName(personName);
     } else {
