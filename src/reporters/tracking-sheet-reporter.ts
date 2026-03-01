@@ -12,7 +12,10 @@ import * as path from 'path';
 class TrackingSheetReporter implements Reporter {
   onEnd(result: FullResult): void {
     const scriptPath = path.resolve(__dirname, '../../scripts/update-tracking-sheet.ts');
-    const reportPath = path.resolve(__dirname, '../../test-results/results.json');
+    // Use per-bot JSON file when running in parallel mode (matches playwright.parallel.config.ts)
+    const botName = process.env.PARALLEL_BOT_ACCOUNT || process.env.PARALLEL_BOT;
+    const reportFile = botName ? `results-${botName}.json` : 'results.json';
+    const reportPath = path.resolve(__dirname, '../../test-results', reportFile);
 
     console.log('\n[Tracking Sheet] Updating tracking sheet with test results...');
 

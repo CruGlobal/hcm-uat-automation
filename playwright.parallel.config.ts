@@ -11,12 +11,20 @@ import dotenv from 'dotenv';
 
 dotenv.config();
 
+// Per-bot JSON report file: test-results/results-<botName>.json
+const botName = process.env.PARALLEL_BOT_ACCOUNT || process.env.PARALLEL_BOT || 'unknown';
+const jsonOutputFile = `test-results/results-${botName}.json`;
+
 export default defineConfig({
   testDir: './tests',
   fullyParallel: false,
   workers: 1,
   retries: 0,
-  reporter: [['list']],
+  reporter: [
+    ['list'],
+    ['json', { outputFile: jsonOutputFile }],
+    ['./src/reporters/tracking-sheet-reporter.ts'],
+  ],
   timeout: 300_000,
   expect: { timeout: 15_000 },
   use: {
