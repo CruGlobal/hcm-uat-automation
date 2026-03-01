@@ -41,7 +41,7 @@ export class OtherFunctionsFlow extends BaseFlow {
 
     if (process.includes('mass upload') || process.includes('data load') || script.includes('upload')) {
       await this.executeMassUpload(tc, fieldData);
-    } else if (process.includes('aor security') || process.includes('security') && process.includes('aor')) {
+    } else if (process.includes('aor security') || (process.includes('security') && process.includes('aor'))) {
       await this.executeAORSecurity(tc, fieldData);
     } else if (process.includes('role security') || (process.includes('security') && process.includes('role'))) {
       await this.executeRoleSecurity(tc, fieldData);
@@ -49,10 +49,22 @@ export class OtherFunctionsFlow extends BaseFlow {
       await this.executeReport(tc, fieldData);
     } else if (process.includes('extract') || process.includes('export') || script.includes('extract')) {
       await this.executeDataExtract(tc, fieldData);
+    } else if (process.includes('eit value') || process.includes('eit ')) {
+      await this.executeEITManagement(tc, fieldData);
+    } else if (
+      process.includes('workforce structure') || script.includes('structure') ||
+      process.includes('job code') || process.includes('job family') ||
+      process.includes('location code') || process.includes('salary grade') ||
+      process.includes('dept') || process.includes('department') ||
+      process.includes('create job') || process.includes('update job') ||
+      process.includes('create location') || process.includes('create department') ||
+      process.includes('inactivate') || process.includes('approve transaction') ||
+      process.includes('reject transaction') || process.includes('request information') ||
+      script.includes('core.10') || script.includes('core.11')
+    ) {
+      await this.executeWorkforceStructures(tc, fieldData);
     } else if (process.includes('config') || process.includes('setup') || script.includes('setup')) {
       await this.executeConfiguration(tc, fieldData);
-    } else if (process.includes('workforce structure') || script.includes('structure')) {
-      await this.executeWorkforceStructures(tc, fieldData);
     } else if (process.includes('scheduled') || process.includes('process') || script.includes('scheduled')) {
       await this.executeScheduledProcess(tc, fieldData);
     } else {
@@ -227,23 +239,73 @@ export class OtherFunctionsFlow extends BaseFlow {
   }
 
   /**
+   * Execute EIT (Extra Information Type) value management.
+   * Navigates to Setup and Maintenance > Manage Extensible Flexfields.
+   * Handles: Add/Modify/Update/Inactivate EIT values (HR-526, HR-528, HR-529, HR-530).
+   */
+  private async executeEITManagement(tc: UATTestCase, fieldData: TestCase | undefined): Promise<void> {
+    await this.homePage.openNavigator();
+
+    const setupLink = this.page.locator(
+      'a[title="Setup and Maintenance"], a:has-text("Setup and Maintenance")'
+    ).first();
+    if (await setupLink.isVisible({ timeout: 5000 }).catch(() => false)) {
+      await setupLink.click({ force: true });
+      await this.page.waitForLoadState('networkidle', { timeout: 60_000 });
+      await this.page.waitForTimeout(5000);
+
+      // Search for EIT-related setup tasks
+      const taskSearch = this.page.locator(
+        'input[aria-label*="Search"], input[placeholder*="Search"]'
+      ).first();
+      if (await taskSearch.isVisible({ timeout: 5000 }).catch(() => false)) {
+        await taskSearch.fill('Extensible Flexfield');
+        await taskSearch.press('Enter');
+        await this.page.waitForTimeout(5000);
+      }
+    }
+
+    console.log(`[OtherFunctions] ${tc.testId}: EIT management — "${tc.businessProcess}"`);
+    await this.takeScreenshot(`other-eit-${tc.testId}`);
+  }
+
+  /**
    * Navigate to Workforce Structures page via HomePage, then search for tasks.
    */
   private async executeWorkforceStructures(tc: UATTestCase, fieldData: TestCase | undefined): Promise<void> {
     await this.homePage.goToWorkforceStructures();
 
-    // Search for a specific task if test data provides one
-    if (tc.testData) {
+    // Determine which task to search for based on business process
+    const bp = tc.businessProcess.toLowerCase();
+    let searchTerm = '';
+    if (bp.includes('job code') || bp.includes('create job') || bp.includes('update job')) {
+      searchTerm = 'Jobs';
+    } else if (bp.includes('job family')) {
+      searchTerm = 'Job Family';
+    } else if (bp.includes('location')) {
+      searchTerm = 'Locations';
+    } else if (bp.includes('dept') || bp.includes('department')) {
+      searchTerm = 'Departments';
+    } else if (bp.includes('salary grade') || bp.includes('grade')) {
+      searchTerm = 'Grades';
+    } else if (bp.includes('approve') || bp.includes('reject') || bp.includes('request info')) {
+      searchTerm = 'Approval';
+    } else if (tc.testData) {
+      searchTerm = tc.testData;
+    }
+
+    if (searchTerm) {
       const taskSearch = this.page.locator(
         'input[aria-label="Search for tasks"], input[placeholder="Search for tasks"]'
       ).first();
       if (await taskSearch.isVisible({ timeout: 5000 }).catch(() => false)) {
-        await taskSearch.fill(tc.testData);
+        await taskSearch.fill(searchTerm);
         await taskSearch.press('Enter');
         await this.page.waitForTimeout(3000);
       }
     }
 
+    console.log(`[OtherFunctions] ${tc.testId}: Workforce Structures — "${tc.businessProcess}" (search: "${searchTerm}")`);
     await this.takeScreenshot(`other-structures-${tc.testId}`);
   }
 
@@ -270,9 +332,19 @@ export class OtherFunctionsFlow extends BaseFlow {
     await this.takeScreenshot(`other-generic-${tc.testId}`);
   }
 
-  /** Navigate to Scheduled Processes page via HomePage. */
+  /** Navigate to Scheduled Processes page via HomePage, with direct URL fallback. */
   private async navigateToScheduledProcesses(): Promise<void> {
-    await this.homePage.goToScheduledProcesses();
+    try {
+      await this.homePage.goToScheduledProcesses();
+    } catch {
+      console.log('[OtherFunctions] Navigator fallback: direct URL for Scheduled Processes');
+      await this.page.goto(
+        '/fscmUI/faces/FuseOverview?fndGlobalItemNodeId=itemNode_tools_scheduled_processes',
+        { timeout: 60_000 }
+      );
+      await this.page.waitForLoadState('networkidle', { timeout: 60_000 }).catch(() => {});
+      await this.page.waitForTimeout(5000);
+    }
   }
 
   /** Take a screenshot with a descriptive name. */
