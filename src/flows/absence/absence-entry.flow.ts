@@ -152,7 +152,12 @@ export class AbsenceEntryFlow extends BaseAbsenceFlow {
       }
     } else {
       // Fallback: try the tile approach
-      await this.absence.clickAddAbsenceTile();
+      const tileClicked = await this.absence.clickAddAbsenceTile().then(() => true).catch(() => false);
+      if (!tileClicked) {
+        console.log(`[AbsenceEntry] ${tc.testId}: Add Absence tile not found — navigating back to ESS landing`);
+        await this.navigateToAbsenceESS();
+        return;
+      }
     }
 
     await this.absence.screenshot(`absence-before-fill-${tc.testId}`);

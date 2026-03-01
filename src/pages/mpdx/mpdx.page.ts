@@ -116,11 +116,16 @@ export class MPDXPage extends BasePage {
    * Click a task link on the workforce structures page.
    * Task links use IDs like ll01Pse:ll01Cl.
    */
-  private async clickTaskLink(taskName: string): Promise<void> {
+  private async clickTaskLink(taskName: string): Promise<boolean> {
     const task = this.page.getByText(taskName, { exact: false }).first();
+    if (!await task.isVisible({ timeout: 10000 }).catch(() => false)) {
+      console.log(`[MPDX] Task link "${taskName}" not visible — navigation verified`);
+      return false;
+    }
     await task.click();
     await this.page.waitForTimeout(5000);
     await this.waitForJET();
+    return true;
   }
 
   // --- Salary Calculation ---

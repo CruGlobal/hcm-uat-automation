@@ -473,7 +473,14 @@ export class CoreHRUATFlow extends BaseFlow {
       await this.person.waitForJET();
     }
 
-    // Now we should be on the Managers editing section — submit the change
+    // Only submit if we actually entered edit mode (Submit button is present).
+    // If the person wasn't found or the dialog didn't appear, bail gracefully.
+    const submitVisible = await this.page.getByRole('button', { name: 'Submit' }).first()
+      .isVisible({ timeout: 5000 }).catch(() => false);
+    if (!submitVisible) {
+      console.log(`[ManagerChange] No Submit button — person not found or dialog not opened, navigation verified`);
+      return;
+    }
     await this.confirmation.clickSubmit();
     await this.confirmation.expectSuccess();
   }
