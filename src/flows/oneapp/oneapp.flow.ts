@@ -146,7 +146,7 @@ export class OneAppFlow extends BaseFlow {
       // Navigate through wizard using ADF button clicks (10s waits for ADF transitions)
       console.log(`[OneApp] Clicking Next to advance from Step 1`);
       await this.person.clickAdfButton('Next');
-      await this.page.waitForTimeout(10_000);
+      await this.page.waitForTimeout(4000);
       await this.person.waitForJET();
 
       // Check if we're still on Identification (validation error blocked Next)
@@ -165,11 +165,11 @@ export class OneAppFlow extends BaseFlow {
 
       // Step 2: Person Information — skip
       await this.person.clickAdfButton('Next');
-      await this.page.waitForTimeout(10_000);
+      await this.page.waitForTimeout(4000);
 
       // Step 3: Person Profile — skip
       await this.person.clickAdfButton('Next');
-      await this.page.waitForTimeout(10_000);
+      await this.page.waitForTimeout(4000);
 
       // Step 4: Employment Information — fill required Business Unit
       // BU is an ADF LOV combobox; try field data value first, then select first available option
@@ -222,11 +222,11 @@ export class OneAppFlow extends BaseFlow {
         }
       }
       await this.person.clickAdfButton('Next');
-      await this.page.waitForTimeout(10_000);
+      await this.page.waitForTimeout(4000);
 
       // Step 5: Compensation — skip
       await this.person.clickAdfButton('Next');
-      await this.page.waitForTimeout(10_000);
+      await this.page.waitForTimeout(4000);
     } else {
       // No field data — advance through wizard with defaults
       for (let i = 0; i < 5; i++) {
@@ -466,7 +466,11 @@ export class OneAppFlow extends BaseFlow {
       }
     }
 
-    await this.selectPersonAction('Transfer');
+    const transferInitiated = await this.trySelectPersonAction('Transfer');
+    if (!transferInitiated) {
+      console.log('[OneApp] Transfer action not available — skipping');
+      return;
+    }
     await this.clickWizardButton('Continue');
 
     // Fill transfer-specific fields from field data
@@ -555,7 +559,7 @@ export class OneAppFlow extends BaseFlow {
         await btn.click();
       }
     }
-    await this.page.waitForTimeout(5000);
+    await this.page.waitForTimeout(2000);
     await this.person.waitForJET();
   }
 
