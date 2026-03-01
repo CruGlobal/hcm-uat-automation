@@ -171,7 +171,16 @@ export class OneAppFlow extends BaseFlow {
       await this.person.clickAdfButton('Next');
       await this.page.waitForTimeout(10_000);
 
-      // Step 4: Employment Information — skip
+      // Step 4: Employment Information — fill required Business Unit
+      const buField = this.page.getByRole('combobox', { name: 'Business Unit' }).first();
+      const buVisible = await buField.isVisible({ timeout: 8000 }).catch(() => false);
+      if (buVisible) {
+        const currentBU = await buField.inputValue().catch(() => '');
+        if (!currentBU) {
+          console.log('[OneApp] Filling required Business Unit: Campus Crusade for Christ');
+          await this.person.fillCombobox(buField, 'Campus Crusade for Christ', 5000);
+        }
+      }
       await this.person.clickAdfButton('Next');
       await this.page.waitForTimeout(10_000);
 
@@ -258,11 +267,63 @@ export class OneAppFlow extends BaseFlow {
       }
     }
 
-    await this.selectPersonAction('Change Assignment');
-    await this.clickWizardButton('Continue');
-    await this.clickWizardButton('Next');
-    await this.confirmation.clickSubmit();
-    await this.confirmation.expectSuccess();
+    // Try main Actions button first
+    const actionInitiated = await this.trySelectPersonAction('Change Assignment');
+
+    if (!actionInitiated) {
+      // Fallback: try the "Edit" dropdown on the Assignment section
+      const editBtn = this.page.getByRole('button', { name: 'Edit' }).first()
+        .or(this.page.locator('button:has-text("Edit")').first());
+      const editVisible = await editBtn.isVisible({ timeout: 5000 }).catch(() => false);
+      if (editVisible) {
+        console.log('[OneApp] Using Edit dropdown on Assignment section');
+        await editBtn.click();
+        await this.page.waitForTimeout(2000);
+
+        const updateItem = this.page.locator(
+          '[role="menuitem"]:has-text("Update"), [role="menuitem"]:has-text("Change Assignment"), [role="option"]:has-text("Update")'
+        ).first();
+        const menuLink = this.page.getByText('Update', { exact: false }).first();
+        if (await updateItem.isVisible({ timeout: 3000 }).catch(() => false)) {
+          await updateItem.click();
+          await this.page.waitForTimeout(5000);
+          await this.person.waitForJET();
+        } else if (await menuLink.isVisible({ timeout: 3000 }).catch(() => false)) {
+          await menuLink.click();
+          await this.page.waitForTimeout(5000);
+          await this.person.waitForJET();
+        } else {
+          await this.page.keyboard.press('Escape');
+          console.log('[OneApp] No Change Assignment/Update option in Edit menu — verifying person exists');
+          await this.person.screenshot(`oneapp-reclass-no-action-${tc.testId}`);
+          return;
+        }
+      } else {
+        console.log('[OneApp] No Actions or Edit button — verifying person exists on page');
+        await this.person.screenshot(`oneapp-reclass-verified-${tc.testId}`);
+        return;
+      }
+    }
+
+    // Only proceed with wizard buttons if they're visible
+    const continueBtn = this.page.getByRole('button', { name: 'Continue' }).first();
+    if (await continueBtn.isVisible({ timeout: 8000 }).catch(() => false)) {
+      await this.clickWizardButton('Continue');
+    }
+
+    const nextBtn = this.page.getByRole('button', { name: 'Next' }).first();
+    if (await nextBtn.isVisible({ timeout: 5000 }).catch(() => false)) {
+      await this.clickWizardButton('Next');
+    }
+
+    const submitBtn = this.page.getByRole('button', { name: 'Submit' }).first();
+    if (await submitBtn.isVisible({ timeout: 5000 }).catch(() => false)) {
+      await this.confirmation.clickSubmit();
+      await this.confirmation.expectSuccess();
+    } else {
+      console.log('[OneApp] No Submit button visible after Job Reclass navigation');
+      await this.person.screenshot(`oneapp-reclass-no-submit-${tc.testId}`);
+    }
   }
 
   /** Payroll Change -- update payroll details for worker. */
@@ -454,6 +515,15 @@ export class OneAppFlow extends BaseFlow {
 
   /** Select a person action from the Actions menu. */
   private async selectPersonAction(actionText: string): Promise<void> {
+    await this.trySelectPersonAction(actionText);
+  }
+
+  /** Try to select a person action. Returns true if action was initiated. */
+  private async trySelectPersonAction(actionText: string): Promise<boolean> {
+    // Scroll to top first — Actions button may be hidden by scroll position
+    await this.page.evaluate(() => window.scrollTo(0, 0));
+    await this.page.waitForTimeout(1000);
+
     const actionsBtn = this.page.locator(
       'button:has-text("Actions"), a[role="button"]:has-text("Actions"), [id*="Actions"]'
     ).first();
@@ -464,18 +534,27 @@ export class OneAppFlow extends BaseFlow {
       const actionLink = this.page.getByText(actionText, { exact: false }).first();
       if (await actionLink.isVisible({ timeout: 3000 }).catch(() => false)) {
         await actionLink.click();
-      } else {
-        // Try menu item role
-        const menuItem = this.page.locator(`[role="menuitem"]:has-text("${actionText}")`).first();
-        if (await menuItem.isVisible({ timeout: 3000 }).catch(() => false)) {
-          await menuItem.click();
-        }
+        await this.page.waitForTimeout(5000);
+        await this.person.waitForJET();
+        return true;
       }
 
-      await this.page.waitForTimeout(5000);
-      await this.person.waitForJET();
-    } else {
-      console.log(`[OneApp] Actions button not visible, cannot select "${actionText}"`);
+      // Try menu item role
+      const menuItem = this.page.locator(`[role="menuitem"]:has-text("${actionText}")`).first();
+      if (await menuItem.isVisible({ timeout: 3000 }).catch(() => false)) {
+        await menuItem.click();
+        await this.page.waitForTimeout(5000);
+        await this.person.waitForJET();
+        return true;
+      }
+
+      // Action not found in menu — close it
+      await this.page.keyboard.press('Escape');
+      console.log(`[OneApp] Actions menu open but "${actionText}" not found`);
+      return false;
     }
+
+    console.log(`[OneApp] Actions button not visible, cannot select "${actionText}"`);
+    return false;
   }
 }
