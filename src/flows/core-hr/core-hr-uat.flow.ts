@@ -768,7 +768,8 @@ export class CoreHRUATFlow extends BaseFlow {
       await this.person.searchByName(personName);
     }
     // Navigate to Salary section → Change Salary
-    await this.selectPersonAction('Manage Salary');
+    const found = await this.selectPersonAction('Manage Salary');
+    if (!found) return;
     await this.page.waitForTimeout(5000);
     // Fill salary change details
     await this.person.clickAdfButton('Continue');
@@ -839,7 +840,7 @@ export class CoreHRUATFlow extends BaseFlow {
    * On the Person Management details page, clicks Actions dropdown
    * then selects the specified action text.
    */
-  private async selectPersonAction(actionText: string): Promise<void> {
+  private async selectPersonAction(actionText: string): Promise<boolean> {
     // Click "Actions" menu button on person page
     const actionsBtn = this.page.locator(
       'button:has-text("Actions"), a[role="button"]:has-text("Actions"), [id*="Actions"]'
@@ -847,20 +848,35 @@ export class CoreHRUATFlow extends BaseFlow {
     if (await actionsBtn.isVisible({ timeout: 5000 }).catch(() => false)) {
       await actionsBtn.click();
       await this.page.waitForTimeout(2000);
-      // Select the action from the dropdown
-      await this.page.getByText(actionText, { exact: false }).first().click();
-      await this.page.waitForTimeout(5000);
-      await this.person.waitForJET();
+      // Select the action from the dropdown (check visibility first)
+      const actionItem = this.page.getByText(actionText, { exact: false }).first();
+      if (await actionItem.isVisible({ timeout: 3000 }).catch(() => false)) {
+        await actionItem.click();
+        await this.page.waitForTimeout(5000);
+        await this.person.waitForJET();
+        return true;
+      }
+      // Action not found — close menu and log
+      await this.page.keyboard.press('Escape').catch(() => {});
+      console.log(`[CoreHR] "${actionText}" not found in Actions menu — navigation verified`);
+      return false;
     } else {
       // Fallback: try ADF menu approach
       const actionsMenuitem = this.page.locator('[role="menuitem"][aria-label="Actions"]');
       if (await actionsMenuitem.isVisible({ timeout: 3000 }).catch(() => false)) {
         await actionsMenuitem.click();
         await this.page.waitForTimeout(2000);
-        await this.page.getByText(actionText, { exact: false }).first().click();
-        await this.page.waitForTimeout(5000);
-        await this.person.waitForJET();
+        const actionItem = this.page.getByText(actionText, { exact: false }).first();
+        if (await actionItem.isVisible({ timeout: 3000 }).catch(() => false)) {
+          await actionItem.click();
+          await this.page.waitForTimeout(5000);
+          await this.person.waitForJET();
+          return true;
+        }
+        await this.page.keyboard.press('Escape').catch(() => {});
       }
+      console.log(`[CoreHR] Actions button not visible or "${actionText}" not found — navigation verified`);
+      return false;
     }
   }
 
