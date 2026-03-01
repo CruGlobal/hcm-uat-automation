@@ -21,8 +21,9 @@ import {
   type BasicAuthCredentials,
 } from '../../scripts/lib/hcm-rest-api';
 
+// OWSM requires email-format username for REST API Basic Auth
 const API_CREDS: BasicAuthCredentials = {
-  username: 'uat.bot_hr_admin',
+  username: 'josh.starcher@cru.org',
   password: 'WinBuildSend!1951@cru',
 };
 const BASE_URL =
