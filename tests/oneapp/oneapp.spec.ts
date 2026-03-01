@@ -1,6 +1,7 @@
 import { test } from '../fixtures/uat-plan.fixture';
 import { OneAppFlow } from '../../src/flows/oneapp/oneapp.flow';
 import { loadUATModule, sortByUser, uatTestTitle, isTestable } from '../../src/data/uat-plan-provider';
+import { OutcomeValidator } from '../../src/validation/outcome-validator';
 
 const MODULE = 'OneApp';
 
@@ -13,5 +14,9 @@ for (const tc of cases) {
 
     const flow = new OneAppFlow(page);
     await flow.execute(tc);
+
+    // Post-execution outcome validation
+    const validator = new OutcomeValidator(page);
+    await validator.validate(tc);
   });
 }

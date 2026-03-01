@@ -35,6 +35,72 @@ export interface RoleLOVRecord {
   [key: string]: unknown;
 }
 
+export interface WorkerFullRecord extends WorkerRecord {
+  emails: EmailRecord[];
+  workRelationships: WorkRelationshipRecord[];
+  names: NameRecord[];
+  phones: PhoneRecord[];
+  addresses: AddressRecord[];
+  legislativeInfo: LegislativeInfoRecord[];
+  [key: string]: unknown;
+}
+
+export interface EmailRecord {
+  EmailAddressId: number;
+  EmailType: string;
+  EmailAddress: string;
+  FromDate: string;
+  ToDate: string;
+  [key: string]: unknown;
+}
+
+export interface WorkRelationshipRecord {
+  PeriodOfServiceId: number;
+  LegislationCode: string;
+  LegalEntityId: number;
+  LegalEmployerName: string;
+  WorkerType: string;
+  PrimaryFlag: boolean;
+  StartDate: string;
+  TerminationDate: string | null;
+  [key: string]: unknown;
+}
+
+export interface NameRecord {
+  PersonNameId: number;
+  LastName: string;
+  FirstName: string;
+  DisplayName: string;
+  FullName: string;
+  [key: string]: unknown;
+}
+
+export interface PhoneRecord { [key: string]: unknown; }
+export interface AddressRecord { [key: string]: unknown; }
+export interface LegislativeInfoRecord { [key: string]: unknown; }
+
+export interface AbsenceRecord {
+  absenceCaseId: number;
+  absenceStatusCd: string;
+  approvalStatusCd: string;
+  startDate: string;
+  endDate: string;
+  personId: number;
+  absenceTypeId: number;
+  [key: string]: unknown;
+}
+
+export interface ElementEntryRecord {
+  ElementEntryId: number;
+  EffectiveStartDate: string;
+  EffectiveEndDate: string;
+  ElementTypeId: number;
+  PersonId: number;
+  CreatorType: string;
+  EntryType: string;
+  [key: string]: unknown;
+}
+
 export interface BasicAuthCredentials {
   username: string;
   password: string;
@@ -141,4 +207,113 @@ export async function searchRoles(
       return [];
     }
   }
+}
+
+// ── Worker Detail Operations ──────────────────────────────────────────
+
+/**
+ * Get full worker record with all nested resources (emails, work relationships, names, etc.).
+ * Uses expand=all to fetch everything in a single request.
+ */
+export async function getWorkerFull(
+  page: Page,
+  baseUrl: string,
+  personNumber: string,
+  creds?: BasicAuthCredentials,
+): Promise<WorkerFullRecord | null> {
+  const endpoint = `/hcmRestApi/resources/latest/workers?q=PersonNumber='${personNumber}'&expand=all&onlyData=true`;
+  const data = await hcmGet(page, baseUrl, endpoint, creds);
+  const items = data?.items;
+  if (!items || items.length === 0) return null;
+  return items[0] as WorkerFullRecord;
+}
+
+/**
+ * Get a worker's email addresses.
+ * Convenience wrapper around getWorkerFull.
+ */
+export async function getWorkerEmails(
+  page: Page,
+  baseUrl: string,
+  personNumber: string,
+  creds?: BasicAuthCredentials,
+): Promise<EmailRecord[]> {
+  const worker = await getWorkerFull(page, baseUrl, personNumber, creds);
+  return worker?.emails || [];
+}
+
+/**
+ * Get a worker's work relationships (employment history, legal employer, etc.).
+ * Convenience wrapper around getWorkerFull.
+ */
+export async function getWorkerWorkRelationships(
+  page: Page,
+  baseUrl: string,
+  personNumber: string,
+  creds?: BasicAuthCredentials,
+): Promise<WorkRelationshipRecord[]> {
+  const worker = await getWorkerFull(page, baseUrl, personNumber, creds);
+  return worker?.workRelationships || [];
+}
+
+// ── Absence Operations ────────────────────────────────────────────────
+
+/**
+ * Look up absence records for a person by PersonId.
+ */
+export async function lookupAbsences(
+  page: Page,
+  baseUrl: string,
+  personId: number,
+  creds?: BasicAuthCredentials,
+): Promise<AbsenceRecord[]> {
+  const endpoint = `/hcmRestApi/resources/latest/absences?q=personId=${personId}&onlyData=true`;
+  const data = await hcmGet(page, baseUrl, endpoint, creds);
+  return (data?.items || []) as AbsenceRecord[];
+}
+
+/**
+ * Look up absence records for a person by PersonNumber.
+ * Convenience wrapper: resolves PersonId first, then queries absences.
+ */
+export async function lookupAbsencesByNumber(
+  page: Page,
+  baseUrl: string,
+  personNumber: string,
+  creds?: BasicAuthCredentials,
+): Promise<AbsenceRecord[]> {
+  const worker = await lookupPersonId(page, baseUrl, personNumber, creds);
+  if (!worker) return [];
+  return lookupAbsences(page, baseUrl, worker.PersonId, creds);
+}
+
+// ── Element Entry Operations ──────────────────────────────────────────
+
+/**
+ * Look up element entries for a person by PersonId.
+ */
+export async function lookupElementEntries(
+  page: Page,
+  baseUrl: string,
+  personId: number,
+  creds?: BasicAuthCredentials,
+): Promise<ElementEntryRecord[]> {
+  const endpoint = `/hcmRestApi/resources/latest/elementEntries?q=PersonId=${personId}&onlyData=true`;
+  const data = await hcmGet(page, baseUrl, endpoint, creds);
+  return (data?.items || []) as ElementEntryRecord[];
+}
+
+/**
+ * Look up element entries for a person by PersonNumber.
+ * Convenience wrapper: resolves PersonId first, then queries element entries.
+ */
+export async function lookupElementEntriesByNumber(
+  page: Page,
+  baseUrl: string,
+  personNumber: string,
+  creds?: BasicAuthCredentials,
+): Promise<ElementEntryRecord[]> {
+  const worker = await lookupPersonId(page, baseUrl, personNumber, creds);
+  if (!worker) return [];
+  return lookupElementEntries(page, baseUrl, worker.PersonId, creds);
 }

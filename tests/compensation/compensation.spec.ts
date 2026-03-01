@@ -1,6 +1,7 @@
 import { test, expect } from '../fixtures/uat-plan.fixture';
 import { loadUATModule, sortByUser, uatTestTitle, isTestable } from '../../src/data/uat-plan-provider';
 import { CompensationManagementFlow } from '../../src/flows/compensation/compensation-management.flow';
+import { OutcomeValidator } from '../../src/validation/outcome-validator';
 import type { UATTestCase } from '../../src/data/types';
 
 const MODULE = 'Workforce Compensation';
@@ -12,6 +13,10 @@ test.describe(MODULE, () => {
       test.skip(!isTestable(tc), `${tc.testId} status: ${tc.status}`);
       const flow = new CompensationManagementFlow(page);
       await flow.execute(tc);
+
+      // Post-execution outcome validation
+      const validator = new OutcomeValidator(page);
+      await validator.validate(tc);
     });
   }
 });

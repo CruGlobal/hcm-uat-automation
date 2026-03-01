@@ -3,6 +3,8 @@ import { loadUATModule, sortByUser, uatTestTitle, isTestable } from '../../src/d
 import { BenefitsEnrollmentFlow } from '../../src/flows/benefits/benefits-enrollment.flow';
 import { BenefitsAdminFlow } from '../../src/flows/benefits/benefits-admin.flow';
 import type { UATTestCase } from '../../src/data/types';
+import { OutcomeValidator } from '../../src/validation/outcome-validator';
+import { validateKnownFailure } from '../../src/data/known-failures';
 
 const MODULE = 'Benefits';
 const cases = sortByUser(loadUATModule(MODULE));
@@ -20,6 +22,11 @@ test.describe(MODULE, () => {
         const flow = new BenefitsAdminFlow(page);
         await flow.execute(tc);
       }
+
+      // Post-execution outcome validation
+      const validator = new OutcomeValidator(page);
+      await validator.validate(tc);
+      await validateKnownFailure(page, tc);
     });
   }
 });

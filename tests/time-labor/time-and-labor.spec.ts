@@ -3,6 +3,7 @@ import { loadUATModule, sortByUser, uatTestTitle, isTestable } from '../../src/d
 import { TimecardEntryFlow } from '../../src/flows/time-labor/timecard-entry.flow';
 import { TimeApprovalFlow } from '../../src/flows/time-labor/time-approval.flow';
 import { TimeAdminFlow } from '../../src/flows/time-labor/time-admin.flow';
+import { OutcomeValidator } from '../../src/validation/outcome-validator';
 import type { UATTestCase } from '../../src/data/types';
 
 const MODULE = 'Time and Labor';
@@ -32,6 +33,10 @@ test.describe(MODULE, () => {
         const flow = new TimecardEntryFlow(page);
         await flow.execute(tc);
       }
+
+      // Post-execution outcome validation
+      const validator = new OutcomeValidator(page);
+      await validator.validate(tc);
     });
   }
 });

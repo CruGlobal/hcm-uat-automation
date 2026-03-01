@@ -4,6 +4,8 @@ import { AbsenceEntryFlow } from '../../src/flows/absence/absence-entry.flow';
 import { AbsenceApprovalFlow } from '../../src/flows/absence/absence-approval.flow';
 import { AbsenceAdminFlow } from '../../src/flows/absence/absence-admin.flow';
 import type { UATTestCase } from '../../src/data/types';
+import { OutcomeValidator } from '../../src/validation/outcome-validator';
+import { validateKnownFailure } from '../../src/data/known-failures';
 
 const MODULE = 'Absence Management';
 const cases = sortByUser(loadUATModule(MODULE));
@@ -128,6 +130,11 @@ test.describe(MODULE, () => {
         const flow = new AbsenceEntryFlow(page);
         await flow.execute(tc);
       }
+
+      // Post-execution outcome validation
+      const validator = new OutcomeValidator(page);
+      await validator.validate(tc);
+      await validateKnownFailure(page, tc);
     });
   }
 });

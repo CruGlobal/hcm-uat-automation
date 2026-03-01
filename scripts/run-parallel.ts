@@ -17,8 +17,11 @@
  *   npx tsx scripts/run-parallel.ts --one-per-bot           # One test per bot (smoke test)
  *   npx tsx scripts/run-parallel.ts --no-clones             # Ignore clones, use base bots only
  *   RUN_PASSED_ONLY=true npx tsx scripts/run-parallel.ts   # Only "Passed" tests
+ *   RUN_FAILED_ONLY=true npx tsx scripts/run-parallel.ts   # Only "Failed" tests
  */
-import { spawn } from 'child_process';
+import { spawn, execFileSync } from 'child_process';
+import * as fs from 'fs';
+import * as path from 'path';
 import { loadUATPlan, isTestable } from '../src/data/uat-plan-provider';
 import { getBotForTester, getBotCredentials, getClonesForBot } from '../src/config/bot-users';
 
@@ -44,6 +47,9 @@ async function main() {
     if (!tc.businessProcess && !tc.testScript && !tc.transactionCategory) return false;
     if (process.env.RUN_PASSED_ONLY) {
       if (status !== 'passed' && status !== 'pass') return false;
+    }
+    if (process.env.RUN_FAILED_ONLY) {
+      if (status !== 'failed' && status !== 'fail') return false;
     }
     if (moduleFilter) {
       const effectiveModule = tc.module || tc.tabName || '';
@@ -106,7 +112,12 @@ async function main() {
   }
 
   const totalTests = processes.reduce((sum, p) => sum + p.tests.length, 0);
-  console.log(`\nParallel run: ${processes.length} processes (${baseBots.length} base bots), ${totalTests} total tests${moduleFilter ? ` (module: ${moduleFilter})` : ''}\n`);
+  const filters = [
+    moduleFilter ? `module: ${moduleFilter}` : '',
+    process.env.RUN_PASSED_ONLY ? 'passed-only' : '',
+    process.env.RUN_FAILED_ONLY ? 'failed-only' : '',
+  ].filter(Boolean).join(', ');
+  console.log(`\nParallel run: ${processes.length} processes (${baseBots.length} base bots), ${totalTests} total tests${filters ? ` (${filters})` : ''}\n`);
   for (const p of processes) {
     console.log(`  ${p.accountName.padEnd(35)} ${p.tests.length} tests`);
   }
@@ -213,6 +224,45 @@ async function main() {
   const seqTime = results.reduce((s, r) => s + r.duration, 0);
   console.log(`\n  Total: ${totalPassed} passed, ${totalFailed} failed`);
   console.log(`  Wall-clock: ${elapsed}s  (sequential would be ~${seqTime.toFixed(0)}s, ${(seqTime / parseFloat(elapsed)).toFixed(1)}x speedup)\n`);
+
+  // ─── Merge per-bot JSON reports and update tracking sheet ──────────────────
+  try {
+    const resultsDir = path.resolve('test-results');
+    const botJsonFiles = fs.readdirSync(resultsDir)
+      .filter(f => f.match(/^results-.*\.json$/))
+      .map(f => path.join(resultsDir, f));
+
+    if (botJsonFiles.length > 0) {
+      // Merge all per-bot Playwright JSON reports into a single results.json
+      const mergedSuites: any[] = [];
+      for (const file of botJsonFiles) {
+        try {
+          const report = JSON.parse(fs.readFileSync(file, 'utf-8'));
+          if (report.suites) mergedSuites.push(...report.suites);
+        } catch { /* skip malformed files */ }
+      }
+
+      const mergedReport = { suites: mergedSuites };
+      const mergedPath = path.join(resultsDir, 'results.json');
+      fs.writeFileSync(mergedPath, JSON.stringify(mergedReport, null, 2));
+      console.log(`  Merged ${botJsonFiles.length} JSON reports → ${mergedPath}`);
+
+      // Clean up per-bot files
+      for (const f of botJsonFiles) fs.unlinkSync(f);
+
+      // Run tracking sheet updater
+      console.log('\n[Tracking Sheet] Updating tracking sheet with test results...');
+      execFileSync('npx', ['tsx', 'scripts/update-tracking-sheet.ts', '--report', mergedPath], {
+        cwd: process.cwd(),
+        stdio: 'inherit',
+        timeout: 60_000,
+      });
+    } else {
+      console.log('  No per-bot JSON reports found — tracking sheet not updated');
+    }
+  } catch (err: any) {
+    console.error('[Tracking Sheet] Failed to update:', err.message || err);
+  }
 
   process.exit(totalFailed > 0 ? 1 : 0);
 }

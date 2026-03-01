@@ -95,7 +95,8 @@ export function uatTestTitle(tc: UATTestCase): string {
  * 1. Skip deferred/cancelled tests
  * 2. Skip empty rows (no business process, test script, or transaction category)
  * 3. RUN_PASSED_ONLY — only tests with "passed"/"pass" status
- * 4. PARALLEL_BOT — only tests assigned to the specified bot user (for parallel execution)
+ * 4. RUN_FAILED_ONLY — only tests with "failed"/"fail" status
+ * 5. PARALLEL_BOT — only tests assigned to the specified bot user (for parallel execution)
  */
 export function isTestable(tc: UATTestCase): boolean {
   const status = tc.status.toLowerCase();
@@ -104,6 +105,9 @@ export function isTestable(tc: UATTestCase): boolean {
   if (!tc.businessProcess && !tc.testScript && !tc.transactionCategory) return false;
   if (process.env.RUN_PASSED_ONLY) {
     if (status !== 'passed' && status !== 'pass') return false;
+  }
+  if (process.env.RUN_FAILED_ONLY) {
+    if (status !== 'failed' && status !== 'fail') return false;
   }
   // Parallel mode: only run tests assigned to the specified bot
   if (process.env.PARALLEL_BOT) {
