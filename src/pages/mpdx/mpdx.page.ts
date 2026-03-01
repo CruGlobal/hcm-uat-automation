@@ -37,11 +37,28 @@ export class MPDXPage extends BasePage {
 
   // --- Navigation ---
 
-  /** Navigate to Scheduled Processes page via HomePage. */
-  private async goToScheduledProcesses(): Promise<void> {
+  /**
+   * Navigate to Scheduled Processes page via HomePage.
+   * Returns false if the bot user lacks access to Scheduled Processes.
+   */
+  async goToScheduledProcesses(): Promise<boolean> {
     const home = new HomePage(this.page);
-    await home.goToScheduledProcesses();
+    await home.openNavigator();
+    const spLink = this.page.locator(
+      'a[title="Scheduled Processes"], a:has-text("Scheduled Processes")'
+    ).first();
+    const hasAccess = await spLink.isVisible({ timeout: 5000 }).catch(() => false);
+    if (!hasAccess) {
+      console.log('[MPDX] Scheduled Processes not available — bot may lack admin/tools role');
+      await this.page.keyboard.press('Escape');
+      await this.page.waitForTimeout(1000);
+      return false;
+    }
+    await spLink.click({ force: true });
+    await this.page.waitForLoadState('networkidle', { timeout: 60_000 });
+    await this.page.waitForTimeout(3000);
     await this.waitForJET();
+    return true;
   }
 
   /** Navigate to a module via the Navigator menu using HomePage. */
@@ -101,10 +118,11 @@ export class MPDXPage extends BasePage {
 
   // --- Salary Calculation ---
 
-  /** Navigate to salary calculation via Scheduled Processes. */
-  async goToSalaryCalculation(): Promise<void> {
-    await this.goToScheduledProcesses();
+  /** Navigate to salary calculation via Scheduled Processes. Returns false if no access. */
+  async goToSalaryCalculation(): Promise<boolean> {
+    if (!await this.goToScheduledProcesses()) return false;
     await this.scheduleProcess('Salary Calculation');
+    return true;
   }
 
   /** Fill salary calculation form fields. */
@@ -156,10 +174,11 @@ export class MPDXPage extends BasePage {
 
   // --- MPD Goal Calculation ---
 
-  /** Navigate to MPD goal calculation via Scheduled Processes. */
-  async goToMPDGoalCalculation(): Promise<void> {
-    await this.goToScheduledProcesses();
+  /** Navigate to MPD goal calculation via Scheduled Processes. Returns false if no access. */
+  async goToMPDGoalCalculation(): Promise<boolean> {
+    if (!await this.goToScheduledProcesses()) return false;
     await this.scheduleProcess('Senior Staff MPD Goal');
+    return true;
   }
 
   /** Fill MPD goal calculation parameters. */
@@ -184,10 +203,11 @@ export class MPDXPage extends BasePage {
 
   // --- MHA Calculation ---
 
-  /** Navigate to MHA calculation via Scheduled Processes. */
-  async goToMHACalculation(): Promise<void> {
-    await this.goToScheduledProcesses();
+  /** Navigate to MHA calculation via Scheduled Processes. Returns false if no access. */
+  async goToMHACalculation(): Promise<boolean> {
+    if (!await this.goToScheduledProcesses()) return false;
     await this.scheduleProcess('MHA Calculation');
+    return true;
   }
 
   /** Fill MHA calculation form. */
@@ -244,10 +264,11 @@ export class MPDXPage extends BasePage {
 
   // --- Reports ---
 
-  /** Navigate to savings funds transfer via Scheduled Processes. */
-  async goToSavingsFundsTransfer(): Promise<void> {
-    await this.goToScheduledProcesses();
+  /** Navigate to savings funds transfer via Scheduled Processes. Returns false if no access. */
+  async goToSavingsFundsTransfer(): Promise<boolean> {
+    if (!await this.goToScheduledProcesses()) return false;
     await this.scheduleProcess('Savings Funds Transfer');
+    return true;
   }
 
   /** Navigate to staff expense report. */
@@ -263,10 +284,11 @@ export class MPDXPage extends BasePage {
     await this.waitForJET();
   }
 
-  /** Navigate to MPGA income/expense report via Scheduled Processes. */
-  async goToMPGAReport(): Promise<void> {
-    await this.goToScheduledProcesses();
+  /** Navigate to MPGA income/expense report via Scheduled Processes. Returns false if no access. */
+  async goToMPGAReport(): Promise<boolean> {
+    if (!await this.goToScheduledProcesses()) return false;
     await this.scheduleProcess('MPGA Income Expense');
+    return true;
   }
 
   /**

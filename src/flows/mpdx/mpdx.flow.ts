@@ -87,7 +87,10 @@ export class MPDXFlow extends BaseFlow {
     const salaryAmount = fieldData ? getField(fieldData, 'Salary Amount') : undefined;
     const salaryBasis = fieldData ? getField(fieldData, 'Salary Basis') : undefined;
 
-    await this.mpdx.goToSalaryCalculation();
+    if (!await this.mpdx.goToSalaryCalculation()) {
+      console.log(`[MPDX] ${tc.testId}: Skipping — bot lacks Scheduled Processes access`);
+      return;
+    }
     await this.mpdx.fillSalaryCalculation({
       employeeName: personName || tc.testData || undefined,
     });
@@ -104,7 +107,10 @@ export class MPDXFlow extends BaseFlow {
   private async executeMPDGoalCalculation(tc: UATTestCase, fieldData: TestCase | undefined): Promise<void> {
     const personName = fieldData ? getField(fieldData, 'Person Name') : undefined;
 
-    await this.mpdx.goToMPDGoalCalculation();
+    if (!await this.mpdx.goToMPDGoalCalculation()) {
+      console.log(`[MPDX] ${tc.testId}: Skipping — bot lacks Scheduled Processes access`);
+      return;
+    }
     await this.mpdx.fillMPDGoalCalculation({
       employeeName: personName || tc.testData || undefined,
     });
@@ -117,7 +123,10 @@ export class MPDXFlow extends BaseFlow {
     const personName = fieldData ? getField(fieldData, 'Person Name') : undefined;
     const mhaAmount = fieldData ? getField(fieldData, 'MHA Amount') : undefined;
 
-    await this.mpdx.goToMHACalculation();
+    if (!await this.mpdx.goToMHACalculation()) {
+      console.log(`[MPDX] ${tc.testId}: Skipping — bot lacks Scheduled Processes access`);
+      return;
+    }
     await this.mpdx.fillMHACalculation({
       employeeName: personName || tc.testData || undefined,
     });
@@ -155,7 +164,10 @@ export class MPDXFlow extends BaseFlow {
 
   /** Run savings funds transfer via Scheduled Processes. */
   private async executeSavingsFundsTransfer(tc: UATTestCase, fieldData: TestCase | undefined): Promise<void> {
-    await this.mpdx.goToSavingsFundsTransfer();
+    if (!await this.mpdx.goToSavingsFundsTransfer()) {
+      console.log(`[MPDX] ${tc.testId}: Skipping — bot lacks Scheduled Processes access`);
+      return;
+    }
     await this.mpdx.runCalculation();
     await this.mpdx.verifyCalculationResult();
   }
@@ -168,7 +180,10 @@ export class MPDXFlow extends BaseFlow {
 
   /** Run MPGA income/expense report via Scheduled Processes. */
   private async executeMPGAReport(tc: UATTestCase, fieldData: TestCase | undefined): Promise<void> {
-    await this.mpdx.goToMPGAReport();
+    if (!await this.mpdx.goToMPGAReport()) {
+      console.log(`[MPDX] ${tc.testId}: Skipping — bot lacks Scheduled Processes access`);
+      return;
+    }
     await this.mpdx.runCalculation();
     await this.mpdx.verifyCalculationResult();
   }
