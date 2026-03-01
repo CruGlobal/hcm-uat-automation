@@ -172,13 +172,53 @@ export class OneAppFlow extends BaseFlow {
       await this.page.waitForTimeout(10_000);
 
       // Step 4: Employment Information — fill required Business Unit
+      // BU is an ADF LOV combobox; try field data value first, then select first available option
       const buField = this.page.getByRole('combobox', { name: 'Business Unit' }).first();
-      const buVisible = await buField.isVisible({ timeout: 8000 }).catch(() => false);
-      if (buVisible) {
+      if (await buField.isVisible({ timeout: 8000 }).catch(() => false)) {
         const currentBU = await buField.inputValue().catch(() => '');
         if (!currentBU) {
-          console.log('[OneApp] Filling required Business Unit: Campus Crusade for Christ');
-          await this.person.fillCombobox(buField, 'Campus Crusade for Christ', 5000);
+          const buValue = getField(fieldData, 'Business Unit');
+          if (buValue) {
+            console.log(`[OneApp] Filling Business Unit from field data: ${buValue}`);
+            await this.person.fillCombobox(buField, buValue, 5000);
+          } else {
+            // No field data BU — try selecting first available option from dropdown
+            const tagName = await buField.evaluate(el => el.tagName.toLowerCase()).catch(() => 'input');
+            if (tagName === 'select') {
+              // Select first non-empty option
+              const options = await buField.evaluate(el =>
+                Array.from((el as HTMLSelectElement).options)
+                  .filter(o => o.value && o.text.trim())
+                  .map(o => ({ value: o.value, label: o.text.trim() }))
+              );
+              if (options.length > 0) {
+                console.log(`[OneApp] Selecting first Business Unit option: ${options[0].label}`);
+                await buField.selectOption(options[0].value);
+                await this.page.waitForTimeout(2000);
+              }
+            } else {
+              // ADF LOV input — click the search icon to open LOV dialog and pick first row
+              const lovIcon = buField.locator('xpath=../..').locator('[id*="dropdownPopup"], [id*="::lovIconCe"], a[id*="::lovIconCe"]').first();
+              const hasLovIcon = await lovIcon.isVisible({ timeout: 3000 }).catch(() => false);
+              if (hasLovIcon) {
+                await lovIcon.click();
+                await this.page.waitForTimeout(3000);
+                // Click first data row in LOV popup
+                const firstRow = this.page.locator('[_afrrk] td, .xfe table tbody tr td').first();
+                if (await firstRow.isVisible({ timeout: 5000 }).catch(() => false)) {
+                  await firstRow.dblclick();
+                  await this.page.waitForTimeout(2000);
+                }
+              } else {
+                // Last resort: just type a known pattern and Tab
+                console.log('[OneApp] Trying "Cru" for Business Unit');
+                await buField.fill('Cru');
+                await buField.press('Tab');
+                await this.page.waitForTimeout(3000);
+                await this.person.waitForJET();
+              }
+            }
+          }
         }
       }
       await this.person.clickAdfButton('Next');
