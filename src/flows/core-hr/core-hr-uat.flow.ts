@@ -57,6 +57,12 @@ export class CoreHRUATFlow extends BaseFlow {
     const category = tc.transactionCategory.toLowerCase();
     const script = (tc.testScript || '').toLowerCase();
 
+    // Tests marked as Not Applicable (e.g. "?==NA") have no executable steps — pass gracefully.
+    if (script.includes('==na') || script === 'na' || script === 'n/a') {
+      await this.homePage.goHome().catch(() => {});
+      return;
+    }
+
     // Route based on business process.
     // More specific patterns are checked BEFORE broader ones to avoid false matches.
     // "document/attachment" MUST be before "pending" — HR-137 "Document Submission for Pending Employee"
