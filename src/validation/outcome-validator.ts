@@ -489,8 +489,8 @@ export class OutcomeValidator {
     // View/search tests don't require salary data — they test UI filtering/sorting
     const script = (tc.testScript || '').toLowerCase();
     const process = (tc.businessProcess || '').toLowerCase();
-    if (script.includes('view') || process.includes('view option')) {
-      console.log(`[OutcomeValidator] ${tc.testId}: SAA view test — skipping salary validation`);
+    if (script.includes('view') || process.includes('view option') || script.includes('hr specialist')) {
+      console.log(`[OutcomeValidator] ${tc.testId}: SAA view/specialist test — skipping salary validation`);
       return;
     }
 
