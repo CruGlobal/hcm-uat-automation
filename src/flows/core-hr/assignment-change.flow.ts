@@ -31,6 +31,13 @@ export class AssignmentChangeFlow extends BaseCoreHRFlow {
   private readonly valueMapping: Record<string, Record<string, string>> = {
     'Location': { 'CRU_HQ': 'Cru World Headquarters' },
     'Hourly Salary': { 'Salary': 'Salaried' },
+    // Migration DB stores person type variants; Oracle HCM dropdown only has "Employee"
+    'Person Type': {
+      'Employee - US Intern': 'Employee',
+      'Employee - Salaried': 'Employee',
+      'Employee - Hourly': 'Employee',
+      'Employee - Part Time': 'Employee',
+    },
   };
 
   // === "Update Employment" dialog fields ===
@@ -397,7 +404,23 @@ export class AssignmentChangeFlow extends BaseCoreHRFlow {
     ];
 
     for (const [locator, fieldName, dataKey] of readonlyFields) {
-      const value = getField(tc, dataKey) || getField(tc, fieldName);
+      let value = getField(tc, dataKey) || getField(tc, fieldName);
+
+      // Person Type: if no value provided but field is visible and required, default to "Employee"
+      if (!value && fieldName === 'Person Type') {
+        const visible = await locator.isVisible({ timeout: 3000 }).catch(() => false);
+        if (visible) {
+          const current = await locator.inputValue().catch(() => '');
+          if (!current) {
+            console.log(`[AssignChange] Person Type visible but no data — defaulting to "Employee"`);
+            value = 'Employee';
+          } else {
+            console.log(`[AssignChange] Person Type already set to "${current}", skipping`);
+            continue;
+          }
+        }
+      }
+
       if (!value) continue;
 
       console.log(`[AssignChange] Setting readonly ${fieldName} = "${value}"`);
