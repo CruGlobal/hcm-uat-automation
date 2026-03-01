@@ -90,17 +90,47 @@ for (const bot of BOT_USERS) {
 const DEFAULT_BOT: BotUserIdentity = { botName: 'bot_hr_admin', sheetName: '', personNumber: '10816995' };
 
 /**
+ * Module-specific bot overrides.
+ * When a tester's tests in a specific module need a different bot
+ * (e.g., because the default bot lacks the right security roles),
+ * add an entry here: "testerName|module" → botName.
+ *
+ * Lisa Franklin's T&L tests need Time Management admin access,
+ * which bot_comp_spec doesn't have. Route them to bot_hr_admin instead.
+ * Janet Vankirk's T&L Admin test also needs Time Management access.
+ */
+const MODULE_BOT_OVERRIDES: Record<string, string> = {
+  'lisa franklin|time and labor': 'bot_hr_admin',
+  'janet vankirk|time and labor': 'bot_hr_admin',
+};
+
+/**
  * Look up a bot user by testerName from the UAT Plan.
  * Handles multi-line names (first non-empty line) and slash-separated
  * multi-tester entries like "Lisa Franklin/Lisa Mitchell" (first name).
  *
+ * When a module is provided, checks module-specific overrides first.
+ * This allows routing the same tester's tests to different bots based on module.
+ *
  * All tests run with bot users — returns a default bot for empty/unmatched names.
  */
-export function getBotForTester(testerName: string): BotUserIdentity {
+export function getBotForTester(testerName: string, module?: string): BotUserIdentity {
   if (!testerName) return DEFAULT_BOT;
   // UAT Plan testerName can be multi-line — take first non-empty line
   const name = testerName.split('\n').map(s => s.trim()).find(s => s.length > 0) || '';
   if (!name) return DEFAULT_BOT;
+
+  // Check module-specific overrides first
+  if (module) {
+    const overrideKey = `${name.toLowerCase()}|${module.toLowerCase()}`;
+    const overrideBotName = MODULE_BOT_OVERRIDES[overrideKey];
+    if (overrideBotName) {
+      // Find the bot identity by name
+      const overrideBot = BOT_USERS.find(b => b.botName === overrideBotName);
+      if (overrideBot) return overrideBot;
+    }
+  }
+
   // Try exact match first
   const exact = _bySheetName.get(name.toLowerCase());
   if (exact) return exact;

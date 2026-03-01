@@ -55,7 +55,7 @@ async function main() {
   const botTests = new Map<string, TestInfo[]>();
 
   for (const tc of allTests) {
-    const bot = getBotForTester(tc.testerName);
+    const bot = getBotForTester(tc.testerName, tc.module || tc.tabName);
     if (!getBotCredentials(bot.botName)) continue;
     const tests = botTests.get(bot.botName) || [];
     tests.push({ testId: tc.testId, bp: tc.businessProcess, module: tc.module || tc.tabName });

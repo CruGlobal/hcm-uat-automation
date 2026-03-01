@@ -40,7 +40,7 @@ export function setCurrentUser(botName: string | null): void {
  * Throws if the bot's credentials are missing from .config/bot-credentials.json.
  */
 export function resolveUser(tc: UATTestCase): ResolvedUser {
-  const bot = getBotForTester(tc.testerName);
+  const bot = getBotForTester(tc.testerName, tc.module);
 
   // Check if we should use a clone account for login
   const accountOverride = process.env.PARALLEL_BOT_ACCOUNT;

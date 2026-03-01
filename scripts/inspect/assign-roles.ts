@@ -30,9 +30,17 @@ const ALL_ROLES = [
   'Line Manager',                               // ORA_PER_LINE_MANAGER_JOB
 ];
 
+/** Time and Labor roles for T&L admin tests. */
+const TIME_LABOR_ROLES = [
+  'Time and Labor Administrator',               // ORA_HXT_TIME_AND_LABOR_ADMINISTRATOR_JOB
+  'CRU Time and Labor Administrator View All',  // CRU_TIME_AND_LABOR_ADMINISTRATOR_VIEW_ALL_DATA
+  'Time and Labor Manager',                     // ORA_HXT_TIME_AND_LABOR_MANAGER_JOB
+  'CRU Time and Labor Manager View All',        // CRU_TIME_AND_LABOR_MANAGER_VIEW_ALL_DATA
+];
+
 /** Map: botName → roles to ADD. All bots get the same comprehensive set. */
 const BOT_ROLE_MAP: Record<string, string[]> = {
-  bot_hr_admin:                 ALL_ROLES,
+  bot_hr_admin:                 [...ALL_ROLES, ...TIME_LABOR_ROLES],
   bot_hr_generalist_no_nid:     [...ALL_ROLES, 'Cru HR Specialist No Crisis and NID Data'],
   bot_hr_generalist:            ALL_ROLES,
   bot_hr_local_usops:           ALL_ROLES,
