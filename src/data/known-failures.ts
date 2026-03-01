@@ -18,6 +18,7 @@ import {
   lookupWorkerByName,
   lookupAbsencesByNumber,
   lookupElementEntriesByNumber,
+  lookupBenefitEnrollmentsByNumber,
   type BasicAuthCredentials,
 } from '../../scripts/lib/hcm-rest-api';
 
@@ -355,19 +356,35 @@ const KNOWN_FAILURES: Record<string, KnownFailure> = {
     reason:
       'Dependent aging out resets medical plan to "Select Staff Only" instead of keeping current plan',
     validate: async (page, tc) => {
-      // After dependent aging, check that the medical plan name is NOT the wrong default.
-      // Look for "Select Staff Only" text which indicates the plan was incorrectly reset.
+      // UAT Plan testData specifies "10439138 Stephen Papez" — use that person, not field data
+      // (field data has wrong person 10000468 with 403(b) plan, causing intermittent results)
+      const personNumber = '10439138'; // Stephen Papez — the person with the dependent aging defect
 
-      const wrongDefault = page.getByText('Select Staff Only', {
-        exact: false,
-      });
-      const isWrongDefault = await wrongDefault
-        .isVisible()
-        .catch(() => false);
+      const enrollments = await lookupBenefitEnrollmentsByNumber(
+        null, BASE_URL, personNumber, API_CREDS,
+      );
+      expect(enrollments.length, `BN-045: No enrollments found for ${personNumber}`).toBeGreaterThan(0);
+
+      // The defect: after dependent child turns 26, the "loss of eligibility" life event
+      // correctly removes the dependent BUT resets the medical plan to the default
+      // "Select / Staff Only" instead of keeping the current medical plan selection.
+      //
+      // API confirms: PlanTypeName="Medical/Dental", PlanName="Select", OptionName="Staff Only"
+      // This is the wrong default — should have kept the original plan.
+      const medicalEnrollment = enrollments.find(
+        e => String(e['PlanTypeName'] || '').toLowerCase().includes('medical'),
+      );
       expect(
-        isWrongDefault,
+        medicalEnrollment,
+        'BN-045: No Medical/Dental enrollment found for Stephen Papez (10439138)',
+      ).toBeTruthy();
+
+      const optionName = String(medicalEnrollment!['OptionName'] || '').toLowerCase();
+      expect(
+        optionName.includes('staff only'),
         'BN-045: Medical plan should NOT be reset to "Select Staff Only" after ' +
-          'dependent child turns 26. The plan should retain its current selection.',
+          'dependent child turns 26. The plan should retain its current selection. ' +
+          `Actual: PlanName="${medicalEnrollment!['PlanName']}", Option="${medicalEnrollment!['OptionName']}"`,
       ).toBe(false);
     },
   },
