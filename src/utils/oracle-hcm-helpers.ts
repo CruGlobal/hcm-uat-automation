@@ -22,7 +22,9 @@ export async function waitForOracleJET(page: Page, timeout = 30_000): Promise<vo
 
 /** Wait for Oracle HCM page to fully load (JET + network idle). */
 export async function waitForPageReady(page: Page): Promise<void> {
-  await page.waitForLoadState('networkidle');
+  // Cap networkidle at 30s — Oracle HCM has background polling that can prevent
+  // networkidle from ever firing if given unlimited time.
+  await page.waitForLoadState('networkidle', { timeout: 30_000 }).catch(() => {});
   await waitForOracleJET(page);
 }
 
