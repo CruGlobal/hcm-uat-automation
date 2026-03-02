@@ -192,6 +192,8 @@ function hcmRequest(
       headers['Content-Type'] = 'application/json';
       headers['Content-Length'] = String(Buffer.byteLength(bodyStr));
     }
+    // Hard deadline: 20s total regardless of data streaming
+    const deadline = setTimeout(() => { req.destroy(); reject(new Error(`${method} ${endpoint} → timeout`)); }, 20000);
     const req = https.request({
       hostname: u.hostname,
       path: u.pathname + u.search,
@@ -201,6 +203,7 @@ function hcmRequest(
       let rawBody = '';
       res.on('data', (chunk) => rawBody += chunk);
       res.on('end', () => {
+        clearTimeout(deadline);
         const code = res.statusCode || 0;
         let parsed: any;
         try { parsed = JSON.parse(rawBody); } catch { parsed = null; }
@@ -215,8 +218,7 @@ function hcmRequest(
         resolve({ statusCode: code, data: parsed, raw: rawBody });
       });
     });
-    req.on('error', reject);
-    req.setTimeout(60000, () => { req.destroy(); reject(new Error(`${method} ${endpoint} → timeout`)); });
+    req.on('error', (err) => { clearTimeout(deadline); reject(err); });
     if (bodyStr) req.write(bodyStr);
     req.end();
   });

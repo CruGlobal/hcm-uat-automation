@@ -431,8 +431,11 @@ async function main() {
       // Smoke test mode: one test per bot via --grep
       const grepPattern = `${escapeRegex(proc.tests[0].testId)}: `;
       playwrightArgs.push('--grep', grepPattern);
-    } else if (proc.accountName !== baseBotName) {
-      // Clone account: filter to specific test IDs via --grep
+    } else if (proc.tests.length > 0) {
+      // Always use --grep to run exactly the assigned tests.
+      // For clone accounts this restricts to a specific subset; for base bots this
+      // ensures filtered runs (e.g. --tracking-status) only run the intended tests
+      // rather than the full bot test suite (which can be 100+ tests).
       const grepPattern = proc.tests.map(t => escapeRegex(t.testId)).join('|');
       playwrightArgs.push('--grep', grepPattern);
     }
