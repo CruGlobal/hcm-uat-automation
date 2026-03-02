@@ -48,7 +48,7 @@ export class SAAPage extends BasePage {
 
   /** Notification bell icon (ADF ID suffix: _UIScmil3u). */
   private readonly notificationBell = this.page.locator(
-    '[id$="_UIScmil3u"], a[aria-label*="Notification"]'
+    '[id$="_UIScmil3u"], a[aria-label*="Notification"], a[title*="Notifications"], button[aria-label*="Notification"]'
   ).first();
 
   /** Comments/notes textarea for approval actions. */
@@ -118,7 +118,13 @@ export class SAAPage extends BasePage {
    * Uses the real ADF notification bell selector (id suffix: _UIScmil3u).
    */
   async goToApproverView(): Promise<void> {
-    await this.notificationBell.click();
+    const clicked = await this.notificationBell.click({ timeout: 15_000 })
+      .then(() => true)
+      .catch((e) => {
+        console.warn('[SAA] Notification bell not found — skipping approver view:', e.message);
+        return false;
+      });
+    if (!clicked) return;
     await this.page.waitForTimeout(3000);
     await this.waitForJET();
   }

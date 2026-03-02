@@ -360,7 +360,8 @@ async function main() {
     process.env.RUN_PASSED_ONLY ? 'passed-only' : '',
     process.env.RUN_FAILED_ONLY ? 'failed-only' : '',
   ].filter(Boolean).join(', ');
-  console.log(`\nParallel run: ${processes.length} processes (${baseBots.length} base bots), ${totalTests} total tests${filters ? ` (${filters})` : ''}\n`);
+  console.log(`\nParallel run: ${processes.length} processes (${baseBots.length} base bots), ${totalTests} total tests${filters ? ` (${filters})` : ''}`);
+  console.log(`(Expected test result count: ${totalTests})\n`);
   for (const p of processes) {
     console.log(`  ${p.accountName.padEnd(35)} ${p.tests.length} tests`);
   }
@@ -508,14 +509,14 @@ async function main() {
     const spawnStr = spawnedCount < processes.length ? ` [spawning ${spawnedCount}/${processes.length}]` : '';
 
     const testsCompleted = globalPassed + globalFailed;
-    const testsRemaining = totalTests - testsCompleted;
+    const testsRemaining = Math.max(0, totalTests - testsCompleted);
 
     process.stdout.write(
       `\r  ⏳ ${completedCount}/${processes.length} bots | ` +
-      `${testsCompleted}/${totalTests} tests (${testsRemaining} left) | ` +
+      `${testsCompleted}/${totalTests} tests | ` +
       `${globalPassed}P ${globalFailed}F | ${elapsed}s${etaStr}${spawnStr}     `
     );
-  }, 2000);
+  }, 10000);
 
   const results = await Promise.all(promises);
   clearInterval(progressInterval);

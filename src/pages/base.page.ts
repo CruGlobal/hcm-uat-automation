@@ -126,6 +126,9 @@ export class BasePage {
    * This queues an AdfActionEvent on the ADF component to trigger server-side action.
    */
   async clickAdfLink(componentId: string): Promise<void> {
+    // Wait for AdfPage.PAGE to be defined (may be slow on initial page load)
+    await this.page.waitForFunction(() => !!(window as any).AdfPage?.PAGE, { timeout: 15000 })
+      .catch(() => {}); // proceed even if timeout — evaluate below will surface the error
     await this.page.evaluate((id: string) => {
       const adfPage = (window as any).AdfPage?.PAGE;
       if (!adfPage) throw new Error('AdfPage.PAGE not available');

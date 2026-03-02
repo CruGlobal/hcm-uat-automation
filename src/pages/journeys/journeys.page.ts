@@ -111,8 +111,17 @@ export class JourneysPage extends BasePage {
   private readonly taskCheckboxes = this.page.locator(
     'input[type="checkbox"][id*="task"], [role="checkbox"]'
   );
+  // Oracle HCM Journeys (Redwood) task completion — multiple selector variants
+  // because the exact element varies by journey type and UI version.
   private readonly completeTaskButton = this.page.locator(
-    'button:has-text("Complete"), button:has-text("Mark Complete"), a:has-text("Complete Task")'
+    'button:has-text("Mark as Complete"), ' +
+    'button[aria-label="Mark as Complete"], ' +
+    'button[aria-label*="Mark as complete"], ' +
+    'button:has-text("Mark Complete"), ' +
+    'button:has-text("Complete Task"), ' +
+    'a:has-text("Mark as Complete"), ' +
+    'button:has-text("Complete"), ' +
+    'a:has-text("Complete Task")'
   ).first();
 
   // === Confirmation / Status ===
@@ -225,34 +234,36 @@ export class JourneysPage extends BasePage {
     await ojSelect.click();
     await this.page.waitForTimeout(2000);
 
-    // Type in the filter/search input that appears inside the dropdown
+    // Type in the filter/search input that appears inside the dropdown.
+    // Search by last name only (more reliable in Oracle LOV than "Last, First" format).
+    const lastName = personName.split(',')[0].trim();
+    const searchTerm = lastName || personName;
+
     const filterInput = this.page.locator(
       '#oj-searchselect-filter-assigneeLOV\\|input, ' +
       'input[aria-label*="Select a Person"]:not([readonly])'
     ).first();
     if (await filterInput.isVisible({ timeout: 5000 }).catch(() => false)) {
       await filterInput.fill('');
-      await filterInput.pressSequentially(personName, { delay: 50 });
+      await filterInput.pressSequentially(searchTerm, { delay: 50 });
     } else {
       // Fallback: try typing directly on the display input
       const displayInput = this.selectPersonInput;
-      await displayInput.pressSequentially(personName, { delay: 50 });
+      await displayInput.pressSequentially(searchTerm, { delay: 50 });
     }
     await this.page.waitForTimeout(5000);
 
-    // Select from dropdown results
-    const lastName = personName.split(',')[0].trim();
-    const option = this.page.locator(`[role="option"]:has-text("${lastName}")`).first();
-    if (await option.isVisible({ timeout: 10000 }).catch(() => false)) {
-      await option.click();
+    // Select from dropdown results — prefer exact last name match, fall back to first option
+    const namedOption = this.page.locator(`[role="option"]:has-text("${lastName}")`).first();
+    if (await namedOption.isVisible({ timeout: 10000 }).catch(() => false)) {
+      await namedOption.click();
     } else {
-      // Try clicking first visible option
       const firstOption = this.page.locator('[role="option"]').first();
       if (await firstOption.isVisible({ timeout: 5000 }).catch(() => false)) {
+        console.log(`[Journeys] Person "${personName}" not found — clicking first available option`);
         await firstOption.click();
       } else {
-        console.log(`[Journeys] No dropdown options found for "${personName}"`);
-        // Press Escape to close dropdown, then Tab
+        console.log(`[Journeys] No dropdown options found for "${personName}" (searched: "${searchTerm}")`);
         await this.page.keyboard.press('Escape');
       }
     }
@@ -398,11 +409,44 @@ export class JourneysPage extends BasePage {
     }
   }
 
+  /**
+   * Click the first task "Start" or "Open" button in a journey task list.
+   * In Oracle HCM Journeys Redwood, tasks must be opened before they can be marked complete.
+   */
+  async clickFirstTaskAction(): Promise<boolean> {
+    const taskAction = this.page.locator(
+      'button:has-text("Start"), button:has-text("Open"), ' +
+      'button[aria-label*="Start"], button[aria-label*="Open task"], ' +
+      'a:has-text("Start"), a:has-text("Open")'
+    ).first();
+    const visible = await taskAction.waitFor({ state: 'visible', timeout: 8000 })
+      .then(() => true).catch(() => false);
+    if (visible) {
+      try {
+        await taskAction.click({ timeout: 10000 });
+        await this.page.waitForTimeout(3000);
+        await this.waitForJET();
+        return true;
+      } catch (err) {
+        console.log(`[Journeys] Task action button found but could not click: ${err}`);
+      }
+    }
+    console.log('[Journeys] No task Start/Open button visible');
+    return false;
+  }
+
   async clickCompleteTask(): Promise<void> {
-    if (await this.completeTaskButton.isVisible({ timeout: 5000 }).catch(() => false)) {
-      await this.completeTaskButton.click();
-      await this.page.waitForTimeout(2000);
-      await this.waitForJET();
+    // Use waitFor with short timeout instead of isVisible (which is immediate in modern Playwright)
+    const visible = await this.completeTaskButton.waitFor({ state: 'visible', timeout: 5000 })
+      .then(() => true).catch(() => false);
+    if (visible) {
+      try {
+        await this.completeTaskButton.click({ timeout: 10000 });
+        await this.page.waitForTimeout(2000);
+        await this.waitForJET();
+      } catch (err) {
+        console.log(`[Journeys] Complete task button found but could not click: ${err}`);
+      }
     } else {
       console.log('[Journeys] No Complete task button visible — skipping clickCompleteTask');
     }

@@ -8,7 +8,10 @@
  * Columns: Test ID, Module, Business Process, Test Scenario, Transaction Category,
  *          Test Script (Link), Pre-Conditions, Test Data, Expected Result, Status, etc.
  *
- * Output: .cache/uat-plan.json — array of all test cases from all tabs
+ * Deduplicates by testId (keeps first non-empty entry, or first if all empty).
+ * This is necessary because tests can appear across multiple tabs or rows.
+ *
+ * Output: .cache/uat-plan.json — array of deduplicated test cases from all tabs
  *
  * Usage:
  *   npx tsx scripts/fetch-uat-plan.ts
@@ -209,15 +212,32 @@ async function main() {
     allCases.push(...cases);
   }
 
+  // Deduplicate by testId: keep the first non-empty entry, or first entry if all are empty
+  const deduped = new Map<string, UATTestCase>();
+  for (const tc of allCases) {
+    const existing = deduped.get(tc.testId);
+    if (!existing) {
+      deduped.set(tc.testId, tc);
+    } else {
+      // Prefer non-empty entries (has businessProcess, testScript, or transactionCategory)
+      const existingHasData = existing.businessProcess || existing.testScript || existing.transactionCategory;
+      const newHasData = tc.businessProcess || tc.testScript || tc.transactionCategory;
+      if (newHasData && !existingHasData) {
+        deduped.set(tc.testId, tc);
+      }
+    }
+  }
+  const dedupedArray = Array.from(deduped.values());
+
   // Write output
   fs.mkdirSync(path.dirname(OUTPUT_FILE), { recursive: true });
-  fs.writeFileSync(OUTPUT_FILE, JSON.stringify(allCases, null, 2));
-  console.log(`\n=== Total: ${allCases.length} UAT test cases ===`);
+  fs.writeFileSync(OUTPUT_FILE, JSON.stringify(dedupedArray, null, 2));
+  console.log(`\n=== Total: ${dedupedArray.length} unique UAT test cases (${allCases.length} rows deduplicated) ===`);
   console.log(`Written to: ${OUTPUT_FILE}`);
 
   // Summary by module
   const byModule = new Map<string, number>();
-  for (const tc of allCases) {
+  for (const tc of dedupedArray) {
     const mod = tc.module || 'Unknown';
     byModule.set(mod, (byModule.get(mod) || 0) + 1);
   }
@@ -228,7 +248,7 @@ async function main() {
 
   // Summary by status
   const byStatus = new Map<string, number>();
-  for (const tc of allCases) {
+  for (const tc of dedupedArray) {
     const st = tc.status || 'No Status';
     byStatus.set(st, (byStatus.get(st) || 0) + 1);
   }
@@ -239,7 +259,7 @@ async function main() {
 
   // Summary by test script
   const byScript = new Map<string, number>();
-  for (const tc of allCases) {
+  for (const tc of dedupedArray) {
     const script = tc.testScript || 'No Script';
     byScript.set(script, (byScript.get(script) || 0) + 1);
   }

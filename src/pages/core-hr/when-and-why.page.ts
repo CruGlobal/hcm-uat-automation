@@ -56,6 +56,11 @@ export class WhenAndWhyPage extends BasePage {
 
   async fillDate(serial: string): Promise<void> {
     const dateStr = excelSerialToDate(serial);
+    // Wait for wizard form to finish loading before trying to fill
+    await this.dateInput.waitFor({ state: 'visible', timeout: 60_000 });
+    // ADF may have a brief initialization overlay even after the field is visible —
+    // wait for JET to settle so the field becomes actionable.
+    await this.waitForJET();
     await this.fillField(this.dateInput, dateStr);
   }
 

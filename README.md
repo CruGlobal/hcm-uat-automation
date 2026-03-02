@@ -24,10 +24,12 @@ npx tsx scripts/run-parallel.ts --module "Core HR"
 # Limit to N bots
 npx tsx scripts/run-parallel.ts --bots 5
 
-# Only tests that haven't been run yet (tracking sheet status = "Not Run")
+# Filter by AUTOMATED TRACKING SHEET status (Not Run, Passed, Failed, etc.)
+# This uses the automated tracking sheet to decide which tests to run
 npx tsx scripts/run-parallel.ts --tracking-status "Not Run"
 
-# Filter by UAT Plan status (Not Started, Failed, Passed, etc.)
+# Filter by UAT PLAN SHEET status (Not Started, Failed, Passed, etc.)
+# This uses the original test plan sheet definitions, not the automated tracking
 npx tsx scripts/run-parallel.ts --status "Not Started"
 npx tsx scripts/run-parallel.ts --status "Failed,Ready for Retest"
 
@@ -113,11 +115,19 @@ Tests are dynamically assigned to bots via `testerName` → bot mapping in `src/
 
 ## Tracking
 
-Tests are synced to a Google Sheets tracking sheet (`scripts/update-tracking-sheet.ts`):
-- Per-module tabs (one tab per module)
-- Test status (Passed, Failed, Skipped)
-- Tester name (assigned bot)
-- Summary tab with aggregate counts
+Two Google Sheets are used:
+
+**1. UAT Plan Sheet** (original test definitions)
+- Maintained by stakeholders and human testers
+- Contains: test descriptions, business processes, expected results, human tester status (Passed/Failed/Not Started)
+- Updated via: `scripts/fetch-uat-plan.ts`
+- Used by: `--status` flag to filter tests
+
+**2. Automated Tracking Sheet** (test execution results)
+- Maintained by automated test runs
+- Contains: test results (Passed/Failed/Not Run), duration, error messages
+- Updated via: `scripts/update-tracking-sheet.ts` (runs after each bot completes)
+- Used by: `--tracking-status` flag to filter tests
 
 The tracking sheet is updated **incrementally** as each bot finishes — updates are queued sequentially to avoid Google Sheets API rate limits. A progress report comparing before/after pass rates is printed at the end.
 

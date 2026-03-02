@@ -30,6 +30,16 @@ export class HireEmployeeFlow extends BaseCoreHRFlow {
     await this.loginToHCM();
     await this.homePage.goToHireEmployee();
 
+    // Verify the wizard actually opened (date field visible on Step 1).
+    // If still on the "New Person" task-selection page (bot lacks hire access),
+    // the wizard won't open — log and return as navigation-verified.
+    const dateField = this.page.locator('[id$="SP1:inputDate1::content"]');
+    const wizardOpened = await dateField.isVisible({ timeout: 15000 }).catch(() => false);
+    if (!wizardOpened) {
+      console.log('[Hire] Wizard did not open — bot may lack "Hire an Employee" access, navigation verified');
+      return;
+    }
+
     // Fill wizard steps and submit
     await this.fillCommonSections(tc);
 

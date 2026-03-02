@@ -333,22 +333,43 @@ export class AbsenceManagementPage extends BasePage {
   /**
    * Click an ESS tile by its visible text label.
    * Prefers text-based matching (resilient to tile reordering across Oracle updates)
-   * and falls back to tile index only if text is not found.
+   * and falls back to scanning tile indices if text is not found.
+   *
+   * Uses nth() iteration instead of first() to handle cases where the first
+   * DOM match is a hidden element (e.g., on Absence Balance sub-page where
+   * tiles are in background DOM but not visible).
    */
   private async clickEssTile(label: string, fallbackIndex: number): Promise<void> {
-    const textTile = this.page.getByText(label, { exact: true }).first();
-    if (await textTile.isVisible({ timeout: 5000 }).catch(() => false)) {
-      await textTile.click({ force: true });
-    } else {
-      const tile = this.essTile(fallbackIndex);
-      if (await tile.isVisible({ timeout: 5000 }).catch(() => false)) {
+    // Try text-based matching — check all matches to find a visible one
+    const textTiles = this.page.getByText(label, { exact: true });
+    const textCount = await textTiles.count().catch(() => 0);
+    for (let i = 0; i < textCount; i++) {
+      const tile = textTiles.nth(i);
+      if (await tile.isVisible({ timeout: 2000 }).catch(() => false)) {
         await tile.click({ force: true });
-      } else {
-        throw new Error(`ESS tile "${label}" not found by text or index ${fallbackIndex}`);
+        await this.page.waitForTimeout(5000);
+        await this.waitForJET();
+        return;
       }
     }
-    await this.page.waitForTimeout(5000);
-    await this.waitForJET();
+
+    // Fallback: scan tile indices — tile ordering varies by user role configuration.
+    // Try fallbackIndex first, then scan 0–11 and match by text content.
+    const indicesToTry = [fallbackIndex, ...Array.from({ length: 12 }, (_, i) => i).filter(i => i !== fallbackIndex)];
+    for (const idx of indicesToTry) {
+      const tile = this.essTile(idx);
+      if (await tile.isVisible({ timeout: 1000 }).catch(() => false)) {
+        const tileText = await tile.textContent().catch(() => '');
+        if (tileText?.includes(label)) {
+          await tile.click({ force: true });
+          await this.page.waitForTimeout(5000);
+          await this.waitForJET();
+          return;
+        }
+      }
+    }
+
+    throw new Error(`ESS tile "${label}" not found by text or index ${fallbackIndex}`);
   }
 
   /** Click the "Add Absence" tile card. */
@@ -522,7 +543,11 @@ export class AbsenceManagementPage extends BasePage {
   /** Click "Disburse Balance" from the Enrollments and Adjustments dropdown. */
   async clickDisburseBalance(): Promise<void> {
     await this.openEnrollmentsAndAdjustments();
-    await this.page.getByText('Disburse Balance').first().click();
+    const disburseBtn = this.page.getByText('Disburse Balance').first();
+    if (!await disburseBtn.isVisible({ timeout: 8000 }).catch(() => false)) {
+      throw new Error('Disburse Balance option not found in dropdown');
+    }
+    await disburseBtn.click();
     await this.page.waitForTimeout(3000);
     await this.waitForJET();
   }
@@ -675,6 +700,13 @@ export class AbsenceManagementPage extends BasePage {
     }
 
     // Strategy 3: ADF/standard form fallback
+    // Check visibility first to avoid the 30-second default locator timeout
+    // when the absence type field is not present on the page at all.
+    const fieldVisible = await this.absenceTypeField.isVisible({ timeout: 3000 }).catch(() => false);
+    if (!fieldVisible) {
+      console.log(`[Absence] Absence type field not found on page — assuming not enrolled`);
+      return false;
+    }
     console.log(`[Absence] Falling back to fillCombobox for type: "${type}"`);
     try {
       await this.fillCombobox(this.absenceTypeField, type);

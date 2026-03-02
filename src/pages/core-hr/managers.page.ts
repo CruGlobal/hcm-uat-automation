@@ -67,7 +67,12 @@ export class ManagersPage extends BasePage {
 
     if (mgrType) {
       // Manager Type is typically readonly with "Line manager" default
-      const isReadonly = await this.managerType.getAttribute('readonly');
+      // Skip if field not present (e.g. non-worker Create Work Relationship wizard)
+      const mgrTypeVisible = await this.managerType.isVisible({ timeout: 3000 }).catch(() => false);
+      if (!mgrTypeVisible) {
+        console.log('[Managers] Manager Type field not visible — skipping');
+      } else {
+      const isReadonly = await this.managerType.getAttribute('readonly', { timeout: 5000 }).catch(() => null);
       if (isReadonly !== null) {
         // Already set to default — only change if different
         const currentVal = await this.managerType.inputValue().catch(() => '');
@@ -98,6 +103,7 @@ export class ManagersPage extends BasePage {
       } else {
         await this.fillCombobox(this.managerType, mgrType);
       }
+      } // end else (mgrTypeVisible)
     }
   }
 

@@ -149,13 +149,29 @@ export class JourneyAssignmentFlow extends BaseJourneysFlow {
       await this.journeysPage.fillAssigneePerson(personName);
     }
 
-    // Fill date
+    // Fill date — Oracle requires on or after today; use today if no field data or date is in the past.
     const effectiveDate = fieldData ? getField(fieldData, 'Effective Date') : null;
+    let dateStr: string;
     if (effectiveDate) {
-      const dateStr = /^\d{5,}$/.test(effectiveDate) ? excelSerialToDate(effectiveDate) : effectiveDate;
-      console.log(`[Journeys] Assign date: ${dateStr}`);
-      await this.journeysPage.fillAssignDate(dateStr);
+      dateStr = /^\d{5,}$/.test(effectiveDate) ? excelSerialToDate(effectiveDate) : effectiveDate;
+      // If the date is in the past, use today instead
+      const parsed = new Date(dateStr);
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      if (!isNaN(parsed.getTime()) && parsed < today) {
+        const mm = String(today.getMonth() + 1).padStart(2, '0');
+        const dd = String(today.getDate()).padStart(2, '0');
+        dateStr = `${mm}/${dd}/${today.getFullYear()}`;
+        console.log(`[Journeys] Field date was in the past — using today: ${dateStr}`);
+      }
+    } else {
+      const today = new Date();
+      const mm = String(today.getMonth() + 1).padStart(2, '0');
+      const dd = String(today.getDate()).padStart(2, '0');
+      dateStr = `${mm}/${dd}/${today.getFullYear()}`;
     }
+    console.log(`[Journeys] Assign date: ${dateStr}`);
+    await this.journeysPage.fillAssignDate(dateStr);
   }
 
   /**
@@ -194,19 +210,37 @@ export class JourneyAssignmentFlow extends BaseJourneysFlow {
 
   /** Execute task completion within a journey. */
   private async executeTaskCompletion(tc: UATTestCase, fieldData: TestCase | undefined): Promise<void> {
-    await this.journeysPage.selectTab('Organization Journeys');
+    // JR-064, JR-065 are ESS tests (employee completes their own tasks) → use My Journeys tab.
+    // If transactionCategory is Admin, use Organization Journeys instead.
+    const isAdmin = tc.transactionCategory?.toLowerCase().includes('admin');
 
-    if (fieldData) {
-      const personName = getField(fieldData, 'Person Name');
-      if (personName) await this.journeysPage.searchPerson(personName);
+    if (isAdmin) {
+      await this.journeysPage.selectTab('Organization Journeys');
+      if (fieldData) {
+        const personName = getField(fieldData, 'Person Name');
+        if (personName) await this.journeysPage.searchPerson(personName);
+      } else {
+        const personRef = this.extractPersonFromTestData(tc);
+        if (personRef) await this.journeysPage.searchPerson(personRef);
+      }
     } else {
-      const personRef = this.extractPersonFromTestData(tc);
-      if (personRef) await this.journeysPage.searchPerson(personRef);
+      // ESS: employee opens their own assigned journeys
+      await this.journeysPage.viewMyJourneys();
     }
 
+    // Click into the first/relevant journey result
     await this.journeysPage.clickFirstJourneyResult();
-    await this.journeysPage.completeTaskByIndex(0);
-    await this.journeysPage.clickCompleteTask();
+
+    // Try to open a task (Start/Open button), then mark it complete.
+    // If no Start button, fall back to checkbox + complete button approach.
+    const taskOpened = await this.journeysPage.clickFirstTaskAction();
+    if (taskOpened) {
+      await this.journeysPage.clickCompleteTask();
+    } else {
+      // Fallback: try checkbox interaction
+      await this.journeysPage.completeTaskByIndex(0);
+      await this.journeysPage.clickCompleteTask();
+    }
     await this.journeysPage.screenshot(`journey-task-complete-${tc.testId}`);
   }
 

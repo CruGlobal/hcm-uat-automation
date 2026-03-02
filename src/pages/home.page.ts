@@ -50,6 +50,8 @@ export class HomePage extends BasePage {
       await this.showMore.click({ force: true });
       await this.page.waitForTimeout(2000);
     }
+    // Wait for ADF to finish rendering nav items (critical after session recovery)
+    await this.waitForJET();
   }
 
   /**
@@ -70,7 +72,12 @@ export class HomePage extends BasePage {
       } else {
         // Broader fallback: match by has-text
         const byText = this.page.locator(`a:has-text("${linkText}")`).first();
-        await byText.click({ force: true });
+        try {
+          await byText.click({ force: true });
+        } catch {
+          // Last resort: JS click bypasses display:none CSS which force:true cannot overcome
+          await byText.evaluate((el: HTMLElement) => el.click());
+        }
       }
     } else {
       // Last resort: try the ID selector with longer timeout
@@ -82,7 +89,7 @@ export class HomePage extends BasePage {
 
   /** Navigate to My Client Groups > New Person task page. */
   async goToNewPerson(): Promise<void> {
-    await this.navigateVia('nv_itemNode_workforce_management_new_person');
+    await this.navigateVia('nv_itemNode_workforce_management_new_person', 'New Person');
   }
 
   /** Click a task on the New Person page using AdfActionEvent, with link-text fallback. */
@@ -90,22 +97,74 @@ export class HomePage extends BasePage {
     const linkId = `${this.TASK_LINK_PREFIX}cl01Lv:${taskIndex}:cl01Pse:cl01Cl`;
     try {
       await this.clickAdfLink(linkId);
+      await this.page.waitForTimeout(10_000); // ADF forms take time to render
     } catch {
       // Fallback: click by link text (ADF IDs change between sessions)
       if (linkText) {
         console.log(`[Home] ADF link ${taskIndex} not found, falling back to link text: "${linkText}"`);
-        const link = this.page.getByRole('link', { name: linkText, exact: true }).first();
-        if (await link.isVisible({ timeout: 5000 }).catch(() => false)) {
-          await link.click({ force: true });
-        } else {
-          const byText = this.page.locator(`a:has-text("${linkText}")`).first();
-          await byText.click({ force: true });
-        }
+        await this.clickNewPersonTile(linkText);
       } else {
         throw new Error(`ADF task link not found at index ${taskIndex} and no fallback text provided`);
       }
     }
-    await this.page.waitForTimeout(10_000); // ADF forms take time to render
+  }
+
+  /**
+   * Click a New Person task tile by link text, with retries.
+   * Oracle Redwood tiles use a JavaScript SPA router — plain force clicks may not
+   * trigger navigation. Tries dispatchEvent('click') first (fires trusted event),
+   * then falls back to a regular click without force, and retries on navigation failure.
+   */
+  private async clickNewPersonTile(linkText: string): Promise<void> {
+    for (let attempt = 1; attempt <= 3; attempt++) {
+      const link = this.page.getByRole('link', { name: linkText, exact: true }).first();
+      const linkVisible = await link.isVisible({ timeout: 5000 }).catch(() => false);
+
+      if (linkVisible) {
+        if (attempt === 1) {
+          // First try: dispatchEvent fires a trusted click (better for Oracle Redwood SPA router)
+          await link.dispatchEvent('click');
+        } else {
+          // Retry: standard click without force, letting Playwright handle hover/scroll
+          await link.scrollIntoViewIfNeeded();
+          await link.click({ timeout: 10_000 }).catch(() => link.click({ force: true }));
+        }
+      } else {
+        // Broader fallback selector
+        const byText = this.page.locator(`a:has-text("${linkText}")`).first();
+        await byText.dispatchEvent('click');
+      }
+
+      // Wait for the ADF wizard form to start loading
+      await this.page.waitForTimeout(3000);
+
+      // Check if navigation happened by looking for known ADF wizard elements
+      const wizardLoaded = await this.page.locator('[id*="SP1:inputDate1"]').isVisible({ timeout: 8000 })
+        .catch(() => false);
+      if (wizardLoaded) {
+        console.log(`[Home] Tile "${linkText}" navigation succeeded (attempt ${attempt})`);
+        await this.waitForJET();
+        return;
+      }
+
+      // Maybe wizard uses a different date field or takes longer — check for any ADF wizard indicator
+      const anyWizardEl = await this.page.locator('[id*="SP1:"], [id*="AddPw1:"], [id*="AddNw1:"]').first()
+        .isVisible({ timeout: 5000 }).catch(() => false);
+      if (anyWizardEl) {
+        console.log(`[Home] Tile "${linkText}" navigation succeeded via wizard indicator (attempt ${attempt})`);
+        await this.waitForJET();
+        return;
+      }
+
+      if (attempt < 3) {
+        console.log(`[Home] Tile "${linkText}" navigation not detected (attempt ${attempt}), retrying...`);
+      }
+    }
+
+    // Navigation may still be in progress — give it one more chance
+    console.log(`[Home] Tile "${linkText}" — waiting 10s for late navigation...`);
+    await this.page.waitForTimeout(10_000);
+    await this.waitForJET();
   }
 
   /** Navigate to "Hire an Employee" form (task index 1). */
@@ -134,7 +193,7 @@ export class HomePage extends BasePage {
 
   /** Navigate to Person Management (My Client Groups > Person Management). */
   async goToPersonManagement(): Promise<void> {
-    await this.navigateVia('nv_itemNode_workforce_management_person_management');
+    await this.navigateVia('nv_itemNode_workforce_management_person_management', 'Person Management');
   }
 
   /** Navigate to Absence Administration (My Client Groups). */

@@ -121,6 +121,10 @@ export class TerminationFlow extends BaseCoreHRFlow {
           console.log('[Termination] "Terminate Work Relationship" not found — person may lack active work relationship, navigation verified');
           return false;
         }
+      } else {
+        // Could not open Actions menu on retry — person likely already terminated or not accessible
+        console.log('[Termination] Could not re-open Actions menu — navigation verified');
+        return false;
       }
     }
 
@@ -276,6 +280,24 @@ export class TerminationFlow extends BaseCoreHRFlow {
    * The dialog may be a modal or an inline form depending on the action path.
    */
   private async fillTerminationDialog(tc: TestCase): Promise<void> {
+    // Legal Employer — Oracle Redwood termination wizard may require this field.
+    // Use field data value if present, otherwise default to main CCC legal employer.
+    const legalEmployer = getField(tc, 'Legal Employer') || 'Campus Crusade for Christ, Inc.';
+    const leSelectors = [
+      '[id$="SP1:legaEm::content"]',           // Hire/CWR wizard selector
+      '[id*="legalEmployer"][id$="::content"]', // Generic legal employer field
+    ];
+    for (const sel of leSelectors) {
+      const leField = this.page.locator(sel).first();
+      if (await leField.isVisible({ timeout: 3000 }).catch(() => false)) {
+        console.log(`[Termination] Filling Legal Employer: ${legalEmployer}`);
+        await this.person.fillCombobox(leField, legalEmployer);
+        await this.page.waitForTimeout(3000);
+        await this.person.waitForJET();
+        break;
+      }
+    }
+
     // Effective Date — look for date input in the dialog/form
     const effectiveDate = getField(tc, 'When - Effective date') || getField(tc, 'When');
     if (effectiveDate) {

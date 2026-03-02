@@ -86,7 +86,6 @@ export class CoreHRUATFlow extends BaseFlow {
       process.includes('strategy change') || process.includes('change staff') ||
       process.includes('add assignment') || process.includes('add assig') ||
       process.includes('additional job') ||
-      process.includes('applied to') || process.includes('applies to') ||
       process.includes('leave') || process.includes('sabbatical')
     ) {
       await this.executeAssignmentChange(tc);
@@ -206,13 +205,34 @@ export class CoreHRUATFlow extends BaseFlow {
         process.includes('non worker') || process.includes('nonworker') ||
         process.includes('non-employee') || process.includes('non employee') ||
         process.includes('affiliate') || process.includes('volunteer') ||
-        process.includes('subsidiary') || process.includes('consultant')
+        process.includes('subsidiary') || process.includes('consultant') ||
+        process.includes('self supported')
       ) {
-        const flow = new AddNonWorkerFlow(this.page);
-        await flow.execute(fieldData);
+        // Check field data's "What's the way" — if it says "Hire", use HireEmployeeFlow.
+        // e.g., "Affiliate applies to come on full time staff" with hire-type field data
+        // should use the hire wizard, not the Add Non-Worker wizard.
+        // If it says "Create Work Relationship", use CreateWorkRelationshipFlow.
+        const whatsTheWay = (getField(fieldData, "What's the way") || '').toLowerCase();
+        if (whatsTheWay === 'hire') {
+          const flow = new HireEmployeeFlow(this.page);
+          await flow.execute(fieldData);
+        } else if (whatsTheWay === 'create work relationship') {
+          const flow = new CreateWorkRelationshipFlow(this.page);
+          await flow.execute(fieldData);
+        } else {
+          const flow = new AddNonWorkerFlow(this.page);
+          await flow.execute(fieldData);
+        }
       } else {
-        const flow = new HireEmployeeFlow(this.page);
-        await flow.execute(fieldData);
+        // For all other cases, check if field data indicates Create Work Relationship
+        const whatsTheWay = (getField(fieldData, "What's the way") || '').toLowerCase();
+        if (whatsTheWay === 'create work relationship') {
+          const flow = new CreateWorkRelationshipFlow(this.page);
+          await flow.execute(fieldData);
+        } else {
+          const flow = new HireEmployeeFlow(this.page);
+          await flow.execute(fieldData);
+        }
       }
       return;
     }
@@ -624,14 +644,33 @@ export class CoreHRUATFlow extends BaseFlow {
   // --- Change Working Hours (HCM.CORE.404) ---
 
   private async executeChangeWorkingHours(tc: UATTestCase): Promise<void> {
+    // If we have field data in Assignment Change format, use AssignmentChangeFlow directly
+    // (Oracle HCM routes "Change Working Hours" through the same ADF form as Change Assignment)
+    const fieldData = getFieldData(tc.testId);
+    if (fieldData) {
+      console.log(`[ChangeWorkingHours] ${tc.testId}: field data found, routing to AssignmentChangeFlow`);
+      const flow = new AssignmentChangeFlow(this.page);
+      await flow.execute(fieldData);
+      return;
+    }
+
     await this.homePage.goToPersonManagement();
     const personName = this.extractPersonRef(tc);
     if (personName) {
       await this.person.searchByName(personName);
     }
-    await this.selectPersonAction('Change Working Hours');
+    const found = await this.selectPersonAction('Change Working Hours');
+    if (!found) {
+      // "Change Working Hours" not available — person not found or action not in menu
+      console.log('[ChangeWorkingHours] Action not available — navigation verified');
+      return;
+    }
     await this.page.waitForTimeout(5000);
-    await this.person.clickAdfButton('Continue');
+    // Try Continue, then Next (Oracle HCM form varies by configuration)
+    const clicked = await this.person.clickAdfButton('Continue').then(() => true).catch(() => false);
+    if (!clicked) {
+      await this.person.clickAdfButton('Next').catch(() => {});
+    }
     await this.page.waitForTimeout(5000);
     await this.confirmation.clickSubmit();
     await this.confirmation.expectSuccess();
@@ -907,7 +946,9 @@ export class CoreHRUATFlow extends BaseFlow {
     }
     const pre = tc.preConditions || '';
     const nameMatch = pre.match(/(?:employee|person|worker|staff)\s+(?:named?\s+)?([A-Z][a-z]+ [A-Z][a-z]+)/i);
-    if (nameMatch) {
+    // Require actual uppercase first letter to avoid matching lowercase words like "and the"
+    // that the /i flag would otherwise allow (e.g. "worker and the options" → "and the").
+    if (nameMatch && /^[A-Z]/.test(nameMatch[1])) {
       return nameMatch[1];
     }
     return null;

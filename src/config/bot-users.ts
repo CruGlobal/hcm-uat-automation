@@ -222,13 +222,25 @@ export function getBaseBotNames(): string[] {
   return names;
 }
 
-/** Get clone bot names for a base bot (from credentials file). */
+/**
+ * Bot accounts that are known to have broken Oracle OAM credentials and should
+ * be excluded from parallel test distribution. Add clone names here when Oracle
+ * HCM rejects their credentials (auth_cred_submit URL with no redirect to fscmUI).
+ *
+ * All previously-locked clone accounts have been unlocked via reset-one-bot.ts.
+ * The auto-unlock logic in login.page.ts will handle any future lockouts automatically.
+ */
+const DISABLED_BOT_ACCOUNTS = new Set<string>([
+  // empty — all accounts re-enabled after password reset on 2026-03-02
+]);
+
+/** Get clone bot names for a base bot (from credentials file). Excludes known-broken accounts. */
 export function getClonesForBot(baseBotName: string): string[] {
   const creds = loadCredentials();
   const pattern = new RegExp(`^${baseBotName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}_\\d+$`);
   const clones: string[] = [];
   for (const key of creds.keys()) {
-    if (pattern.test(key)) {
+    if (pattern.test(key) && !DISABLED_BOT_ACCOUNTS.has(key)) {
       clones.push(key);
     }
   }

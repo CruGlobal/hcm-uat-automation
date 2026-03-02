@@ -48,6 +48,10 @@ export class ConfirmationPage extends BasePage {
       await this.clickAdfButton('Submit');
     } catch {
       const submitBtn = this.page.getByRole('button', { name: 'Submit' }).first();
+      // Use short timeout — if Submit doesn't appear in 5s, the page likely uses a wizard
+      // and the caller should handle the failure (e.g., Add Assignment opens a multi-step form)
+      const submitVisible = await submitBtn.isVisible({ timeout: 5000 }).catch(() => false);
+      if (!submitVisible) throw new Error('Submit button not found');
       await submitBtn.click();
     }
     await this.page.waitForTimeout(5000);
