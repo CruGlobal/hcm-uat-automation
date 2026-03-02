@@ -81,7 +81,11 @@ async function captureSnapshot(): Promise<StatusSnapshot | null> {
         const testId = (rows[i][0] || '').trim();
         const status = (rows[i][9] || '').trim(); // Column J = Status (0-indexed col 9)
         if (!testId) continue;
-        byTestId.set(testId, status);
+        // First non-empty status wins — duplicate rows (same testId) should not
+        // overwrite a "Passed"/"Failed" row with an empty one.
+        if (!byTestId.has(testId) || !byTestId.get(testId)) {
+          byTestId.set(testId, status);
+        }
         if (status === 'Passed') passed++;
         else if (status === 'Failed') failed++;
       }
