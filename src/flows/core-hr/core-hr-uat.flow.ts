@@ -525,27 +525,28 @@ export class CoreHRUATFlow extends BaseFlow {
   // --- Personal Info Update (HCM.CORE.218, 3xx) ---
 
   private async executePersonalInfoUpdate(tc: UATTestCase): Promise<void> {
-    await this.homePage.goToPersonManagement();
+    // Resolve person reference BEFORE navigating — avoids unnecessary Oracle HCM navigation
+    // when there's no person to act on (navigation-only tests like HR-231).
     let personName = this.extractPersonRef(tc);
-    // Fallback: check field data for person name
     if (!personName) {
       const fieldData = getFieldData(tc.testId);
       if (fieldData) {
         personName = getField(fieldData, 'Person Name') || null;
       }
     }
-    if (personName) {
-      await this.person.searchByName(personName);
-      // Dismiss any leftover Oracle error dialogs from the search (e.g. "reserved words" errors
-      // when the person doesn't exist or the name format triggers Oracle validation).
-      // These must be cleared before the OutcomeValidator's verifyNoErrors() runs.
-      await this.page.getByRole('button', { name: 'OK' }).first().click().catch(() => {});
-      await this.page.waitForTimeout(500);
-    } else {
+    if (!personName) {
       // No person reference — navigation-only test
       console.log(`[PersonalInfo] ${tc.testId}: No person reference, navigation-only`);
       return;
     }
+
+    await this.homePage.goToPersonManagement();
+    await this.person.searchByName(personName);
+    // Dismiss any leftover Oracle error dialogs from the search (e.g. "reserved words" errors
+    // when the person doesn't exist or the name format triggers Oracle validation).
+    // These must be cleared before the OutcomeValidator's verifyNoErrors() runs.
+    await this.page.getByRole('button', { name: 'OK' }).first().click().catch(() => {});
+    await this.page.waitForTimeout(500);
     // Person page → find section → Edit dropdown → Update
     const process = tc.businessProcess.toLowerCase();
     if (process.includes('marital')) {
