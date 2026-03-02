@@ -23,7 +23,8 @@ export default defineConfig({
   reporter: [
     ['list'],
     ['json', { outputFile: jsonOutputFile }],
-    ['./src/reporters/tracking-sheet-reporter.ts'],
+    // Tracking sheet updates are handled by run-parallel.ts after each bot finishes
+    // (sequential queue to avoid concurrent Google Sheets API rate limiting)
   ],
   timeout: 300_000,
   expect: { timeout: 15_000 },

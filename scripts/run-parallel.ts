@@ -36,6 +36,7 @@ const moduleFilter = args.includes('--module') ? args[args.indexOf('--module') +
 const onePerBot = args.includes('--one-per-bot');
 const noClones = args.includes('--no-clones');
 const statusFilter = args.includes('--status') ? args[args.indexOf('--status') + 1] : null;
+const trackingStatusFilter = args.includes('--tracking-status') ? args[args.indexOf('--tracking-status') + 1] : null;
 
 function escapeRegex(s: string): string {
   return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -227,11 +228,49 @@ function printProgressReport(
   console.log(`  This run: ${summaryParts.join(', ')}\n`);
 }
 
+function raiseFileDescriptorLimit(): void {
+  // Each spawned Chromium process needs ~15 FDs; 128 processes × 15 = ~2000 needed.
+  // Default soft limit is 1024, which causes spawn failures around process 87.
+  // prlimit (util-linux) can raise limits of the current process by PID.
+  const targets = [65536, 16384, 4096];
+  for (const target of targets) {
+    try {
+      execFileSync('prlimit', [`--nofile=${target}:${target}`, `--pid`, String(process.pid)], { stdio: 'pipe' });
+      console.log(`  [FD limit] Raised to ${target} (was likely 1024)`);
+      return;
+    } catch { /* try next lower value */ }
+  }
+  console.warn('  [FD limit] Could not raise file descriptor limit — spawn failures may occur above ~87 processes');
+}
+
 async function main() {
+  raiseFileDescriptorLimit();
+
   // Parse --status filter
   const statusFilterValues = statusFilter
     ? statusFilter.split(',').map(s => s.trim().toLowerCase())
     : null;
+
+  // --tracking-status: fetch tracking sheet now and build a set of matching testIds
+  let trackingStatusTestIds: Set<string> | null = null;
+  if (trackingStatusFilter) {
+    const filterValues = trackingStatusFilter.split(',').map(s => s.trim().toLowerCase());
+    console.log(`  Fetching tracking sheet to filter by status: ${trackingStatusFilter}...`);
+    const snap = await captureSnapshot();
+    if (!snap) {
+      console.error('  Could not fetch tracking sheet — cannot apply --tracking-status filter');
+      process.exit(1);
+    }
+    trackingStatusTestIds = new Set<string>();
+    for (const [testId, status] of snap.byTestId) {
+      // "Not Run" on the sheet = empty string or literally "Not Run"
+      const normalized = status.trim().toLowerCase();
+      if (filterValues.some(f => f === 'not run' ? (normalized === 'not run' || normalized === '') : normalized === f)) {
+        trackingStatusTestIds.add(testId);
+      }
+    }
+    console.log(`  Found ${trackingStatusTestIds.size} tests with tracking status matching "${trackingStatusFilter}"\n`);
+  }
 
   // Group testable tests by bot user
   const allTests = loadUATPlan().filter(tc => {
@@ -252,6 +291,10 @@ async function main() {
     if (moduleFilter) {
       const effectiveModule = tc.module || tc.tabName || '';
       if (effectiveModule !== moduleFilter) return false;
+    }
+    // --tracking-status filter: only include tests present in the tracking sheet with matching status
+    if (trackingStatusTestIds !== null) {
+      if (!trackingStatusTestIds.has(tc.testId)) return false;
     }
     return true;
   });
@@ -313,6 +356,7 @@ async function main() {
   const filters = [
     moduleFilter ? `module: ${moduleFilter}` : '',
     statusFilter ? `status: ${statusFilter}` : '',
+    trackingStatusFilter ? `tracking-status: ${trackingStatusFilter}` : '',
     process.env.RUN_PASSED_ONLY ? 'passed-only' : '',
     process.env.RUN_FAILED_ONLY ? 'failed-only' : '',
   ].filter(Boolean).join(', ');
@@ -326,6 +370,7 @@ async function main() {
   const snapshot = await captureSnapshot();
 
   const startTime = Date.now();
+  console.log(`  Starting at ${new Date(startTime).toLocaleTimeString()}...\n`);
 
   // Build env vars for child processes
   const childEnvExtras: Record<string, string> = {};
@@ -333,8 +378,39 @@ async function main() {
     childEnvExtras.RUN_STATUS_FILTER = statusFilterValues.join(',');
   }
 
+  // Track progress for live updates
+  let globalPassed = 0;
+  let globalFailed = 0;
+  let completedCount = 0;
+  let spawnedCount = 0;
+
+  // Sequential sheet update queue — one update at a time to avoid Google Sheets rate limiting
+  let sheetUpdateChain = Promise.resolve();
+  let sheetUpdatesQueued = 0;
+  let sheetUpdatesCompleted = 0;
+
+  function queueSheetUpdate(accountName: string): void {
+    const jsonPath = path.resolve('test-results', `results-${accountName}.json`);
+    sheetUpdatesQueued++;
+    sheetUpdateChain = sheetUpdateChain.then(() => {
+      if (!fs.existsSync(jsonPath)) return;
+      try {
+        execFileSync('npx', ['tsx', 'scripts/update-tracking-sheet.ts', '--report', jsonPath], {
+          cwd: process.cwd(),
+          stdio: 'pipe',
+          timeout: 60_000,
+        });
+        sheetUpdatesCompleted++;
+        console.log(`\n  [Sheet] Updated (${sheetUpdatesCompleted}/${sheetUpdatesQueued} queued) — ${accountName}`);
+      } catch (err: any) {
+        console.error(`\n  [Sheet] Failed for ${accountName}: ${err.message?.split('\n')[0] || err}`);
+      }
+    });
+  }
+
   // Spawn all processes in parallel
-  const promises = processes.map((proc) => new Promise<{
+  console.log(`  Spawning ${processes.length} processes...\n`);
+  const promises = processes.map((proc, idx) => new Promise<{
     accountName: string; testCount: number; exitCode: number; output: string; duration: number;
     passed: number; failed: number;
   }>((resolve) => {
@@ -360,19 +436,31 @@ async function main() {
       playwrightArgs.push('--grep', grepPattern);
     }
 
-    const child = spawn('npx', playwrightArgs, {
-      env: {
-        ...process.env,
-        ...childEnvExtras,
-        PARALLEL_BOT: baseBotName,
-        // Override bot credentials for clone accounts
-        ...(proc.accountName !== baseBotName ? { PARALLEL_BOT_ACCOUNT: proc.accountName } : {}),
-      },
-      cwd: process.cwd(),
-      shell: true,
-    });
+    let child;
+    try {
+      child = spawn('npx', playwrightArgs, {
+        env: {
+          ...process.env,
+          ...childEnvExtras,
+          PARALLEL_BOT: baseBotName,
+          // Override bot credentials for clone accounts
+          ...(proc.accountName !== baseBotName ? { PARALLEL_BOT_ACCOUNT: proc.accountName } : {}),
+        },
+        cwd: process.cwd(),
+        shell: true,
+      });
+      spawnedCount++;
+      if (spawnedCount % 10 === 0) {
+        console.log(`  [Spawn progress] ${spawnedCount}/${processes.length} processes spawned`);
+      }
+    } catch (err: any) {
+      console.error(`  [SPAWN ERROR] ${proc.accountName}: ${err.message}`);
+      resolve({ accountName: proc.accountName, testCount: proc.tests.length, exitCode: 1, output: '', duration: 0, passed: 0, failed: 0 });
+      return;
+    }
 
     let output = '';
+    let hasStarted = false;
     child.stdout.on('data', (d: Buffer) => {
       const text = d.toString();
       output += text;
@@ -381,7 +469,13 @@ async function main() {
         const trimmed = line.trim();
         if (trimmed.includes('passed') || trimmed.includes('failed') || trimmed.includes('timed out')) {
           console.log(`  [${proc.accountName}] ${trimmed}`);
+          hasStarted = true;
         }
+      }
+      // Log first activity (login, test start)
+      if (!hasStarted && text.match(/(login|start|running)/i)) {
+        console.log(`  [${proc.accountName}] started...`);
+        hasStarted = true;
       }
     });
     child.stderr.on('data', (d: Buffer) => { output += d.toString(); });
@@ -392,11 +486,40 @@ async function main() {
       const failMatch = output.match(/(\d+) failed/);
       const passed = passMatch ? parseInt(passMatch[1], 10) : 0;
       const failed = failMatch ? parseInt(failMatch[1], 10) : 0;
+
+      globalPassed += passed;
+      globalFailed += failed;
+      completedCount++;
+
+      // Queue a sheet update for this bot's results (sequential — no concurrent API calls)
+      queueSheetUpdate(proc.accountName);
+
       resolve({ accountName: proc.accountName, testCount: proc.tests.length, exitCode: code || 0, output, duration, passed, failed });
     });
   }));
 
+  // Live progress ticker
+  const progressInterval = setInterval(() => {
+    const elapsed = ((Date.now() - startTime) / 1000).toFixed(0);
+    const remaining = processes.length - completedCount;
+    const runRate = completedCount / (parseInt(elapsed) || 1);
+    const eta = remaining / (runRate || 1);
+    const etaStr = eta > 0 ? ` ETA ${eta.toFixed(0)}s` : '';
+    const spawnStr = spawnedCount < processes.length ? ` [spawning ${spawnedCount}/${processes.length}]` : '';
+
+    const testsCompleted = globalPassed + globalFailed;
+    const testsRemaining = totalTests - testsCompleted;
+
+    process.stdout.write(
+      `\r  ⏳ ${completedCount}/${processes.length} bots | ` +
+      `${testsCompleted}/${totalTests} tests (${testsRemaining} left) | ` +
+      `${globalPassed}P ${globalFailed}F | ${elapsed}s${etaStr}${spawnStr}     `
+    );
+  }, 2000);
+
   const results = await Promise.all(promises);
+  clearInterval(progressInterval);
+  console.log('');
 
   // Summary
   const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
@@ -434,7 +557,14 @@ async function main() {
   console.log(`\n  Total: ${totalPassed} passed, ${totalFailed} failed`);
   console.log(`  Wall-clock: ${elapsed}s  (sequential would be ~${seqTime.toFixed(0)}s, ${(seqTime / parseFloat(elapsed)).toFixed(1)}x speedup)\n`);
 
-  // ─── Merge per-bot JSON reports and update tracking sheet ──────────────────
+  // ─── Wait for all queued sheet updates to finish ──────────────────────────
+  if (sheetUpdatesQueued > 0) {
+    console.log(`\n  Waiting for ${sheetUpdatesQueued} sheet updates to finish...`);
+    await sheetUpdateChain;
+    console.log(`  Sheet updates complete (${sheetUpdatesCompleted}/${sheetUpdatesQueued} succeeded)`);
+  }
+
+  // ─── Merge per-bot JSON reports for progress report ───────────────────────
   let mergedReportPath: string | null = null;
   try {
     const resultsDir = path.resolve('test-results');
@@ -459,19 +589,9 @@ async function main() {
 
       // Clean up per-bot files
       for (const f of botJsonFiles) fs.unlinkSync(f);
-
-      // Run tracking sheet updater
-      console.log('\n[Tracking Sheet] Updating tracking sheet with test results...');
-      execFileSync('npx', ['tsx', 'scripts/update-tracking-sheet.ts', '--report', mergedReportPath], {
-        cwd: process.cwd(),
-        stdio: 'inherit',
-        timeout: 60_000,
-      });
-    } else {
-      console.log('  No per-bot JSON reports found — tracking sheet not updated');
     }
   } catch (err: any) {
-    console.error('[Tracking Sheet] Failed to update:', err.message || err);
+    console.error('[Merge] Failed:', err.message || err);
   }
 
   // ─── Delta progress report ─────────────────────────────────────────────────
