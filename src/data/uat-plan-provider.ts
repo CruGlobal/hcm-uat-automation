@@ -115,7 +115,7 @@ export function isTestable(tc: UATTestCase): boolean {
   }
   // Parallel mode: only run tests assigned to the specified bot
   if (process.env.PARALLEL_BOT) {
-    const bot = getBotForTester(tc.testerName, tc.module);
+    const bot = getBotForTester(tc.testerName, tc.module, tc.testId);
     if (bot.botName !== process.env.PARALLEL_BOT) return false;
   }
   return true;
@@ -148,7 +148,7 @@ export function sortByUser(cases: UATTestCase[]): UATTestCase[] {
   const botGroups = new Map<string, UATTestCase[]>();
 
   for (const tc of cases) {
-    const bot = getBotForTester(tc.testerName, tc.module);
+    const bot = getBotForTester(tc.testerName, tc.module, tc.testId);
     if (!bot) {
       defaultGroup.push(tc);
     } else {

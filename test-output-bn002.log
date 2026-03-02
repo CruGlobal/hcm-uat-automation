@@ -1,0 +1,20 @@
+
+Running 1 test using 1 worker
+
+[Benefits] BN-002: category=job-reclass person=Larson, Danielle (10000010) plan=Life program=RMO Staff Benefits Program option=Basic Life Insurance 250K coverage=250000
+[BaseFlow] Login as bot_hr_admin (Greg Johnson) for test BN-002
+[Login] Direct HCM login as uat.bot_hr_admin
+[Benefits] Filter chip "Life Event Status" not visible
+[Benefits] Search input not found — proceeding without person search
+[Benefits] selectWorker: Could not find worker "Larson, Danielle" in results
+[Benefits] No enrollment action found for worker
+[Benefits] Plan "Life" not found in enrollment wizard
+[Benefits] Coverage "Basic Life Insurance 250K" not found
+[Benefits] No Next/Continue button found
+[Benefits] No Submit button found
+[Benefits] No explicit confirmation message found, capturing current state
+[OutcomeValidator] BN-002: 6 benefit enrollment(s) for 10000010
+[OutcomeValidator] BN-002: First enrollment — coverage: 2025-09-16 to null
+  ✓  1 [oracle-hcm] › tests/benefits/benefits.spec.ts:15:9 › Benefits › BN-002: Reclass from FT to PT or vice versa — Reclass is processed (currently in a SCR (30.1s)
+
+  1 passed (30.9s)

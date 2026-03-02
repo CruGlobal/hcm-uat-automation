@@ -1,0 +1,110 @@
+
+Running 1 test using 1 worker
+
+[BaseFlow] Login as bot_hr_local_familylife (Lisa Mitchell) for test HR-032
+[Login] Direct HCM login as uat.bot_hr_local_familylife
+[CoreHR] "Matching Person Records" dialog detected — clicking Continue
+[LOV] Dialog has 3 rows (adf=3)
+[LOV] Clicking row matching: "Crown Point, Lake"
+[Assignment] Filling LOV Business Unit = "Cru"
+[Assignment] Business Unit after fill: "Cru"
+[Assignment] Filling LOV Job = "Raising Support Full Time"
+[LOV] Found autocomplete suggestion: li:has-text("Raising Support Full Time")
+[Assignment] Job after fill: "Raising Support Full Time"
+[Assignment] Filling LOV Grade = "Non Graded"
+[LOV] Typed "Non Graded" in dialog search
+[LOV] Fired Search action
+[LOV] After search: 0 rows
+[LOV] Found 9 alt rows (tbody tr)
+[LOV] Dialog has 9 rows (adf=0)
+[LOV] No text match, clicking first row
+[Assignment] Grade after fill: "Non Graded"
+[Assignment] Filling LOV Department = "Conversion Department"
+[LOV] Found autocomplete suggestion: li:has-text("Conversion Department")
+[Assignment] Department after fill: "Conversion Department"
+[Assignment] Filling LOV Location = "Cru World Headquarters"
+[LOV] Found autocomplete suggestion: li:has-text("Cru World Headquarters")
+[Assignment] Location after fill: "Cru World Headquarters"
+[Assignment] Setting readonly Person Type = "Employee - International Intern"
+[ADF] setReadonlyCombobox: id=_FOpt1:_FOr1:0:_FONSr2:0:MAnt2:1:pt1:pt_r1:2:sP2:NewPe3:0:NewPe1:0:selectOneChoice1::content, tag=input, value="Employee - International Intern"
+[ADF] Result: {"success":true,"matched":"exact","setValue":"1","itemCount":13,"labels":["Employee - Hourly=0","Employee - International Intern=1","Employee - National Staff (Expat)=2","Employee - PTFS=3","Employee - Salaried=4","Employee - Staff=5","Employee - Staff - non-RMO Spouse=6","Employee - US Intern=7","Pending - International Intern=8","Pending - PTFS=9","Pending - Staff=10","Pending - Staff - non-RMO Spouse=11","Pending - US Intern=12"],"currentVal":"5"}
+[Assignment] Person Type after set: "Employee - International Intern"
+[Assignment] Setting readonly Assignment Status = "Active - Payroll Eligible"
+[ADF] setReadonlyCombobox: id=_FOpt1:_FOr1:0:_FONSr2:0:MAnt2:1:pt1:pt_r1:2:sP2:NewPe3:0:NewPe1:0:selectOneChoice2::content, tag=input, value="Active - Payroll Eligible"
+[ADF] Result: {"success":true,"matched":"exact","setValue":"3","itemCount":11,"labels":["Active - FMLA Leave=0","Active - No Payroll=1","Active - Paid Leave=2","Active - Payroll Eligible=3","Active - Unpaid Leave=4","Disability - Payroll Eligible=5","Pending - No Payroll=6","Raising Initial Support - No Payroll=7","Raising Initial Support - Payroll Eligible=8","Suspended - No Payroll=9","Suspended - Payroll Eligible=10"],"currentVal":"3"}
+[Assignment] Assignment Status after set: "Active - Payroll Eligible"
+[Assignment] Setting readonly Assignment Category = "Full-time regular"
+[ADF] setReadonlyCombobox: id=_FOpt1:_FOr1:0:_FONSr2:0:MAnt2:1:pt1:pt_r1:2:sP2:NewPe3:0:JobDe1:0:selectOneChoice3::content, tag=input, value="Full-time regular"
+[ADF] Result: {"success":true,"matched":"exact","setValue":"FR","itemCount":6,"labels":["(null)=","Full-time regular=FR","Full-time temporary=FT","On Call=ON_CALL","Part-time regular=PR","Part-time temporary=PT"],"currentVal":null}
+[Assignment] Assignment Category after set: "Full-time regular"
+[Assignment] Setting readonly Reg/Temp = "Regular"
+[ADF] setReadonlyCombobox: id=_FOpt1:_FOr1:0:_FONSr2:0:MAnt2:1:pt1:pt_r1:2:sP2:NewPe3:0:JobDe1:0:soc2::content, tag=input, value="Regular"
+[ADF] Result: {"success":true,"matched":"exact","setValue":"1","itemCount":3,"labels":["(null)=0","Regular=1","Temporary=2"],"currentVal":"0"}
+[Assignment] Reg/Temp after set: "Regular"
+[Assignment] Setting readonly Full time or Part Time = "Full Time"
+[ADF] setReadonlyCombobox: id=_FOpt1:_FOr1:0:_FONSr2:0:MAnt2:1:pt1:pt_r1:2:sP2:NewPe3:0:JobDe1:0:soc1::content, tag=input, value="Full Time"
+[ADF] Result: {"success":true,"matched":"normalized","setValue":"1","itemCount":3,"labels":["(null)=0","Full time=1","Part time=2"],"currentVal":"0"}
+[Assignment] Full time or Part Time after set: "Full time"
+[Assignment] Mapped Hourly Salary: "Salary" → "Salaried"
+[Assignment] Setting readonly Hourly Salary = "Salaried"
+[ADF] setReadonlyCombobox: id=_FOpt1:_FOr1:0:_FONSr2:0:MAnt2:1:pt1:pt_r1:2:sP2:NewPe3:0:JobDe1:0:selectOneChoice2::content, tag=input, value="Salaried"
+[ADF] Result: {"success":true,"matched":"exact","setValue":"S","itemCount":3,"labels":["(null)=","Hourly=H","Salaried=S"],"currentVal":null}
+[Assignment] Hourly Salary after set: "Salaried"
+[Assignment] Setting readonly Frequency = "Weekly"
+[ADF] setReadonlyCombobox: id=_FOpt1:_FOr1:0:_FONSr2:0:MAnt2:1:pt1:pt_r1:2:sP2:NewPe3:0:JobDe1:0:selectOneChoice6::content, tag=input, value="Weekly"
+[ADF] Result: {"success":true,"matched":"exact","setValue":"W","itemCount":7,"labels":["(null)=","Daily=D","Weekly=W","Biweekly=BW","Semimonthly=SM","Monthly=M","Yearly=Y"],"currentVal":"W"}
+[Assignment] Frequency after set: "Weekly"
+[Manager] Filling Name: "Kelly Murray" → searching as "Murray, Kelly"
+[LOV] Found autocomplete suggestion: li:has-text("Murray, Kelly")
+[Manager] Name set to: "Murray, Kelly"
+[Confirm] Pre-submit URL: https://stafflife-icahjb-test.fa.ocs.oraclecloud.com/hcmUI/faces/FndOverview?fnd=%3B%3B%3B%3Bfalse%3B256%3B%3B%3B&fndGlobalItemNodeId=itemNode_workforce_management_new_person&_afrLoop=14209682552380385&_afrWindowMode=0&_afrWindowId=lyz3g0rhv&_adf.ctrl-state=njrdu8jic_1&_afrFS=16&_afrMT=screen&_afrMFW=1280&_afrMFH=720&_afrMFDW=1280&_afrMFDH=720&_afrMFC=8&_afrMFCI=0&_afrMFM=0&_afrMFR=96&_afrMFG=0&_afrMFS=0&_afrMFO=0
+[Confirm] Current URL: https://stafflife-icahjb-test.fa.ocs.oraclecloud.com/hcmUI/faces/FndOverview?fnd=%3B%3B%3B%3Bfalse%3B256%3B%3B%3B&fndGlobalItemNodeId=itemNode_workforce_management_new_person&_afrLoop=14209682552380385&_afrWindowMode=0&_afrWindowId=lyz3g0rhv&_adf.ctrl-state=njrdu8jic_1&_afrFS=16&_afrMT=screen&_afrMFW=1280&_afrMFH=720&_afrMFDW=1280&_afrMFDH=720&_afrMFC=8&_afrMFCI=0&_afrMFM=0&_afrMFR=96&_afrMFG=0&_afrMFS=0&_afrMFO=0
+Confirmation: 
+Warnings: [
+  [32m''[39m,
+  [32m''[39m,
+  [32m"Error: You need to enter a different number. There's already an assignment number with that value. ("[39m,
+  [32m"Error: You need to enter a different number. There's already an assignment number with that value. ("[39m,
+  [32m''[39m,
+  [32m'Enter a value or use the number assigned automatically'[39m
+]
+  ✘  1 [oracle-hcm] › tests/core-hr/core-hr-uat-plan.spec.ts:14:9 › Core HR (UAT Plan) › HR-032: Hire Hourly Part Time Reg Employee with Designatio — HR Generalist hires a new hourly Part Ti (3.2m)
+
+
+  1) [oracle-hcm] › tests/core-hr/core-hr-uat-plan.spec.ts:14:9 › Core HR (UAT Plan) › HR-032: Hire Hourly Part Time Reg Employee with Designatio — HR Generalist hires a new hourly Part Ti 
+
+    Error: [OutcomeValidator] Error detected on page: Assignment Number
+
+       at ../src/validation/outcome-validator.ts:535
+
+      533 |       if (visible) {
+      534 |         const text = await errorEl.textContent().catch(() => 'unknown error');
+    > 535 |         throw new Error(`[OutcomeValidator] Error detected on page: ${text}`);
+          |               ^
+      536 |       }
+      537 |     }
+      538 |   }
+        at OutcomeValidator.verifyNoErrors (/home/ai/htdocs/hcm-uat-automation/src/validation/outcome-validator.ts:535:15)
+        at OutcomeValidator.validateHireOutcome (/home/ai/htdocs/hcm-uat-automation/src/validation/outcome-validator.ts:80:5)
+        at OutcomeValidator.validateCoreHR (/home/ai/htdocs/hcm-uat-automation/src/validation/outcome-validator.ts:68:7)
+        at OutcomeValidator.validate (/home/ai/htdocs/hcm-uat-automation/src/validation/outcome-validator.ts:45:39)
+        at /home/ai/htdocs/hcm-uat-automation/tests/core-hr/core-hr-uat-plan.spec.ts:27:7
+
+    Error: apiRequestContext._wrapApiCall: ENOENT: no such file or directory, open '/home/ai/htdocs/hcm-uat-automation/test-results/.playwright-artifacts-0/traces/14e3e65794db74cb6cfc-74015e3fe2080998b1f9.trace'
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    test-results/core-hr-core-hr-uat-plan-C-fe1b3--hires-a-new-hourly-Part-Ti-oracle-hcm/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: test-results/core-hr-core-hr-uat-plan-C-fe1b3--hires-a-new-hourly-Part-Ti-oracle-hcm/error-context.md
+
+    attachment #3: trace (application/zip) ─────────────────────────────────────────────────────────
+    test-results/core-hr-core-hr-uat-plan-C-fe1b3--hires-a-new-hourly-Part-Ti-oracle-hcm/trace.zip
+    Usage:
+
+        npx playwright show-trace test-results/core-hr-core-hr-uat-plan-C-fe1b3--hires-a-new-hourly-Part-Ti-oracle-hcm/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+  1 failed
+    [oracle-hcm] › tests/core-hr/core-hr-uat-plan.spec.ts:14:9 › Core HR (UAT Plan) › HR-032: Hire Hourly Part Time Reg Employee with Designatio — HR Generalist hires a new hourly Part Ti 

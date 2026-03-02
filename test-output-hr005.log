@@ -1,0 +1,98 @@
+
+Running 1 test using 1 worker
+
+[BaseFlow] Login as bot_div_approver (Mike Hershey) for test HR-005
+[Login] Direct HCM login as uat.bot_div_approver
+[Address] Placeholder address detected — using Cru HQ defaults
+[Assignment] Filling LOV Business Unit = "Cru"
+[Assignment] Business Unit after fill: "Cru"
+[Assignment] Filling LOV Job = "Raising Support Full Time"
+[LOV] Found autocomplete suggestion: li:has-text("Raising Support Full Time")
+[Assignment] Job after fill: "Raising Support Full Time"
+[Assignment] Filling LOV Grade = "Non Graded"
+[LOV] Typed "Non Graded" in dialog search
+[LOV] Fired Search action
+[LOV] After search: 0 rows
+[LOV] Found 9 alt rows (tbody tr)
+[LOV] Dialog has 9 rows (adf=0)
+[LOV] No text match, clicking first row
+[Assignment] Grade after fill: "Non Graded"
+[Assignment] Filling LOV Department = "Campus Local Missions Cohort 14"
+[LOV] Found autocomplete suggestion: li:has-text("Campus Local Missions Cohort 14")
+[Assignment] Department after fill: "Campus Local Missions Cohort 14"
+[Assignment] Filling LOV Location = "Cru World Headquarters"
+[LOV] Found autocomplete suggestion: li:has-text("Cru World Headquarters")
+[Assignment] Location after fill: "Cru World Headquarters"
+[Assignment] Readonly Person Type not visible on page — skipping
+[Assignment] Readonly Assignment Status not visible on page — skipping
+[Assignment] Setting readonly Assignment Category = "Part-time regular"
+[ADF] setReadonlyCombobox: id=_FOpt1:_FOr1:0:_FONSr2:0:MAnt2:1:pt1:AddPw1:3:SP1:AddPw2:0:JobDe1:0:selectOneChoice3::content, tag=input, value="Part-time regular"
+[ADF] Result: {"success":true,"matched":"exact","setValue":"PR","itemCount":6,"labels":["(null)=","Full-time regular=FR","Full-time temporary=FT","On Call=ON_CALL","Part-time regular=PR","Part-time temporary=PT"],"currentVal":null}
+[Assignment] Assignment Category after set: "Part-time regular"
+[Assignment] Setting readonly Reg/Temp = "Regular"
+[ADF] setReadonlyCombobox: id=_FOpt1:_FOr1:0:_FONSr2:0:MAnt2:1:pt1:AddPw1:3:SP1:AddPw2:0:JobDe1:0:soc2::content, tag=input, value="Regular"
+[ADF] Result: {"success":true,"matched":"exact","setValue":"1","itemCount":3,"labels":["(null)=0","Regular=1","Temporary=2"],"currentVal":"0"}
+[Assignment] Reg/Temp after set: "Regular"
+[Assignment] Setting readonly Full time or Part Time = "Full Time"
+[ADF] setReadonlyCombobox: id=_FOpt1:_FOr1:0:_FONSr2:0:MAnt2:1:pt1:AddPw1:3:SP1:AddPw2:0:JobDe1:0:soc1::content, tag=input, value="Full Time"
+[ADF] Result: {"success":true,"matched":"normalized","setValue":"1","itemCount":3,"labels":["(null)=0","Full time=1","Part time=2"],"currentVal":"0"}
+[Assignment] Full time or Part Time after set: "Full time"
+[Assignment] Mapped Hourly Salary: "Salary" → "Salaried"
+[Assignment] Setting readonly Hourly Salary = "Salaried"
+[ADF] setReadonlyCombobox: id=_FOpt1:_FOr1:0:_FONSr2:0:MAnt2:1:pt1:AddPw1:3:SP1:AddPw2:0:JobDe1:0:selectOneChoice2::content, tag=input, value="Salaried"
+[ADF] Result: {"success":true,"matched":"exact","setValue":"S","itemCount":3,"labels":["(null)=","Hourly=H","Salaried=S"],"currentVal":null}
+[Assignment] Hourly Salary after set: "Salaried"
+[Assignment] Setting readonly Frequency = "Weekly"
+[ADF] setReadonlyCombobox: id=_FOpt1:_FOr1:0:_FONSr2:0:MAnt2:1:pt1:AddPw1:3:SP1:AddPw2:0:JobDe1:0:selectOneChoice6::content, tag=input, value="Weekly"
+[ADF] Result: {"success":true,"matched":"exact","setValue":"W","itemCount":7,"labels":["(null)=","Daily=D","Weekly=W","Biweekly=BW","Semimonthly=SM","Monthly=M","Yearly=Y"],"currentVal":"W"}
+[Assignment] Frequency after set: "Weekly"
+[PayrollDetails] Tax Reporting Unit not visible on page — skipping
+[Confirm] Pre-submit URL: https://stafflife-icahjb-test.fa.ocs.oraclecloud.com/hcmUI/faces/FndOverview?fnd=%3B%3B%3B%3Bfalse%3B256%3B%3B%3B&fndGlobalItemNodeId=itemNode_workforce_management_new_person&_afrLoop=14208585932895300&_afrWindowMode=0&_afrWindowId=193gvdk6q9&_adf.ctrl-state=1drdjotmcw_1&_afrFS=16&_afrMT=screen&_afrMFW=1280&_afrMFH=720&_afrMFDW=1280&_afrMFDH=720&_afrMFC=8&_afrMFCI=0&_afrMFM=0&_afrMFR=96&_afrMFG=0&_afrMFS=0&_afrMFO=0
+[Confirm] Current URL: https://stafflife-icahjb-test.fa.ocs.oraclecloud.com/hcmUI/faces/FndOverview?fnd=%3B%3B%3B%3Bfalse%3B256%3B%3B%3B&fndGlobalItemNodeId=itemNode_workforce_management_new_person&_afrLoop=14208585932895300&_afrWindowMode=0&_afrWindowId=193gvdk6q9&_adf.ctrl-state=1drdjotmcw_1&_afrFS=16&_afrMT=screen&_afrMFW=1280&_afrMFH=720&_afrMFDW=1280&_afrMFDH=720&_afrMFC=8&_afrMFCI=0&_afrMFM=0&_afrMFR=96&_afrMFG=0&_afrMFS=0&_afrMFO=0
+Confirmation: 
+Warnings: [
+  [32m''[39m,
+  [32m''[39m,
+  [32m'Error: The value is not a number. The value must be a number.'[39m,
+  [32m'Error: The value is not a number. The value must be a number.'[39m
+]
+  ✘  1 [oracle-hcm] › tests/core-hr/core-hr-uat-plan.spec.ts:14:9 › Core HR (UAT Plan) › HR-005: Add International Intern applicant manually if err — HR Generalist uses Add a Pending Worker  (3.0m)
+
+
+  1) [oracle-hcm] › tests/core-hr/core-hr-uat-plan.spec.ts:14:9 › Core HR (UAT Plan) › HR-005: Add International Intern applicant manually if err — HR Generalist uses Add a Pending Worker  
+
+    Error: [OutcomeValidator] Error detected on page: Working Hours
+
+       at ../src/validation/outcome-validator.ts:535
+
+      533 |       if (visible) {
+      534 |         const text = await errorEl.textContent().catch(() => 'unknown error');
+    > 535 |         throw new Error(`[OutcomeValidator] Error detected on page: ${text}`);
+          |               ^
+      536 |       }
+      537 |     }
+      538 |   }
+        at OutcomeValidator.verifyNoErrors (/home/ai/htdocs/hcm-uat-automation/src/validation/outcome-validator.ts:535:15)
+        at OutcomeValidator.validateHireOutcome (/home/ai/htdocs/hcm-uat-automation/src/validation/outcome-validator.ts:80:5)
+        at OutcomeValidator.validateCoreHR (/home/ai/htdocs/hcm-uat-automation/src/validation/outcome-validator.ts:68:7)
+        at OutcomeValidator.validate (/home/ai/htdocs/hcm-uat-automation/src/validation/outcome-validator.ts:45:39)
+        at /home/ai/htdocs/hcm-uat-automation/tests/core-hr/core-hr-uat-plan.spec.ts:27:7
+
+    Error: apiRequestContext._wrapApiCall: ENOENT: no such file or directory, open '/home/ai/htdocs/hcm-uat-automation/test-results/.playwright-artifacts-0/traces/14e3e65794db74cb6cfc-97cf3014a695b1f71925.network'
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    test-results/core-hr-core-hr-uat-plan-C-0ecd8--uses-Add-a-Pending-Worker--oracle-hcm/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: test-results/core-hr-core-hr-uat-plan-C-0ecd8--uses-Add-a-Pending-Worker--oracle-hcm/error-context.md
+
+    attachment #3: trace (application/zip) ─────────────────────────────────────────────────────────
+    test-results/core-hr-core-hr-uat-plan-C-0ecd8--uses-Add-a-Pending-Worker--oracle-hcm/trace.zip
+    Usage:
+
+        npx playwright show-trace test-results/core-hr-core-hr-uat-plan-C-0ecd8--uses-Add-a-Pending-Worker--oracle-hcm/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+  1 failed
+    [oracle-hcm] › tests/core-hr/core-hr-uat-plan.spec.ts:14:9 › Core HR (UAT Plan) › HR-005: Add International Intern applicant manually if err — HR Generalist uses Add a Pending Worker  

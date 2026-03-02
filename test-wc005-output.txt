@@ -1,0 +1,52 @@
+
+Running 1 test using 1 worker
+
+[BaseFlow] Login as bot_hr_local_campus (Ada Morgan) for test WC-005
+[Login] Direct HCM login as uat.bot_hr_local_campus
+[Compensation] Searching for person: Sanders, Melburn
+[Compensation] No search field found — page may show direct reports or self-service view
+[Compensation] Effective date: 2025/01/01 -> 2025/01/01
+[Compensation] Salary amount: 13460.001
+[Compensation] Salary basis: Supported Staff RMO
+[Compensation] Action code: Change Salary
+  ✘  1 [oracle-hcm] › tests/compensation/compensation.spec.ts:13:9 › Workforce Compensation › WC-005: Merit Planning — Proration calculations are correct (15.9s)
+
+
+  1) [oracle-hcm] › tests/compensation/compensation.spec.ts:13:9 › Workforce Compensation › WC-005: Merit Planning — Proration calculations are correct 
+
+    Error: ADF button "Submit" not found
+
+       at ../src/pages/base.page.ts:166
+
+      164 |     }, buttonText);
+      165 |
+    > 166 |     if (!componentId) throw new Error(`ADF button "${buttonText}" not found`);
+          |                             ^
+      167 |     await this.clickAdfLink(componentId);
+      168 |   }
+      169 |
+        at CompensationPage.clickAdfButton (/home/ai/htdocs/hcm-uat-automation/src/pages/base.page.ts:166:29)
+        at CompensationPage.clickSubmit (/home/ai/htdocs/hcm-uat-automation/src/pages/compensation/compensation.page.ts:493:7)
+        at CompensationManagementFlow.handleCompensationPlanning (/home/ai/htdocs/hcm-uat-automation/src/flows/compensation/compensation-management.flow.ts:267:5)
+        at CompensationManagementFlow.routeByTestScript (/home/ai/htdocs/hcm-uat-automation/src/flows/compensation/compensation-management.flow.ts:165:9)
+        at CompensationManagementFlow.execute (/home/ai/htdocs/hcm-uat-automation/src/flows/compensation/compensation-management.flow.ts:72:28)
+        at /home/ai/htdocs/hcm-uat-automation/tests/compensation/compensation.spec.ts:22:7
+
+    Error: apiRequestContext._wrapApiCall: ENOENT: no such file or directory, open '/home/ai/htdocs/hcm-uat-automation/test-results/.playwright-artifacts-0/traces/1e2457c158bd04ec5bda-98a79529240cbc69969b.network'
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    test-results/compensation-compensation--f095c-on-calculations-are-correct-oracle-hcm/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: test-results/compensation-compensation--f095c-on-calculations-are-correct-oracle-hcm/error-context.md
+
+    attachment #3: trace (application/zip) ─────────────────────────────────────────────────────────
+    test-results/compensation-compensation--f095c-on-calculations-are-correct-oracle-hcm/trace.zip
+    Usage:
+
+        npx playwright show-trace test-results/compensation-compensation--f095c-on-calculations-are-correct-oracle-hcm/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+  1 failed
+    [oracle-hcm] › tests/compensation/compensation.spec.ts:13:9 › Workforce Compensation › WC-005: Merit Planning — Proration calculations are correct 

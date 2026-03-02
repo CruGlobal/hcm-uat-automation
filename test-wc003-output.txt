@@ -1,0 +1,51 @@
+
+Running 1 test using 1 worker
+
+[BaseFlow] Login as bot_hr_local_campus (Ada Morgan) for test WC-003
+[Login] Direct HCM login as uat.bot_hr_local_campus
+[Compensation] Searching for person: Larson, Danielle
+[Compensation] No search field found — page may show direct reports or self-service view
+[Compensation] Wage range check - salary: 36044.58, basis: Supported Staff RMO
+  ✘  1 [oracle-hcm] › tests/compensation/compensation.spec.ts:13:9 › Workforce Compensation › WC-003: Wage Range Workflow — compa ratio autopopulates (16.9s)
+
+
+  1) [oracle-hcm] › tests/compensation/compensation.spec.ts:13:9 › Workforce Compensation › WC-003: Wage Range Workflow — compa ratio autopopulates 
+
+    Error: WC-003: Expected at least one salary record for person 10000010
+
+    [2mexpect([22m[31mreceived[39m[2m).[22mtoBeGreaterThan[2m([22m[32mexpected[39m[2m)[22m
+
+    Expected: > [32m0[39m
+    Received:   [31m0[39m
+
+       at ../src/validation/outcome-validator.ts:328
+
+      326 |         salaries.length,
+      327 |         `${tc.testId}: Expected at least one salary record for person ${personNumber}`,
+    > 328 |       ).toBeGreaterThan(0);
+          |         ^
+      329 |     }
+      330 |
+      331 |     const latest = salaries[salaries.length - 1];
+        at OutcomeValidator.validateCompensation (/home/ai/htdocs/hcm-uat-automation/src/validation/outcome-validator.ts:328:9)
+        at OutcomeValidator.validate (/home/ai/htdocs/hcm-uat-automation/src/validation/outcome-validator.ts:49:49)
+        at /home/ai/htdocs/hcm-uat-automation/tests/compensation/compensation.spec.ts:26:7
+
+    Error: apiRequestContext._wrapApiCall: ENOENT: no such file or directory, open '/home/ai/htdocs/hcm-uat-automation/test-results/.playwright-artifacts-0/traces/1e2457c158bd04ec5bda-5b528b417dfd45733b7a.network'
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    test-results/compensation-compensation--8e9b7-—-compa-ratio-autopopulates-oracle-hcm/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: test-results/compensation-compensation--8e9b7-—-compa-ratio-autopopulates-oracle-hcm/error-context.md
+
+    attachment #3: trace (application/zip) ─────────────────────────────────────────────────────────
+    test-results/compensation-compensation--8e9b7-—-compa-ratio-autopopulates-oracle-hcm/trace.zip
+    Usage:
+
+        npx playwright show-trace test-results/compensation-compensation--8e9b7-—-compa-ratio-autopopulates-oracle-hcm/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+  1 failed
+    [oracle-hcm] › tests/compensation/compensation.spec.ts:13:9 › Workforce Compensation › WC-003: Wage Range Workflow — compa ratio autopopulates 

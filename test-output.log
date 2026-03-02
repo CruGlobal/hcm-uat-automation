@@ -1,0 +1,11 @@
+
+Running 1 test using 1 worker
+
+[BaseFlow] Login as bot_comp_spec (Barb Beecher) for test WC-001
+[Login] Direct HCM login as uat.bot_comp_spec
+[Compensation] Searching for person: Smith, Paul
+[Compensation] No search field found — page may show direct reports or self-service view
+[OutcomeValidator] WC-001: No salary records for person 10000002 (view-only test — OK)
+  ✓  1 [oracle-hcm] › tests/compensation/compensation.spec.ts:13:9 › Workforce Compensation › WC-001: View Employee History — Look up employee compensation history (22.4s)
+
+  1 passed (23.1s)
