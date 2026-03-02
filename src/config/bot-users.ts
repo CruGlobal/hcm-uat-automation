@@ -105,16 +105,42 @@ const MODULE_BOT_OVERRIDES: Record<string, string> = {
 };
 
 /**
+ * Test-ID-specific bot overrides.
+ * When a specific test needs a different bot than what testerName/module would assign
+ * (e.g., because the assigned bot lacks enrollment or data required for that test),
+ * add an entry here: testId → botName.
+ *
+ * bot_hr_crisis (Hailey McTee) is not enrolled in absence plans, so absence tests
+ * requiring plan enrollment (Disburse Balance, Review Accrual, Balance Adjustment,
+ * Delete Enrollment) are routed to bot_payroll_admin (Grace George) instead.
+ */
+const TEST_ID_BOT_OVERRIDES: Record<string, string> = {
+  'AB-054.00': 'bot_payroll_admin',
+  'AB-056.00': 'bot_payroll_admin',
+  'AB.021.00': 'bot_payroll_admin',
+  'AB.022.00': 'bot_payroll_admin',
+  'AB.027.00': 'bot_payroll_admin',
+};
+
+/**
  * Look up a bot user by testerName from the UAT Plan.
  * Handles multi-line names (first non-empty line) and slash-separated
  * multi-tester entries like "Lisa Franklin/Lisa Mitchell" (first name).
  *
- * When a module is provided, checks module-specific overrides first.
- * This allows routing the same tester's tests to different bots based on module.
+ * Resolution order: testId override → module override → testerName lookup.
  *
  * All tests run with bot users — returns a default bot for empty/unmatched names.
  */
-export function getBotForTester(testerName: string, module?: string): BotUserIdentity {
+export function getBotForTester(testerName: string, module?: string, testId?: string): BotUserIdentity {
+  // Check test-ID-specific overrides first
+  if (testId) {
+    const overrideBotName = TEST_ID_BOT_OVERRIDES[testId];
+    if (overrideBotName) {
+      const overrideBot = BOT_USERS.find(b => b.botName === overrideBotName);
+      if (overrideBot) return overrideBot;
+    }
+  }
+
   if (!testerName) return DEFAULT_BOT;
   // UAT Plan testerName can be multi-line — take first non-empty line
   const name = testerName.split('\n').map(s => s.trim()).find(s => s.length > 0) || '';
