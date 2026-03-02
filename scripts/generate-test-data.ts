@@ -1050,8 +1050,8 @@ function buildAddPendingFields(
     'Payroll Details > Frequency': 'Semimonthly Supported',
     'Payroll Details > Time Card required': 'N',
     'Staff and Designation > Effective Date': 'todays date',
-    'Staff and Designation > Staff Account Number': person.STAFF_ACCOUNT_NUMBER || 'New',
-    'Staff and Designation > Designation': person.DESIGNATION_NUMBER || 'New',
+    'Staff and Designation > Staff Account Number': asg.PEOPLE_GROUP && asg.PEOPLE_GROUP !== 'NONE' ? 'New' : (person.STAFF_ACCOUNT_NUMBER || 'New'),
+    'Staff and Designation > Designation': asg.PEOPLE_GROUP && asg.PEOPLE_GROUP !== 'NONE' ? 'New' : (person.DESIGNATION_NUMBER || 'New'),
     'Staff and Designation > Primary': 'Yes',
   };
 

@@ -1,5 +1,6 @@
 import { type Page } from '@playwright/test';
 import { BaseCoreHRFlow } from './base-core-hr.flow';
+import { getField } from '../../data/test-data-provider';
 import type { TestCase } from '../../data/types';
 
 /**
@@ -49,7 +50,15 @@ export class AddPendingWorkerFlow extends BaseCoreHRFlow {
     await this.fillStep3(tc);
     await this.clickNext();
 
-    // Step 5: Compensation and Other Information (skip)
+    // Step 5: Compensation and Other Information
+    // Fill Staff Designation if data is available
+    const hasStaffDesignation = getField(tc, 'Staff and Designation') ||
+                                getField(tc, 'Staff Account Number') ||
+                                getField(tc, 'Designation');
+    if (hasStaffDesignation) {
+      console.log('[AddPendingWorker] Filling Staff Designation section');
+      await this.staffDesignation.fillFromTestCase(tc);
+    }
     await this.clickNext();
 
     // Step 6: Review → Submit
