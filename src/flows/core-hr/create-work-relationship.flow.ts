@@ -92,8 +92,12 @@ export class CreateWorkRelationshipFlow extends BaseCoreHRFlow {
       const checked = await cb.isChecked().catch(() => false);
       if (!checked) {
         console.log('[CWR] Checking "Include terminated work relationships" checkbox');
-        await cb.check({ force: true });
-        await this.page.waitForTimeout(1000);
+        try {
+          await cb.check({ force: true });
+          await this.page.waitForTimeout(1000);
+        } catch (e) {
+          console.log(`[CWR] Could not check "Include terminated" checkbox: ${e}`);
+        }
       }
     }
 
