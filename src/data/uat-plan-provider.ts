@@ -92,7 +92,7 @@ export function uatTestTitle(tc: UATTestCase): string {
  * Check if a UAT test case should run.
  *
  * Filters applied (in order):
- * 1. Skip deferred/cancelled tests
+ * 1. Skip deferred tests
  * 2. Skip empty rows (no business process, test script, or transaction category)
  * 3. RUN_PASSED_ONLY — only tests with "passed"/"pass" status
  * 4. RUN_FAILED_ONLY — only tests with "failed"/"fail" status
@@ -100,7 +100,7 @@ export function uatTestTitle(tc: UATTestCase): string {
  */
 export function isTestable(tc: UATTestCase): boolean {
   const status = tc.status.toLowerCase();
-  if (status === 'deferred' || status === 'cancelled') return false;
+  if (status === 'deferred') return false;
   // Skip empty rows: no business process, no test script, and no transaction category
   if (!tc.businessProcess && !tc.testScript && !tc.transactionCategory) return false;
   if (process.env.RUN_STATUS_FILTER) {
