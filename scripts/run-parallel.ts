@@ -451,7 +451,9 @@ async function main() {
           ...(proc.accountName !== baseBotName ? { PARALLEL_BOT_ACCOUNT: proc.accountName } : {}),
         },
         cwd: process.cwd(),
-        shell: true,
+        // shell: false (default) — prevents | in --grep patterns from being
+        // interpreted as shell pipes, which would silently drop tests for bots
+        // with 2+ tests in their grep pattern.
       });
       spawnedCount++;
       if (spawnedCount % 10 === 0) {
