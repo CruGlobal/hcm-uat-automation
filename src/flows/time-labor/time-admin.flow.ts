@@ -30,6 +30,13 @@ export class TimeAdminFlow extends BaseTimeLaborFlow {
     console.log(`[TimeAdmin] ${tc.testId} action="${action}" bp="${tc.businessProcess}" cat="${tc.transactionCategory}" script="${tc.testScript}"`);
 
     switch (action) {
+      case 'create-redwood':
+        // TL-011 and similar: "Timecard Entry" tests with transactionCategory="Admin"
+        // (meaning the admin is entering time on behalf of an employee — same ESS flow).
+        // hrTimecardEntry() handles the admin path with an ESS fallback.
+        await this.hrTimecardEntry(tc);
+        break;
+
       case 'hr-transactions':
         await this.hrSpecialistTransactions(tc);
         break;

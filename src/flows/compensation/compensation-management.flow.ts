@@ -123,8 +123,9 @@ export class CompensationManagementFlow extends BaseCompensationFlow {
         // Salary analysis
         await this.handleBasePay(tc, fieldData);
       } else if (/COMP\.105/i.test(script)) {
-        // View employee history
-        await this.handleHistory(tc, fieldData);
+        // HCM.COMP.105 — Employee views salary details on "My Compensation" page (ESS)
+        // This is an employee self-service view of their own salary, not an admin history review.
+        await this.handleTotalCompensation(tc, fieldData);
       } else {
         await this.handleBasePay(tc, fieldData);
       }
