@@ -120,6 +120,12 @@ export class CoreHRUATFlow extends BaseFlow {
       // which would falsely match the hire block below — check MHA first.
       await this.executeGenericHRAction(tc);
     } else if (
+      process.includes('terminat') || process.includes('end assignment') ||
+      process.includes('end work relationship') || process.includes('end additional') ||
+      /\bterm\b/.test(process) || process.includes('withdraw')
+    ) {
+      await this.executeTermination(tc);
+    } else if (
       process.includes('hire') || process.includes('hiring') ||
       process.includes('pending') ||
       process.includes('nonworker') || process.includes('non worker') ||
@@ -129,12 +135,6 @@ export class CoreHRUATFlow extends BaseFlow {
       process.includes('self supported')
     ) {
       await this.executeHire(tc);
-    } else if (
-      process.includes('terminat') || process.includes('end assignment') ||
-      process.includes('end work relationship') || process.includes('end additional') ||
-      /\bterm\b/.test(process) || process.includes('withdraw')
-    ) {
-      await this.executeTermination(tc);
     } else if (process.includes('transfer') || process.includes('company change') || process.includes('global transfer')) {
       await this.executeTransfer(tc);
     } else if (process.includes('supervisor change') || process.includes('manager change') || process.includes('change manager')) {
