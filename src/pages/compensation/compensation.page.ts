@@ -43,7 +43,9 @@ export class CompensationPage extends BasePage {
 
   /** Search input to find an employee by name or number. */
   private readonly personSearch = this.page.locator(
-    'input[aria-label*="Search"], input[placeholder*="Search"]'
+    'input[aria-label*="Search"], input[placeholder*="Search"], ' +
+    '[id$="q1:value00::content"], input[aria-label*="Name"], ' +
+    'input[aria-label*="Person"]'
   ).first();
 
   // --- Base Pay / Salary section ---
@@ -185,13 +187,32 @@ export class CompensationPage extends BasePage {
 
   /** Search for an employee by name or person number. */
   async searchPerson(query: string): Promise<void> {
-    await this.fillField(this.personSearch, query);
-    await this.page.waitForTimeout(5000);
-    await this.waitForJET();
+    // Workforce Compensation pages vary: some have search fields, some show
+    // direct reports. Gracefully skip if no search field is found.
+    const searchVisible = await this.personSearch.isVisible({ timeout: 8000 }).catch(() => false);
+    if (!searchVisible) {
+      // Try Redwood global search bar as fallback
+      const redwoodSearch = this.page.locator(
+        'oj-input-search input, [data-afr-fcs="true"] input'
+      ).first();
+      const redwoodVisible = await redwoodSearch.isVisible({ timeout: 3000 }).catch(() => false);
+      if (redwoodVisible) {
+        await this.fillField(redwoodSearch, query);
+        await this.page.waitForTimeout(5000);
+        await this.waitForJET();
+      } else {
+        console.log(`[Compensation] No search field found — page may show direct reports or self-service view`);
+        return;
+      }
+    } else {
+      await this.fillField(this.personSearch, query);
+      await this.page.waitForTimeout(5000);
+      await this.waitForJET();
+    }
 
     // Click first search result if visible
     const firstResult = this.page.locator(
-      '[role="option"]:first-child, [role="row"]:first-child a'
+      '[role="option"]:first-child, [role="row"]:first-child a, [role="listitem"] a'
     ).first();
     if (await firstResult.isVisible({ timeout: 3000 }).catch(() => false)) {
       await firstResult.click();

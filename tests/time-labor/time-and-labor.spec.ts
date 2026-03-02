@@ -4,6 +4,7 @@ import { TimecardEntryFlow } from '../../src/flows/time-labor/timecard-entry.flo
 import { TimeApprovalFlow } from '../../src/flows/time-labor/time-approval.flow';
 import { TimeAdminFlow } from '../../src/flows/time-labor/time-admin.flow';
 import { OutcomeValidator } from '../../src/validation/outcome-validator';
+import { PreFlightChecker } from '../../src/validation/pre-flight-checker';
 import type { UATTestCase } from '../../src/data/types';
 
 const MODULE = 'Time and Labor';
@@ -13,6 +14,11 @@ test.describe(MODULE, () => {
   for (const tc of cases) {
     test(uatTestTitle(tc), async ({ page }) => {
       test.skip(!isTestable(tc), `${tc.testId} status: ${tc.status}`);
+
+      const preflight = new PreFlightChecker();
+      const preCheck = await preflight.prepare(tc);
+      test.skip(!preCheck.ready, `[PreFlight] ${preCheck.reason}`);
+      if (preCheck.action !== 'ok') console.log(`[PreFlight] ${tc.testId}: ${preCheck.action} — ${preCheck.reason}`);
 
       // Route to appropriate flow based on transaction category.
       // Handle both "HR specialist" and "HR Specialist" (inconsistent casing in UAT Plan).

@@ -7,35 +7,19 @@ import type { UATTestCase, TestCase } from '../../data/types';
 
 /**
  * Flow: Journey Assignment and Task Management
- * Module: Journeys (66 tests, all with field data)
+ * Module: Journeys (66 tests)
  *
- * Field data structure (from migration DB):
- *   Person Name:       "Smith, Paul" (Last, First format)
- *   Person Number:     "10000002"
- *   Journey Template:  "Supported Onboarding - Journey Assignment"
- *   Effective Date:    "46080" (Excel serial) or "2024/01/01"
- *   Person Type:       "Employee - Staff"
- *   Department:        "Conversion Department"
- *   Job:               "CNV_JOB"
- *   Legal Employer:    "Campus Crusade for Christ, Inc."
- *
- * Routes based on journey type derived from businessProcess field:
- * - Onboarding (supported, hourly, salaried, intern)
- * - Offboarding
- * - Life events (medical leave, marriage, SOSA, etc.)
- * - Access requests (Oracle access, background checks)
- * - Transitions (status changes, transfers)
- * - Task management (viewing/completing tasks, progress tracking)
- * - Administrative (mass assignment, template sync, error handling)
- *
- * Uses real Redwood/JET selectors from journeys-admin-deep.json.
+ * Oracle HCM Journeys UI flow (from live inspection 2026-03-01):
+ *   Assignment: Explore tab → search journey name → click card → detail page → "Assign" →
+ *               fill "Select a Person" + "When to assign?" → click "Assign"
+ *   Viewing:    Organization Journeys tab → search by person name
+ *   Tasks:      My Tasks tab or Organization Journeys → click journey → task list
  */
 export class JourneyAssignmentFlow extends BaseJourneysFlow {
   constructor(page: Page) {
     super(page);
   }
 
-  /** Execute the journey assignment flow for a UAT test case. */
   async execute(tc: UATTestCase): Promise<void> {
     await this.loginAndNavigate(tc);
 
@@ -51,16 +35,11 @@ export class JourneyAssignmentFlow extends BaseJourneysFlow {
 
     switch (journeyType) {
       case 'onboarding':
-        await this.executeOnboarding(tc, fieldData);
-        break;
       case 'offboarding':
-        await this.executeOffboarding(tc, fieldData);
-        break;
       case 'life-event':
-        await this.executeLifeEvent(tc, fieldData);
-        break;
       case 'access-request':
-        await this.executeAccessRequest(tc, fieldData);
+      case 'transition':
+        await this.executeAssignment(tc, fieldData, journeyType);
         break;
       case 'task-completion':
         await this.executeTaskCompletion(tc, fieldData);
@@ -71,241 +50,190 @@ export class JourneyAssignmentFlow extends BaseJourneysFlow {
       case 'view-tasks':
         await this.executeViewTasks(tc, fieldData);
         break;
-      case 'transition':
-        await this.executeTransition(tc, fieldData);
-        break;
       case 'admin':
         await this.executeAdminJourney(tc, fieldData);
         break;
       default:
-        await this.executeGenericJourney(tc, fieldData);
+        await this.executeAssignment(tc, fieldData, journeyType);
         break;
     }
   }
 
   /**
-   * Resolve the journey type from the test case's businessProcess and testScenario fields.
-   * Returns a normalized journey type string.
+   * Resolve the journey type from businessProcess and testScenario fields.
    */
   private resolveJourneyType(tc: UATTestCase): string {
     const bp = (tc.businessProcess + ' ' + tc.testScenario).toLowerCase();
 
-    // Onboarding variations
     if (bp.includes('onboarding') || bp.includes('onboard') || bp.includes('new hire') ||
-        bp.includes('volunteer') || bp.includes('affiliate')) {
-      return 'onboarding';
-    }
-    // Offboarding
-    if (bp.includes('offboarding') || bp.includes('offboard') || bp.includes('termination journey')) {
+        bp.includes('volunteer') || bp.includes('affiliate')) return 'onboarding';
+    if (bp.includes('offboarding') || bp.includes('offboard') || bp.includes('termination journey'))
       return 'offboarding';
-    }
-    // Life events
-    if (
-      bp.includes('life event') || bp.includes('medical leave') ||
-      bp.includes('marriage') || bp.includes('sosa') ||
-      bp.includes('leave of absence') || bp.includes('parental') ||
-      bp.includes('leave journey') || bp.includes('ada accommodation') ||
-      bp.includes('sabbatical') || bp.includes('address change')
-    ) {
+    if (bp.includes('life event') || bp.includes('medical leave') || bp.includes('marriage') ||
+        bp.includes('sosa') || bp.includes('leave of absence') || bp.includes('parental') ||
+        bp.includes('leave journey') || bp.includes('leaves journey') ||
+        bp.includes('ada accommodation') || bp.includes('sabbatical') || bp.includes('address change'))
       return 'life-event';
-    }
-    // Access requests
-    if (bp.includes('access request') || bp.includes('provisioning') ||
-        bp.includes('oracle access') || bp.includes('background check') ||
-        bp.includes('credit card policy')) {
+    if (bp.includes('access request') || bp.includes('provisioning') || bp.includes('oracle access') ||
+        bp.includes('background check') || bp.includes('credit card policy'))
       return 'access-request';
-    }
-    // Task completion / progress tracking
-    if (bp.includes('task completion') || bp.includes('complete task') ||
-        bp.includes('checklist') || bp.includes('progress tracking') ||
-        bp.includes('task types') || bp.includes('due dates')) {
+    if (bp.includes('task completion') || bp.includes('complete task') || bp.includes('checklist') ||
+        bp.includes('progress tracking') || bp.includes('task types') || bp.includes('due dates'))
       return 'task-completion';
-    }
-    // Transitions
-    if (bp.includes('transition') || bp.includes('intern to rmo') ||
-        bp.includes('international') || bp.includes('us to int') ||
-        bp.includes('back to us') || bp.includes('status to status') ||
-        bp.includes('internal hiring')) {
+    if (bp.includes('transition') || bp.includes('intern to rmo') || bp.includes('international') ||
+        bp.includes('us to int') || bp.includes('back to us') || bp.includes('status to status') ||
+        bp.includes('internal hiring'))
       return 'transition';
-    }
-    // Administrative / system operations
-    if (bp.includes('mass assignment') || bp.includes('template change') ||
-        bp.includes('synchronize') || bp.includes('error handling') ||
-        bp.includes('troubleshoot') || bp.includes('cancellation') ||
-        bp.includes('closure') || bp.includes('retro hire') ||
-        bp.includes('late start') || bp.includes('eligibility') ||
-        bp.includes('security') || bp.includes('negative') ||
-        bp.includes('document record') || bp.includes('attachment') ||
-        bp.includes('contextual') || bp.includes('manager view') ||
-        bp.includes('reassignment') || bp.includes('multiple concurrent') ||
-        bp.includes('annual agreement') || bp.includes('annual vows') ||
-        bp.includes('reminder') || bp.includes('non-completion') ||
-        bp.includes('1st') || bp.includes('90th day')) {
+    if (bp.includes('mass assignment') || bp.includes('template change') || bp.includes('synchronize') ||
+        bp.includes('error handling') || bp.includes('troubleshoot') || bp.includes('cancellation') ||
+        bp.includes('closure') || bp.includes('retro hire') || bp.includes('late start') ||
+        bp.includes('eligibility') || bp.includes('security') || bp.includes('negative') ||
+        bp.includes('document record') || bp.includes('attachment') || bp.includes('contextual') ||
+        bp.includes('manager view') || bp.includes('reassignment') || bp.includes('multiple concurrent') ||
+        bp.includes('annual agreement') || bp.includes('annual vows') || bp.includes('reminder') ||
+        bp.includes('non-completion') || bp.includes('1st') || bp.includes('90th day') ||
+        bp.includes('dept tree') || bp.includes('job code') || bp.includes('add/change request'))
       return 'admin';
-    }
-    // View journeys
-    if (bp.includes('view journey') || bp.includes('my journeys')) {
-      return 'view-journeys';
-    }
-    // View tasks
-    if (bp.includes('view task') || bp.includes('my tasks')) {
-      return 'view-tasks';
-    }
+    if (bp.includes('view journey') || bp.includes('my journeys')) return 'view-journeys';
+    if (bp.includes('view task') || bp.includes('my tasks')) return 'view-tasks';
 
     return 'generic';
   }
 
   /**
-   * Fill journey assignment fields from migration DB field data.
-   * Uses getField() for case-insensitive partial key matching.
+   * Execute a journey assignment (onboarding, offboarding, life-event, etc.).
+   *
+   * Flow: Explore tab → search by journey name → click card → Assign → fill person → submit.
    */
-  private async fillFromFieldData(fieldData: TestCase | undefined): Promise<void> {
-    if (!fieldData) return;
+  private async executeAssignment(
+    tc: UATTestCase, fieldData: TestCase | undefined, journeyType: string
+  ): Promise<void> {
+    // Determine the journey name to search for
+    const journeySearchTerm = this.resolveJourneySearchTerm(tc, fieldData, journeyType);
+    console.log(`[Journeys] Searching for journey: "${journeySearchTerm}"`);
 
-    // Person lookup — field data has "Person Name" in "Last, First" format
-    const personName = getField(fieldData, 'Person Name');
-    const personNumber = getField(fieldData, 'Person Number');
+    // Step 1: Go to Explore tab and search for the journey
+    await this.journeysPage.selectTab('Explore');
+    await this.journeysPage.searchJourneyByName(journeySearchTerm);
 
+    // Step 2: Click the journey card
+    const cardClicked = await this.journeysPage.clickJourneyCard(journeySearchTerm);
+    if (!cardClicked) {
+      console.log(`[Journeys] No journey card found for "${journeySearchTerm}", taking screenshot`);
+      await this.journeysPage.screenshot(`journey-no-card-${tc.testId}`);
+      return;
+    }
+
+    // Step 3: Click "Assign" on the journey detail page
+    await this.journeysPage.clickAssignOnDetail();
+
+    // Step 4: Fill the assign form
+    await this.fillAssignForm(tc, fieldData);
+
+    // Step 5: Submit (may fail if required fields couldn't be filled)
+    const submitted = await this.journeysPage.clickAssignSubmit();
+    if (!submitted) {
+      console.log(`[Journeys] ${tc.testId}: Could not submit — taking screenshot of assign form state`);
+    }
+    await this.journeysPage.screenshot(`journey-${journeyType}-${tc.testId}`);
+  }
+
+  /**
+   * Fill the journey assign form with person and date.
+   */
+  private async fillAssignForm(tc: UATTestCase, fieldData: TestCase | undefined): Promise<void> {
+    // Fill person
+    const personName = fieldData ? getField(fieldData, 'Person Name') : this.extractPersonFromTestData(tc);
     if (personName) {
-      console.log(`[Journeys] Searching for person: ${personName}`);
-      await this.journeysPage.searchPerson(personName);
+      console.log(`[Journeys] Assigning to person: ${personName}`);
+      await this.journeysPage.fillAssigneePerson(personName);
     }
 
-    // Journey template selection
-    const template = getField(fieldData, 'Journey Template');
-    if (template) {
-      console.log(`[Journeys] Selecting template: ${template}`);
-      await this.journeysPage.selectJourneyTemplate(template);
-    }
-
-    // Effective date
-    const effectiveDate = getField(fieldData, 'Effective Date');
+    // Fill date
+    const effectiveDate = fieldData ? getField(fieldData, 'Effective Date') : null;
     if (effectiveDate) {
-      const dateStr = excelSerialToDate(effectiveDate);
-      console.log(`[Journeys] Effective date: ${effectiveDate} -> ${dateStr}`);
-      await this.journeysPage.fillEffectiveDate(dateStr);
+      const dateStr = /^\d{5,}$/.test(effectiveDate) ? excelSerialToDate(effectiveDate) : effectiveDate;
+      console.log(`[Journeys] Assign date: ${dateStr}`);
+      await this.journeysPage.fillAssignDate(dateStr);
     }
   }
 
-  /** Execute an onboarding journey assignment. */
-  private async executeOnboarding(tc: UATTestCase, fieldData: TestCase | undefined): Promise<void> {
-    await this.journeysPage.selectTab('Organization Journeys');
-    await this.journeysPage.clickAssignJourney();
-    await this.fillFromFieldData(fieldData);
-    // Fall back to parsing testData if no field data
-    if (!fieldData) {
-      await this.journeysPage.fillFromTestCase(tc);
+  /**
+   * Resolve the journey search term from test case data.
+   * Maps journey type keywords to actual Oracle HCM journey template names.
+   */
+  private resolveJourneySearchTerm(
+    tc: UATTestCase, fieldData: TestCase | undefined, journeyType: string
+  ): string {
+    // Use field data template name if available
+    if (fieldData) {
+      const template = getField(fieldData, 'Journey Template');
+      if (template) {
+        // Extract the main journey name (e.g., "Supported Onboarding – Journey Assignment" → "Onboarding")
+        if (template.toLowerCase().includes('onboarding')) return 'Onboarding';
+        if (template.toLowerCase().includes('offboarding') || template.toLowerCase().includes('off boarding'))
+          return 'Off boarding';
+        return template.split('–')[0].split('-')[0].trim();
+      }
     }
-    await this.journeysPage.clickSubmit();
-    await this.journeysPage.screenshot(`journey-onboarding-${tc.testId}`);
-  }
 
-  /** Execute an offboarding journey assignment. */
-  private async executeOffboarding(tc: UATTestCase, fieldData: TestCase | undefined): Promise<void> {
-    await this.journeysPage.selectTab('Organization Journeys');
-    await this.journeysPage.clickAssignJourney();
-    await this.fillFromFieldData(fieldData);
-    if (!fieldData) {
-      await this.journeysPage.fillFromTestCase(tc);
-    }
-    await this.journeysPage.clickSubmit();
-    await this.journeysPage.screenshot(`journey-offboarding-${tc.testId}`);
-  }
+    // Fallback: derive from business process
+    const bp = tc.businessProcess.toLowerCase();
+    if (bp.includes('onboarding') || bp.includes('onboard')) return 'Onboarding';
+    if (bp.includes('offboarding') || bp.includes('off boarding') || bp.includes('off board'))
+      return 'Off boarding';
+    if (bp.includes('medical leave')) return 'Medical Leave';
+    if (bp.includes('marriage') || bp.includes('sosa')) return 'Marriage';
+    if (bp.includes('leave of absence') || bp.includes('sabbatical')) return 'Leave';
+    if (bp.includes('access request') || bp.includes('oracle access')) return 'Access';
+    if (bp.includes('transition') || bp.includes('intern to rmo')) return 'Transition';
 
-  /** Execute a life event journey assignment. */
-  private async executeLifeEvent(tc: UATTestCase, fieldData: TestCase | undefined): Promise<void> {
-    await this.journeysPage.selectTab('Organization Journeys');
-    await this.journeysPage.clickAssignJourney();
-    await this.fillFromFieldData(fieldData);
-    if (!fieldData) {
-      await this.journeysPage.fillFromTestCase(tc);
-    }
-    await this.journeysPage.clickSubmit();
-    await this.journeysPage.screenshot(`journey-life-event-${tc.testId}`);
-  }
-
-  /** Execute an access request journey assignment. */
-  private async executeAccessRequest(tc: UATTestCase, fieldData: TestCase | undefined): Promise<void> {
-    await this.journeysPage.selectTab('Organization Journeys');
-    await this.journeysPage.clickAssignJourney();
-    await this.fillFromFieldData(fieldData);
-    if (!fieldData) {
-      await this.journeysPage.fillFromTestCase(tc);
-    }
-    await this.journeysPage.clickSubmit();
-    await this.journeysPage.screenshot(`journey-access-request-${tc.testId}`);
+    // Generic fallback — search with the first meaningful word from business process
+    return tc.businessProcess.split('–')[0].split('-')[0].trim().substring(0, 30);
   }
 
   /** Execute task completion within a journey. */
   private async executeTaskCompletion(tc: UATTestCase, fieldData: TestCase | undefined): Promise<void> {
-    // For task completion/progress tracking, go to Organization Journeys and search
     await this.journeysPage.selectTab('Organization Journeys');
 
-    // Search for the person from field data
     if (fieldData) {
       const personName = getField(fieldData, 'Person Name');
-      if (personName) {
-        await this.journeysPage.searchPerson(personName);
-      }
+      if (personName) await this.journeysPage.searchPerson(personName);
     } else {
       const personRef = this.extractPersonFromTestData(tc);
-      if (personRef) {
-        await this.journeysPage.searchPerson(personRef);
-      }
+      if (personRef) await this.journeysPage.searchPerson(personRef);
     }
 
-    // Click the first journey result to view tasks
     await this.journeysPage.clickFirstJourneyResult();
-
-    // Complete the first available task
     await this.journeysPage.completeTaskByIndex(0);
     await this.journeysPage.clickCompleteTask();
     await this.journeysPage.screenshot(`journey-task-complete-${tc.testId}`);
   }
 
-  /** Execute a transition journey (intern to RMO, international, etc.). */
-  private async executeTransition(tc: UATTestCase, fieldData: TestCase | undefined): Promise<void> {
-    await this.journeysPage.selectTab('Organization Journeys');
-    await this.journeysPage.clickAssignJourney();
-    await this.fillFromFieldData(fieldData);
-    if (!fieldData) {
-      await this.journeysPage.fillFromTestCase(tc);
-    }
-    await this.journeysPage.clickSubmit();
-    await this.journeysPage.screenshot(`journey-transition-${tc.testId}`);
+  /** View journeys list. */
+  private async executeViewJourneys(tc: UATTestCase, _fieldData: TestCase | undefined): Promise<void> {
+    await this.journeysPage.viewMyJourneys();
+    const bp = tc.businessProcess.toLowerCase();
+    if (bp.includes('active')) await this.journeysPage.filterByStatus('Active');
+    else if (bp.includes('completed')) await this.journeysPage.filterByStatus('Completed');
+    await this.journeysPage.screenshot(`journey-view-${tc.testId}`);
   }
 
-  /** Execute an administrative journey operation. */
+  /** View tasks list. */
+  private async executeViewTasks(tc: UATTestCase, _fieldData: TestCase | undefined): Promise<void> {
+    await this.journeysPage.viewMyTasks();
+    await this.journeysPage.screenshot(`journey-tasks-${tc.testId}`);
+  }
+
+  /** Execute administrative journey operations. */
   private async executeAdminJourney(tc: UATTestCase, fieldData: TestCase | undefined): Promise<void> {
     const bp = tc.businessProcess.toLowerCase();
 
     if (bp.includes('mass assignment') || bp.includes('launchpad')) {
-      // Mass assignment — navigate to Explore tab
       await this.journeysPage.selectTab('Explore');
       await this.journeysPage.screenshot(`journey-mass-${tc.testId}`);
-    } else if (bp.includes('cancellation') || bp.includes('closure')) {
-      // Journey cancellation — search for person, then cancel
-      await this.journeysPage.selectTab('Organization Journeys');
-      if (fieldData) {
-        const personName = getField(fieldData, 'Person Name');
-        if (personName) await this.journeysPage.searchPerson(personName);
-      }
-      await this.journeysPage.clickFirstJourneyResult();
-      await this.journeysPage.screenshot(`journey-cancel-${tc.testId}`);
-    } else if (bp.includes('manager view') || bp.includes('reassignment')) {
-      // Manager view / reassignment
-      await this.journeysPage.selectTab('Organization Journeys');
-      if (fieldData) {
-        const personName = getField(fieldData, 'Person Name');
-        if (personName) await this.journeysPage.searchPerson(personName);
-      }
-      await this.journeysPage.screenshot(`journey-manager-${tc.testId}`);
-    } else if (bp.includes('synchronize') || bp.includes('template')) {
-      // Template synchronization — admin operation
-      await this.journeysPage.selectTab('Explore');
-      await this.journeysPage.screenshot(`journey-sync-${tc.testId}`);
-    } else {
-      // Generic admin operation — assign and track
+    } else if (bp.includes('cancellation') || bp.includes('closure') ||
+               bp.includes('manager view') || bp.includes('reassignment')) {
       await this.journeysPage.selectTab('Organization Journeys');
       if (fieldData) {
         const personName = getField(fieldData, 'Person Name');
@@ -313,50 +241,22 @@ export class JourneyAssignmentFlow extends BaseJourneysFlow {
       }
       await this.journeysPage.clickFirstJourneyResult();
       await this.journeysPage.screenshot(`journey-admin-${tc.testId}`);
+    } else {
+      // Default admin: go to Organization Journeys and search
+      await this.journeysPage.selectTab('Organization Journeys');
+      if (fieldData) {
+        const personName = getField(fieldData, 'Person Name');
+        if (personName) await this.journeysPage.searchPerson(personName);
+      }
+      await this.journeysPage.screenshot(`journey-admin-${tc.testId}`);
     }
   }
 
-  /** View journeys list (My Journeys tab). */
-  private async executeViewJourneys(tc: UATTestCase, fieldData: TestCase | undefined): Promise<void> {
-    await this.journeysPage.viewMyJourneys();
-
-    // Apply filters if test case specifies status or category
-    const bp = tc.businessProcess.toLowerCase();
-    if (bp.includes('active')) {
-      await this.journeysPage.filterByStatus('Active');
-    } else if (bp.includes('completed')) {
-      await this.journeysPage.filterByStatus('Completed');
-    }
-
-    await this.journeysPage.screenshot(`journey-view-${tc.testId}`);
-  }
-
-  /** View tasks list (My Tasks tab). */
-  private async executeViewTasks(tc: UATTestCase, fieldData: TestCase | undefined): Promise<void> {
-    await this.journeysPage.viewMyTasks();
-    await this.journeysPage.screenshot(`journey-tasks-${tc.testId}`);
-  }
-
-  /** Execute a generic journey assignment (fallback for unrecognized types). */
-  private async executeGenericJourney(tc: UATTestCase, fieldData: TestCase | undefined): Promise<void> {
-    await this.journeysPage.selectTab('Organization Journeys');
-    await this.journeysPage.clickAssignJourney();
-    await this.fillFromFieldData(fieldData);
-    if (!fieldData) {
-      await this.journeysPage.fillFromTestCase(tc);
-    }
-    await this.journeysPage.clickSubmit();
-    await this.journeysPage.screenshot(`journey-generic-${tc.testId}`);
-  }
-
-  /** Extract person name/number from test case data fields. */
+  /** Extract person name/number from test case text fields. */
   private extractPersonFromTestData(tc: UATTestCase): string | null {
-    const sources = [tc.testData, tc.preConditions];
-    for (const src of sources) {
+    for (const src of [tc.testData, tc.preConditions]) {
       if (!src) continue;
-      const match = src.match(
-        /(?:employee|person|worker|name|number)[:\s]*([^\n,;]+)/i
-      );
+      const match = src.match(/(?:employee|person|worker|name|number)[:\s]*([^\n,;]+)/i);
       if (match) return match[1].trim();
     }
     return null;

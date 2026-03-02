@@ -1343,16 +1343,23 @@ function buildAbsenceApprovalFields(
 }
 
 function buildAbsenceAdminFields(
-  index: number, testId: string, person: PersonRow, absBalance?: AbsenceBalanceRow
+  index: number, testId: string, person: PersonRow, asg: AssignmentRow,
+  absBalance?: AbsenceBalanceRow
 ): TestCase {
   const fields: Record<string, string> = {
     'Person Name': `${person.LAST_NAME}, ${person.FIRST_NAME}`,
     'Person Number': person.PERSON_NUMBER,
+    'Effective Date': futureDate(index),
   };
   if (absBalance) {
     fields['Plan Name'] = absBalance.PLAN_NAME || '';
     fields['Accrual Type'] = absBalance.ACCRUAL_TYPE || '';
     fields['Balance'] = absBalance.VALUE || '0';
+  }
+  if (asg) {
+    fields['Person Type'] = asg.PERSON_TYPE || '';
+    fields['Legal Employer'] = asg.LEGAL_EMPLOYER || 'Campus Crusade for Christ, Inc.';
+    fields['Department'] = resolveDepartment(asg.DEPARTMENT, '');
   }
   return { testId, tab: 'Absence Management', scenario: 'Absence Admin', fields, columnIndex: index + 2 };
 }
@@ -1397,12 +1404,19 @@ function buildBenefitsFields(
 }
 
 function buildBenefitsAdminFields(
-  index: number, testId: string, person: PersonRow
+  index: number, testId: string, person: PersonRow, asg: AssignmentRow
 ): TestCase {
   const fields: Record<string, string> = {
     'Person Name': `${person.LAST_NAME}, ${person.FIRST_NAME}`,
     'Person Number': person.PERSON_NUMBER,
+    'Effective Date': futureDate(index),
   };
+  if (asg) {
+    fields['Person Type'] = asg.PERSON_TYPE || '';
+    fields['Legal Employer'] = asg.LEGAL_EMPLOYER || 'Campus Crusade for Christ, Inc.';
+    fields['Department'] = resolveDepartment(asg.DEPARTMENT, '');
+    fields['Job'] = resolveJobName(asg.JOB);
+  }
   return { testId, tab: 'Benefits', scenario: 'Benefits Admin', fields, columnIndex: index + 2 };
 }
 
@@ -1435,12 +1449,20 @@ function buildTimeLaborFields(
 }
 
 function buildTimeAdminFields(
-  index: number, testId: string, person: PersonRow
+  index: number, testId: string, person: PersonRow, asg: AssignmentRow
 ): TestCase {
   const fields: Record<string, string> = {
     'Person Name': `${person.LAST_NAME}, ${person.FIRST_NAME}`,
     'Person Number': person.PERSON_NUMBER,
+    'Effective Date': futureDate(index),
   };
+  if (asg) {
+    fields['Person Type'] = asg.PERSON_TYPE || '';
+    fields['Legal Employer'] = asg.LEGAL_EMPLOYER || 'Campus Crusade for Christ, Inc.';
+    fields['Department'] = resolveDepartment(asg.DEPARTMENT, '');
+    fields['Assignment Category'] = ASSIGNMENT_CATEGORY_MAP[asg.ASSIGNMENT_CATEGORY] || '';
+    fields['Hourly Salary'] = HOURLY_SALARY_MAP[asg.HOURLY_PAID_OR_SALARIED] || '';
+  }
   return { testId, tab: 'Time and Labor', scenario: 'Time Admin', fields, columnIndex: index + 2 };
 }
 
@@ -1723,12 +1745,18 @@ function buildSecurityRoleFields(
 }
 
 function buildApprovalDelegationFields(
-  index: number, testId: string, person: PersonRow
+  index: number, testId: string, person: PersonRow, asg: AssignmentRow
 ): TestCase {
   const fields: Record<string, string> = {
     'Person Name': `${person.LAST_NAME}, ${person.FIRST_NAME}`,
     'Person Number': person.PERSON_NUMBER,
+    'Effective Date': futureDate(index),
   };
+  if (asg) {
+    fields['Person Type'] = asg.PERSON_TYPE || '';
+    fields['Legal Employer'] = asg.LEGAL_EMPLOYER || 'Campus Crusade for Christ, Inc.';
+    fields['Department'] = resolveDepartment(asg.DEPARTMENT, '');
+  }
   return { testId, tab: 'Core HR', scenario: 'Approval Delegation', fields, columnIndex: index + 2 };
 }
 
@@ -1834,7 +1862,7 @@ async function generate(): Promise<void> {
 
   // --- Fetch a diverse set of persons ---
   console.log('Fetching persons...');
-  const allPersons = await fetchPersons(conn, 500);
+  const allPersons = await fetchPersons(conn, 2000);
   console.log(`  Got ${allPersons.length} persons`);
 
   const personNums = allPersons.map(p => p.PERSON_NUMBER);
@@ -2255,8 +2283,9 @@ async function generate(): Promise<void> {
   for (let i = 0; i < absenceAdminCases.length; i++) {
     const tc = absenceAdminCases[i];
     const person = absencePool[i % absencePool.length];
+    const asgAA = (asgByPerson.get(person.PERSON_NUMBER) || [])[0] || hirePool[0];
     const balances = absBalByPerson.get(person.PERSON_NUMBER) || [];
-    fieldData[tc.testId] = buildAbsenceAdminFields(i, tc.testId, person, balances[0]);
+    fieldData[tc.testId] = buildAbsenceAdminFields(i, tc.testId, person, asgAA, balances[0]);
     totalGenerated++;
   }
 
@@ -2287,7 +2316,8 @@ async function generate(): Promise<void> {
   for (let i = 0; i < benefitsAdminCases.length; i++) {
     const tc = benefitsAdminCases[i];
     const person = benefitsPool[i % benefitsPool.length];
-    fieldData[tc.testId] = buildBenefitsAdminFields(i, tc.testId, person);
+    const asgBA = (asgByPerson.get(person.PERSON_NUMBER) || [])[0] || hirePool[0];
+    fieldData[tc.testId] = buildBenefitsAdminFields(i, tc.testId, person, asgBA);
     totalGenerated++;
   }
 
@@ -2324,7 +2354,8 @@ async function generate(): Promise<void> {
   for (let i = 0; i < timeAdminCases.length; i++) {
     const tc = timeAdminCases[i];
     const person = timePool[i % timePool.length];
-    fieldData[tc.testId] = buildTimeAdminFields(i, tc.testId, person);
+    const asgTA = (asgByPerson.get(person.PERSON_NUMBER) || [])[0] || hirePool[0];
+    fieldData[tc.testId] = buildTimeAdminFields(i, tc.testId, person, asgTA);
     totalGenerated++;
   }
 
@@ -2540,7 +2571,8 @@ async function generate(): Promise<void> {
   for (let i = 0; i < approvalDelCases.length; i++) {
     const tc = approvalDelCases[i];
     const person = allPersons[i % allPersons.length];
-    fieldData[tc.testId] = buildApprovalDelegationFields(i, tc.testId, person);
+    const asgAD = (asgByPerson.get(person.PERSON_NUMBER) || [])[0] || hirePool[0];
+    fieldData[tc.testId] = buildApprovalDelegationFields(i, tc.testId, person, asgAD);
     totalGenerated++;
   }
 

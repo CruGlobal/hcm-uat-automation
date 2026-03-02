@@ -77,7 +77,7 @@ export class BaseTimeLaborFlow extends BaseFlow {
    * Navigate to Team Time Cards via My Team quick actions (manager/Redwood).
    * Path: My Team > Quick Actions > Show More > Team Time Cards
    */
-  async navigateToTeamTimeCards(): Promise<void> {
+  async navigateToTeamTimeCards(): Promise<boolean> {
     // Navigate home first, then use the Me/My Team springboard
     const myTeamLink = this.page.locator(
       'a:has-text("My Team"), [id*="my_team"], [id*="myTeam"]'
@@ -108,19 +108,29 @@ export class BaseTimeLaborFlow extends BaseFlow {
       await teamTimeCards.click();
       await this.page.waitForTimeout(5000);
       await this.timecardPage.waitForJET();
-    } else {
-      // Fallback: navigate via Navigator
-      await this.homePage.openNavigator();
-      const navLink = this.page.locator(
-        'a[title="Team Time Cards"], a:has-text("Team Time Cards")'
-      ).first();
-      const hasNavLink = await navLink.isVisible({ timeout: 3000 }).catch(() => false);
-      if (hasNavLink) {
-        await navLink.click({ force: true });
-        await this.page.waitForLoadState('networkidle', { timeout: 60_000 });
-        await this.page.waitForTimeout(5000);
-      }
+      return true;
     }
+
+    // Fallback: navigate via Navigator
+    await this.homePage.openNavigator();
+    const navLink = this.page.locator(
+      'a[title="Team Time Cards"], a:has-text("Team Time Cards")'
+    ).first();
+    const hasNavLink = await navLink.isVisible({ timeout: 3000 }).catch(() => false);
+    if (hasNavLink) {
+      await navLink.click({ force: true });
+      await this.page.waitForLoadState('networkidle', { timeout: 60_000 });
+      await this.page.waitForTimeout(5000);
+      return true;
+    }
+
+    // Team Time Cards not available — bot user lacks Time Management admin role.
+    // Close Navigator and fall back to ESS Time and Absences.
+    console.log('[TimeLaborFlow] Team Time Cards not available — falling back to ESS Time and Absences');
+    await this.page.keyboard.press('Escape');
+    await this.page.waitForTimeout(1000);
+    await this.homePage.goToTimeESS();
+    return false;
   }
 
   /**

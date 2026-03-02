@@ -4,6 +4,7 @@ import { BenefitsEnrollmentFlow } from '../../src/flows/benefits/benefits-enroll
 import { BenefitsAdminFlow } from '../../src/flows/benefits/benefits-admin.flow';
 import type { UATTestCase } from '../../src/data/types';
 import { OutcomeValidator } from '../../src/validation/outcome-validator';
+import { PreFlightChecker } from '../../src/validation/pre-flight-checker';
 import { validateKnownFailure } from '../../src/data/known-failures';
 
 const MODULE = 'Benefits';
@@ -13,6 +14,11 @@ test.describe(MODULE, () => {
   for (const tc of cases) {
     test(uatTestTitle(tc), async ({ page }) => {
       test.skip(!isTestable(tc), `${tc.testId} status: ${tc.status}`);
+
+      const preflight = new PreFlightChecker();
+      const preCheck = await preflight.prepare(tc);
+      test.skip(!preCheck.ready, `[PreFlight] ${preCheck.reason}`);
+      if (preCheck.action !== 'ok') console.log(`[PreFlight] ${tc.testId}: ${preCheck.action} — ${preCheck.reason}`);
 
       const category = tc.transactionCategory.toLowerCase();
       if (category.includes('employee')) {

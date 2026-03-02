@@ -73,8 +73,9 @@ export class AddNonWorkerFlow extends BaseCoreHRFlow {
    * Non-workers need at least a Business Unit to pass validation.
    */
   private async fillNonWorkerAssignment(tc: TestCase): Promise<void> {
-    const buField = this.page.locator('[id$="BusinessUnitId::content"], [id*="BusinessUnit"][id$="::content"]').first();
-    const buVisible = await buField.isVisible({ timeout: 5000 }).catch(() => false);
+    // Try role-based locator first (works regardless of ADF ID patterns)
+    const buField = this.page.getByRole('combobox', { name: 'Business Unit' });
+    const buVisible = await buField.isVisible({ timeout: 8000 }).catch(() => false);
     if (buVisible) {
       const currentValue = await buField.inputValue().catch(() => '');
       if (!currentValue) {
@@ -91,6 +92,7 @@ export class AddNonWorkerFlow extends BaseCoreHRFlow {
     const action = getField(tc, "What's the way") || getField(tc, 'What') || getField(tc, 'Action');
     const reason = getField(tc, 'Why') || getField(tc, 'Reason');
     const workerType = getField(tc, 'Non Worker Type') || getField(tc, 'Worker Type') || getField(tc, 'Proposed Worker type');
+    const businessUnit = getField(tc, 'Business Unit');
 
     if (when) {
       const dateStr = excelSerialToDate(when);
@@ -103,5 +105,15 @@ export class AddNonWorkerFlow extends BaseCoreHRFlow {
     if (action) await this.person.fillCombobox(this.nwAction, action);
     if (reason) await this.person.fillCombobox(this.nwReason, reason);
     if (workerType) await this.person.fillCombobox(this.nwWorkerType, workerType);
+
+    // Business Unit may appear on When/Why for non-workers
+    if (businessUnit) {
+      const buField = this.page.getByRole('combobox', { name: 'Business Unit' });
+      const buVisible = await buField.isVisible({ timeout: 3000 }).catch(() => false);
+      if (buVisible) {
+        console.log(`[AddNonWorker] Filling Business Unit on Step 1: ${businessUnit}`);
+        await this.person.fillCombobox(buField, businessUnit, 5000);
+      }
+    }
   }
 }

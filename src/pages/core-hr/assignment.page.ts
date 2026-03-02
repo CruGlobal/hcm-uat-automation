@@ -134,8 +134,15 @@ export class AssignmentPage extends BasePage {
       await this.setReadonlyCombobox(this.workingAtHome, workHome);
     }
 
-    // Working Hours (regular input — also match typo "hourrs" in field data)
-    const hours = getField(tc, 'Working hours') || getField(tc, 'Working Hours') || getField(tc, 'Working hourrs');
+    // Working Hours (regular input).
+    // Field data may have typo "Working hourrs" — try that first.
+    // Avoid "Working hours" which also matches "Working hours Frequency" (= "Weekly").
+    let hours = getField(tc, 'Working hourrs');
+    if (!hours) {
+      // For correctly-spelled data, find "Working hours" but skip if the value looks non-numeric
+      const candidate = getField(tc, 'Working hours');
+      if (candidate && /^\d+(\.\d+)?$/.test(candidate.trim())) hours = candidate;
+    }
     if (hours && await this.workingHours.isVisible({ timeout: 3000 }).catch(() => false)) {
       await this.fillField(this.workingHours, hours);
     }

@@ -476,11 +476,28 @@ async function main() {
   }
 
   // Write data to each tab
+  const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
   console.log('\nWriting data...');
   for (const tabName of tabNames) {
     const grid = tabGrids.get(tabName)!;
-    await writeTabData(accessToken, spreadsheetId, tabName, grid);
+    let attempts = 0;
+    while (true) {
+      try {
+        await writeTabData(accessToken, spreadsheetId, tabName, grid);
+        break;
+      } catch (err: any) {
+        if (err.message?.includes('429') && attempts < 5) {
+          attempts++;
+          console.log(`  Rate limited on "${tabName}", waiting 65s (attempt ${attempts})...`);
+          await sleep(65_000);
+        } else {
+          throw err;
+        }
+      }
+    }
     console.log(`  ${tabName}: ${byTab.get(tabName)!.length} cases, ${grid.length} rows x ${grid[0].length} cols`);
+    await sleep(1_500);
   }
 
   // Apply formatting

@@ -9,12 +9,13 @@ import type { TestCase } from '../../data/types';
  *
  * Navigation: Login → Navigator → My Client Groups > New Person → Add a Pending Worker
  *
- * IMPORTANT: The Add Pending Worker wizard is a SINGLE-PAGE form — it does NOT
- * have the multi-step Employment Information page that the Hire Employee wizard has.
- * Fields available: When/Why (date, action, reason, legal employer, worker type),
- * Personal Details (name, gender, DOB). No Assignment, Job, Payroll, or Manager fields.
- * The When/Why section uses `AddPw1:0:SP1:` prefix — suffix selectors `[id$="SP1:..."]`
- * from WhenAndWhyPage match correctly.
+ * 6-step wizard:
+ *   Step 1: Identification (Basic Details + Personal Details)
+ *   Step 2: Person Information (Address + Legislative)
+ *   Step 3: Person Profile
+ *   Step 4: Employment Information (Assignment, Job, Managers, Payroll)
+ *   Step 5: Compensation and Other Information
+ *   Step 6: Review → Submit
  */
 export class AddPendingWorkerFlow extends BaseCoreHRFlow {
   constructor(page: Page) {
@@ -25,11 +26,25 @@ export class AddPendingWorkerFlow extends BaseCoreHRFlow {
     await this.loginToHCM();
     await this.homePage.goToAddPendingWorker();
 
-    // Single-page wizard: fill When/Why + Personal Details, then Submit.
-    // No step navigation needed — all fields are on the initial page.
-    await this.whenAndWhy.fillFromTestCase(tc);
-    await this.person.fillIdentificationFromTestCase(tc);
-    await this.dismissMatchingPersonDialog();
+    // Step 1: Identification (Basic Details + Personal Details)
+    await this.fillStep1(tc);
+    await this.clickNext();
+
+    // Step 2: Person Information (Address + Legislative)
+    await this.fillStep2(tc);
+    await this.clickNext();
+
+    // Step 3: Person Profile (skip — no fields to fill)
+    await this.clickNext();
+
+    // Step 4: Employment Information (Assignment, Job, Managers, Payroll)
+    await this.fillStep3(tc);
+    await this.clickNext();
+
+    // Step 5: Compensation and Other Information (skip)
+    await this.clickNext();
+
+    // Step 6: Review → Submit
     await this.submitAndVerify();
   }
 }

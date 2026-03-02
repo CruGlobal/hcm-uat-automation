@@ -85,35 +85,51 @@ export class HomePage extends BasePage {
     await this.navigateVia('nv_itemNode_workforce_management_new_person');
   }
 
-  /** Click a task on the New Person page using AdfActionEvent. */
-  async clickNewPersonTask(taskIndex: number): Promise<void> {
+  /** Click a task on the New Person page using AdfActionEvent, with link-text fallback. */
+  async clickNewPersonTask(taskIndex: number, linkText?: string): Promise<void> {
     const linkId = `${this.TASK_LINK_PREFIX}cl01Lv:${taskIndex}:cl01Pse:cl01Cl`;
-    await this.clickAdfLink(linkId);
+    try {
+      await this.clickAdfLink(linkId);
+    } catch {
+      // Fallback: click by link text (ADF IDs change between sessions)
+      if (linkText) {
+        console.log(`[Home] ADF link ${taskIndex} not found, falling back to link text: "${linkText}"`);
+        const link = this.page.getByRole('link', { name: linkText, exact: true }).first();
+        if (await link.isVisible({ timeout: 5000 }).catch(() => false)) {
+          await link.click({ force: true });
+        } else {
+          const byText = this.page.locator(`a:has-text("${linkText}")`).first();
+          await byText.click({ force: true });
+        }
+      } else {
+        throw new Error(`ADF task link not found at index ${taskIndex} and no fallback text provided`);
+      }
+    }
     await this.page.waitForTimeout(10_000); // ADF forms take time to render
   }
 
   /** Navigate to "Hire an Employee" form (task index 1). */
   async goToHireEmployee(): Promise<void> {
     await this.goToNewPerson();
-    await this.clickNewPersonTask(1);
+    await this.clickNewPersonTask(1, 'Hire an Employee');
   }
 
   /** Navigate to "Add a Contingent Worker" form (task index 2). */
   async goToAddContingentWorker(): Promise<void> {
     await this.goToNewPerson();
-    await this.clickNewPersonTask(2);
+    await this.clickNewPersonTask(2, 'Add a Contingent Worker');
   }
 
   /** Navigate to "Add a Pending Worker" form (task index 3). */
   async goToAddPendingWorker(): Promise<void> {
     await this.goToNewPerson();
-    await this.clickNewPersonTask(3);
+    await this.clickNewPersonTask(3, 'Add a Pending Worker');
   }
 
   /** Navigate to "Add a Nonworker" form (task index 4). */
   async goToAddNonworker(): Promise<void> {
     await this.goToNewPerson();
-    await this.clickNewPersonTask(4);
+    await this.clickNewPersonTask(4, 'Add a Nonworker');
   }
 
   /** Navigate to Person Management (My Client Groups > Person Management). */
@@ -126,9 +142,9 @@ export class HomePage extends BasePage {
     await this.navigateVia('nv_itemNode_workforce_management_absence_administration');
   }
 
-  /** Navigate to self-service Absences (My Information). */
+  /** Navigate to self-service Absences (My Information > Time and Absences). */
   async goToAbsenceESS(): Promise<void> {
-    await this.navigateVia('nv_itemNode_my_information_absences1', 'Absences');
+    await this.navigateVia('nv_itemNode_my_information_absences1', 'Time and Absences');
   }
 
   /** Navigate to self-service Benefits (My Information). */
@@ -191,27 +207,31 @@ export class HomePage extends BasePage {
   /** Navigate to My Client Groups > Payroll > Element Entries. */
   async goToElementEntries(): Promise<void> {
     await this.openNavigator();
-    // Look for "Element Entries" link by title or partial text
+    // Look for "Element Entries" link by title or partial text (expanded navigator)
     const elementEntriesLink = this.page.locator(
       'a[title="Element Entries"]'
     ).first();
-    if (await elementEntriesLink.isVisible({ timeout: 3000 }).catch(() => false)) {
+    if (await elementEntriesLink.isVisible({ timeout: 5000 }).catch(() => false)) {
       await elementEntriesLink.click({ force: true });
     } else {
       // Try "Payroll" to navigate to payroll landing, which has Element Entries task
       const payrollLink = this.page.locator('a[title="Payroll"]').first();
-      if (await payrollLink.isVisible({ timeout: 3000 }).catch(() => false)) {
-        await payrollLink.click({ force: true });
+      const payrollByRole = this.page.getByRole('link', { name: 'Payroll', exact: true }).first();
+      const payTarget = await payrollLink.isVisible({ timeout: 5000 }).catch(() => false)
+        ? payrollLink
+        : payrollByRole;
+      if (await payTarget.isVisible({ timeout: 3000 }).catch(() => false)) {
+        await payTarget.click({ force: true });
         await this.page.waitForLoadState('networkidle', { timeout: 60_000 });
         await this.page.waitForTimeout(5000);
         // On payroll landing, look for Element Entries task link
         const eeTask = this.page.locator('a:has-text("Element Entries")').first();
-        if (await eeTask.isVisible({ timeout: 5000 }).catch(() => false)) {
+        if (await eeTask.isVisible({ timeout: 10_000 }).catch(() => false)) {
           await eeTask.click({ force: true });
         }
       } else {
-        // Fallback: navigate to Payroll via Redwood URL
-        await this.page.goto('/fscmUI/redwood/payroll/element-entries');
+        // Fallback: navigate to Payroll via direct ADF URL
+        await this.page.goto('/fscmUI/faces/FuseOverview?fndGlobalItemNodeId=itemNode_workforce_management_payroll');
         await this.page.waitForLoadState('networkidle', { timeout: 60_000 });
       }
     }

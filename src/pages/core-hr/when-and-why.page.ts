@@ -39,7 +39,19 @@ export class WhenAndWhyPage extends BasePage {
     if (legalEmployer) await this.selectLegalEmployer(legalEmployer);
     if (action) await this.fillCombobox(this.action, action);
     if (reason) await this.fillCombobox(this.reason, reason);
-    if (workerType) await this.fillCombobox(this.workerType, workerType);
+    if (workerType) {
+      // Oracle HCM "Proposed Worker Type" dropdown only has "Employee" and "Contingent worker".
+      // Field data may have "Pending Worker" which isn't a valid option — map it.
+      const mapped = workerType.toLowerCase().includes('pending') ? 'Employee'
+        : workerType.toLowerCase().includes('contingent') ? 'Contingent worker'
+        : workerType;
+      await this.fillCombobox(this.workerType, mapped);
+    }
+  }
+
+  /** Convert a date value (Excel serial or date string) to MM/DD/YYYY. */
+  convertDate(serial: string): string {
+    return excelSerialToDate(serial);
   }
 
   async fillDate(serial: string): Promise<void> {

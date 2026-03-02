@@ -42,7 +42,7 @@ const TIME_LABOR_ROLES = [
 const BOT_ROLE_MAP: Record<string, string[]> = {
   bot_hr_admin:                 [...ALL_ROLES, ...TIME_LABOR_ROLES],
   bot_hr_generalist_no_nid:     [...ALL_ROLES, 'Cru HR Specialist No Crisis and NID Data'],
-  bot_hr_generalist:            ALL_ROLES,
+  bot_hr_generalist:            [...ALL_ROLES, ...TIME_LABOR_ROLES],
   bot_hr_local_usops:           ALL_ROLES,
   bot_hr_local_campus:          ALL_ROLES,
   bot_hr_local_global:          ALL_ROLES,
@@ -51,10 +51,10 @@ const BOT_ROLE_MAP: Record<string, string[]> = {
   bot_local_campus:             ALL_ROLES,
   bot_local_us_capacity:        ALL_ROLES,
   bot_hr_crisis:                ALL_ROLES,
-  bot_payroll_admin:            ALL_ROLES,
+  bot_payroll_admin:            [...ALL_ROLES, ...TIME_LABOR_ROLES],
   bot_benefit_admin:            ALL_ROLES,
   bot_comp_spec:                ALL_ROLES,
-  bot_line_manager:             ALL_ROLES,
+  bot_line_manager:             [...ALL_ROLES, ...TIME_LABOR_ROLES],
   bot_vp_approver:              ALL_ROLES,
   bot_div_approver:             ALL_ROLES,
 };

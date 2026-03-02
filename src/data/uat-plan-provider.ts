@@ -103,6 +103,10 @@ export function isTestable(tc: UATTestCase): boolean {
   if (status === 'deferred' || status === 'cancelled') return false;
   // Skip empty rows: no business process, no test script, and no transaction category
   if (!tc.businessProcess && !tc.testScript && !tc.transactionCategory) return false;
+  if (process.env.RUN_STATUS_FILTER) {
+    const allowed = process.env.RUN_STATUS_FILTER.split(',').map(s => s.trim().toLowerCase());
+    if (!allowed.includes(status)) return false;
+  }
   if (process.env.RUN_PASSED_ONLY) {
     if (status !== 'passed' && status !== 'pass') return false;
   }

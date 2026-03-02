@@ -113,7 +113,22 @@ export class ElementEntryPage extends BasePage {
 
   /** Search for an employee by name with multiple fallback strategies. */
   private async searchEmployee(name: string): Promise<void> {
-    // Strategy 1: Use the search input on the Element Entries page
+    // Wait for page to stabilize after navigation
+    await this.page.waitForTimeout(3000);
+    await this.waitForJET();
+
+    // Strategy 1: Use Person Name combobox (ADF-style page — most common for Element Entries)
+    const personField = this.page.locator(
+      'input[aria-label*="Person"], input[aria-label*="Employee"], input[aria-label*="Worker"]'
+    ).first();
+    if (await personField.isVisible({ timeout: 5000 }).catch(() => false)) {
+      await this.fillCombobox(personField, name);
+      await this.page.waitForTimeout(3000);
+      await this.waitForJET();
+      return;
+    }
+
+    // Strategy 2: Use the search input on the Element Entries page (Redwood)
     const searchVisible = await this.searchFor.isVisible({ timeout: 5000 }).catch(() => false);
     if (searchVisible) {
       await this.searchFor.click();
@@ -124,7 +139,7 @@ export class ElementEntryPage extends BasePage {
       const searchBtn = this.page.locator(
         'button[aria-label*="Search"], button:has-text("Search"), [role="button"][aria-label*="Search"]'
       ).first();
-      if (await searchBtn.isVisible({ timeout: 2000 }).catch(() => false)) {
+      if (await searchBtn.isVisible({ timeout: 3000 }).catch(() => false)) {
         await searchBtn.click();
       } else {
         await this.searchFor.press('Enter');
@@ -137,12 +152,14 @@ export class ElementEntryPage extends BasePage {
       return;
     }
 
-    // Strategy 2: Use Person Name combobox (ADF-style page)
-    const personField = this.page.locator(
-      'input[aria-label*="Person"], input[aria-label*="Employee"], input[aria-label*="Worker"]'
+    // Strategy 3: Try ADF-style search fields with common ID patterns
+    const adfSearch = this.page.locator(
+      '[id$="q1:value00::content"], [id*="PersonName"], [id*="personName"]'
     ).first();
-    if (await personField.isVisible({ timeout: 3000 }).catch(() => false)) {
-      await this.fillCombobox(personField, name);
+    if (await adfSearch.isVisible({ timeout: 3000 }).catch(() => false)) {
+      await adfSearch.click();
+      await adfSearch.fill(name);
+      await adfSearch.press('Tab');
       await this.page.waitForTimeout(3000);
       await this.waitForJET();
       return;

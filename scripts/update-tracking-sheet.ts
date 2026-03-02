@@ -22,15 +22,21 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import * as dotenv from 'dotenv';
+import {
+  getAccessToken,
+  getSheetTabs,
+  readSheetTab,
+  batchUpdateCells,
+  getTrackingSheetId,
+  SHEETS_API,
+  type CellUpdate,
+} from './lib/google-sheets';
 
 dotenv.config();
 
-const TOKEN_URL = 'https://oauth2.googleapis.com/token';
-const SHEETS_API = 'https://sheets.googleapis.com/v4/spreadsheets';
-
 // ─── Types ───────────────────────────────────────────────────────────────────
 
-interface TestResult {
+export interface TestResult {
   testId: string;
   module: string;
   title: string;
@@ -39,32 +45,9 @@ interface TestResult {
   errorMessage: string;
 }
 
-interface SheetRow {
-  rowIndex: number; // 0-based in sheet (1-based for A1 notation, row 0 is header)
-  testId: string;
-  businessProcess: string;
-}
-
-// ─── Auth ────────────────────────────────────────────────────────────────────
-
-async function getAccessToken(): Promise<string> {
-  const res = await fetch(TOKEN_URL, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-    body: new URLSearchParams({
-      client_id: process.env.GOOGLE_CLIENT_ID || '',
-      client_secret: process.env.GOOGLE_CLIENT_SECRET || '',
-      refresh_token: process.env.GOOGLE_REFRESH_TOKEN || '',
-      grant_type: 'refresh_token',
-    }),
-  });
-  if (!res.ok) throw new Error(`OAuth failed: ${res.status} ${await res.text()}`);
-  return (await res.json()).access_token;
-}
-
 // ─── Parse Playwright JSON report ────────────────────────────────────────────
 
-function parsePlaywrightReport(reportPath: string): TestResult[] {
+export function parsePlaywrightReport(reportPath: string): TestResult[] {
   const raw = JSON.parse(fs.readFileSync(reportPath, 'utf-8'));
   const results: TestResult[] = [];
 
@@ -147,7 +130,7 @@ function cleanError(msg: string): string {
 
 // ─── Map results to tracking sheet status ────────────────────────────────────
 
-function mapStatus(result: TestResult): string {
+export function mapStatus(result: TestResult): string {
   switch (result.status) {
     case 'passed':
       return 'Passed';
@@ -180,76 +163,6 @@ function mapActualResult(result: TestResult): string {
   }
 }
 
-// ─── Read tracking sheet to find row indices ─────────────────────────────────
-
-async function readSheetTab(
-  accessToken: string,
-  spreadsheetId: string,
-  tabName: string,
-): Promise<string[][]> {
-  const range = encodeURIComponent(`'${tabName}'`);
-  const url = `${SHEETS_API}/${spreadsheetId}/values/${range}?majorDimension=ROWS&valueRenderOption=FORMATTED_VALUE`;
-  const res = await fetch(url, {
-    headers: { Authorization: `Bearer ${accessToken}` },
-  });
-  if (!res.ok) return [];
-  const body = await res.json();
-  return (body.values || []).map((row: any[]) =>
-    row.map((c: any) => (c == null ? '' : String(c))),
-  );
-}
-
-async function getSheetTabs(
-  accessToken: string,
-  spreadsheetId: string,
-): Promise<string[]> {
-  const url = `${SHEETS_API}/${spreadsheetId}?fields=sheets.properties.title`;
-  const res = await fetch(url, {
-    headers: { Authorization: `Bearer ${accessToken}` },
-  });
-  if (!res.ok) throw new Error(`Failed to get sheet tabs: ${res.status}`);
-  const data = await res.json();
-  return data.sheets.map((s: any) => s.properties.title);
-}
-
-// ─── Batch update cells ──────────────────────────────────────────────────────
-
-interface CellUpdate {
-  range: string; // A1 notation, e.g. "'Core HR'!J5"
-  value: string;
-}
-
-async function batchUpdateCells(
-  accessToken: string,
-  spreadsheetId: string,
-  updates: CellUpdate[],
-): Promise<void> {
-  // Use values:batchUpdate to update individual cells
-  const data = updates.map((u) => ({
-    range: u.range,
-    values: [[u.value]],
-  }));
-
-  // Batch in chunks of 500 cells
-  for (let i = 0; i < data.length; i += 500) {
-    const chunk = data.slice(i, i + 500);
-    const res = await fetch(`${SHEETS_API}/${spreadsheetId}/values:batchUpdate`, {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${accessToken}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        valueInputOption: 'RAW',
-        data: chunk,
-      }),
-    });
-    if (!res.ok) {
-      throw new Error(`Batch update failed: ${res.status} ${await res.text()}`);
-    }
-  }
-}
-
 // ─── Main ────────────────────────────────────────────────────────────────────
 
 async function main() {
@@ -263,12 +176,9 @@ async function main() {
     ? args[reportIdx + 1]
     : path.resolve(process.cwd(), 'test-results', 'results.json');
 
-  const idFilePath = path.resolve(process.cwd(), '.tracking-sheet-id');
   let spreadsheetId = sheetIdIdx >= 0
     ? args[sheetIdIdx + 1]
-    : fs.existsSync(idFilePath)
-      ? fs.readFileSync(idFilePath, 'utf-8').trim()
-      : process.env.TRACKING_SHEET_ID || '';
+    : getTrackingSheetId();
 
   if (!spreadsheetId) {
     console.error('No tracking sheet ID found.');
@@ -411,6 +321,18 @@ async function main() {
   await batchUpdateCells(accessToken, spreadsheetId, cellUpdates);
   console.log('  Done.');
 
+  // Update "Last Updated" timestamp in Summary tab (if it exists)
+  if (tabs.includes('Summary')) {
+    const timestamp = new Date().toLocaleString('en-US', {
+      month: 'short', day: 'numeric', year: 'numeric',
+      hour: 'numeric', minute: '2-digit', hour12: true,
+    });
+    await batchUpdateCells(accessToken, spreadsheetId, [
+      { range: "'Summary'!B2", value: timestamp },
+    ]);
+    console.log(`  Summary tab timestamp updated: ${timestamp}`);
+  }
+
   const url = `https://docs.google.com/spreadsheets/d/${spreadsheetId}`;
   console.log(`\n================================================`);
   console.log(`  Updated ${matched} tests in tracking sheet`);
@@ -419,7 +341,11 @@ async function main() {
   console.log('================================================\n');
 }
 
-main().catch((err) => {
-  console.error('\nError:', err.message);
-  process.exit(1);
-});
+// Only auto-run when executed directly (not when imported)
+const isDirectRun = process.argv[1]?.includes('update-tracking-sheet');
+if (isDirectRun) {
+  main().catch((err) => {
+    console.error('\nError:', err.message);
+    process.exit(1);
+  });
+}

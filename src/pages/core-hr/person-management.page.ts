@@ -90,11 +90,22 @@ export class PersonManagementPage extends BasePage {
   // === Step 2: Fill address ===
 
   async fillAddress(tc: TestCase): Promise<void> {
-    const addr1 = getField(tc, 'Address Line 1') || getField(tc, 'Address');
+    let addr1 = getField(tc, 'Address Line 1') || getField(tc, 'Address');
     const addr2 = getField(tc, 'Address Line 2');
-    const zip = getField(tc, 'ZIP Code') || getField(tc, 'Zip');
-    const cityVal = getField(tc, 'City');
-    const countyVal = getField(tc, 'County');
+    let zip = getField(tc, 'ZIP Code') || getField(tc, 'Zip');
+    let cityVal = getField(tc, 'City');
+    let countyVal = getField(tc, 'County');
+    let stateVal = getField(tc, 'State');
+
+    // If address is a placeholder ("Any valid address") with no real ZIP/City, use Cru HQ defaults
+    if (addr1 && addr1.toLowerCase().includes('any valid') && !zip) {
+      console.log('[Address] Placeholder address detected — using Cru HQ defaults');
+      addr1 = '100 Lake Hart Dr';
+      zip = '32832';
+      cityVal = cityVal || 'Orlando';
+      stateVal = stateVal || 'FL';
+      countyVal = countyVal || 'Orange';
+    }
 
     if (addr1) await this.fillField(this.addressLine1, addr1);
     if (addr2) await this.fillField(this.addressLine2, addr2);
@@ -116,7 +127,7 @@ export class PersonManagementPage extends BasePage {
     const stateEmpty = !(await this.state.inputValue().catch(() => ''));
 
     if (cityVal && cityEmpty) await this.fillLovField(this.city, cityVal);
-    if (getField(tc, 'State') && stateEmpty) await this.fillLovField(this.state, getField(tc, 'State')!);
+    if (stateVal && stateEmpty) await this.fillLovField(this.state, stateVal);
     if (countyVal && countyEmpty) await this.fillLovField(this.county, countyVal);
   }
 

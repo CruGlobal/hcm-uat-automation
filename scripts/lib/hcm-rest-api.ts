@@ -165,11 +165,65 @@ const DEFAULT_REST_CREDS: BasicAuthCredentials = {
   password: 'WinBuildSend!1951@cru',
 };
 
-// ── Core REST Helper ─────────────────────────────────────────────────
+// ── Core REST Helpers ────────────────────────────────────────────────
+
+/**
+ * Generic HTTP request using Basic Auth via Node.js https module.
+ * Works standalone — does NOT require a Playwright page or browser session.
+ */
+function hcmRequest(
+  method: string,
+  baseUrl: string,
+  endpoint: string,
+  creds: BasicAuthCredentials = DEFAULT_REST_CREDS,
+  body?: any,
+): Promise<{ statusCode: number; data: any; raw: string }> {
+  const url = `${baseUrl}${endpoint}`;
+  const basicAuth = Buffer.from(`${creds.username}:${creds.password}`).toString('base64');
+  const bodyStr = body != null ? JSON.stringify(body) : undefined;
+
+  return new Promise((resolve, reject) => {
+    const u = new URL(url);
+    const headers: Record<string, string> = {
+      'Accept': 'application/json',
+      'Authorization': `Basic ${basicAuth}`,
+    };
+    if (bodyStr) {
+      headers['Content-Type'] = 'application/json';
+      headers['Content-Length'] = String(Buffer.byteLength(bodyStr));
+    }
+    const req = https.request({
+      hostname: u.hostname,
+      path: u.pathname + u.search,
+      method,
+      headers,
+    }, (res) => {
+      let rawBody = '';
+      res.on('data', (chunk) => rawBody += chunk);
+      res.on('end', () => {
+        const code = res.statusCode || 0;
+        let parsed: any;
+        try { parsed = JSON.parse(rawBody); } catch { parsed = null; }
+
+        if (code >= 400) {
+          const err = new Error(`${method} ${endpoint} → ${code} ${res.statusMessage}: ${rawBody.slice(0, 300)}`);
+          (err as any).statusCode = code;
+          (err as any).responseBody = rawBody;
+          reject(err);
+          return;
+        }
+        resolve({ statusCode: code, data: parsed, raw: rawBody });
+      });
+    });
+    req.on('error', reject);
+    req.setTimeout(60000, () => { req.destroy(); reject(new Error(`${method} ${endpoint} → timeout`)); });
+    if (bodyStr) req.write(bodyStr);
+    req.end();
+  });
+}
 
 /**
  * GET request using Basic Auth via Node.js https module.
- * Works standalone — does NOT require a Playwright page or browser session.
  * The `page` parameter is kept for backward compatibility but ignored.
  */
 export async function hcmGet(
@@ -178,38 +232,46 @@ export async function hcmGet(
   endpoint: string,
   creds: BasicAuthCredentials = DEFAULT_REST_CREDS,
 ): Promise<any> {
-  const url = `${baseUrl}${endpoint}`;
-  const basicAuth = Buffer.from(`${creds.username}:${creds.password}`).toString('base64');
+  const result = await hcmRequest('GET', baseUrl, endpoint, creds);
+  return result.data;
+}
 
-  return new Promise((resolve, reject) => {
-    const u = new URL(url);
-    const req = https.request({
-      hostname: u.hostname,
-      path: u.pathname + u.search,
-      method: 'GET',
-      headers: {
-        'Accept': 'application/json',
-        'Authorization': `Basic ${basicAuth}`,
-      },
-    }, (res) => {
-      let body = '';
-      res.on('data', (chunk) => body += chunk);
-      res.on('end', () => {
-        if (!res.statusCode || res.statusCode >= 400) {
-          reject(new Error(`GET ${endpoint} → ${res.statusCode} ${res.statusMessage}: ${body.slice(0, 200)}`));
-          return;
-        }
-        try {
-          resolve(JSON.parse(body));
-        } catch {
-          reject(new Error(`GET ${endpoint} → invalid JSON: ${body.slice(0, 200)}`));
-        }
-      });
-    });
-    req.on('error', reject);
-    req.setTimeout(30000, () => { req.destroy(); reject(new Error(`GET ${endpoint} → timeout`)); });
-    req.end();
-  });
+/**
+ * POST request using Basic Auth via Node.js https module.
+ * Used for action endpoints (e.g., reverseTermination).
+ */
+export async function hcmPost(
+  baseUrl: string,
+  endpoint: string,
+  body: any,
+  creds: BasicAuthCredentials = DEFAULT_REST_CREDS,
+): Promise<{ statusCode: number; data: any }> {
+  return hcmRequest('POST', baseUrl, endpoint, creds, body);
+}
+
+/**
+ * PATCH request using Basic Auth via Node.js https module.
+ * Used for updating records (e.g., withdrawing absences).
+ */
+export async function hcmPatch(
+  baseUrl: string,
+  endpoint: string,
+  body: any,
+  creds: BasicAuthCredentials = DEFAULT_REST_CREDS,
+): Promise<{ statusCode: number; data: any }> {
+  return hcmRequest('PATCH', baseUrl, endpoint, creds, body);
+}
+
+/**
+ * DELETE request using Basic Auth via Node.js https module.
+ * Used for removing records (e.g., deleting element entries).
+ */
+export async function hcmDelete(
+  baseUrl: string,
+  endpoint: string,
+  creds: BasicAuthCredentials = DEFAULT_REST_CREDS,
+): Promise<{ statusCode: number; data: any }> {
+  return hcmRequest('DELETE', baseUrl, endpoint, creds);
 }
 
 // ── Domain-Specific Operations ───────────────────────────────────────
@@ -492,16 +554,21 @@ export async function lookupTimeRecords(
   const endpoint = `/hcmRestApi/resources/latest/timeRecordGroups?finder=filterByPerNumTimeGrp;personNumber=${personNumber},startTime=${start},stopTime=${stop},groupType=ProcessedTimecard&onlyData=true`;
   try {
     const data = await hcmGet(page, baseUrl, endpoint, creds);
-    return (data?.items || []) as TimeRecordGroupRecord[];
+    const items = (data?.items || []) as TimeRecordGroupRecord[];
+    if (items.length > 0) return items;
   } catch {
-    // Fallback: try without finder (simpler query)
-    const fallback = `/hcmRestApi/resources/latest/timeRecordGroups?q=personNumber='${personNumber}'&onlyData=true&limit=10`;
-    try {
-      const data2 = await hcmGet(page, baseUrl, fallback, creds);
-      return (data2?.items || []) as TimeRecordGroupRecord[];
-    } catch {
-      return [];
-    }
+    // Primary query failed — fall through to broader query
+  }
+
+  // Broader fallback: any groupType, wider date range (1 year back + 1 year ahead)
+  const wideStart = new Date(Date.now() - 365 * 86400000).toISOString();
+  const wideStop = new Date(Date.now() + 365 * 86400000).toISOString();
+  const fallback = `/hcmRestApi/resources/latest/timeRecordGroups?finder=filterByPerNumTimeGrp;personNumber=${personNumber},startTime=${wideStart},stopTime=${wideStop}&onlyData=true&limit=20`;
+  try {
+    const data2 = await hcmGet(page, baseUrl, fallback, creds);
+    return (data2?.items || []) as TimeRecordGroupRecord[];
+  } catch {
+    return [];
   }
 }
 
@@ -533,4 +600,66 @@ export async function lookupAllocatedChecklistsByNumber(
   const worker = await lookupPersonId(page, baseUrl, personNumber, creds);
   if (!worker) return [];
   return lookupAllocatedChecklists(page, baseUrl, worker.PersonId, creds);
+}
+
+// ── Write Operations (Pre-Flight State Resets) ──────────────────────
+
+/**
+ * Reverse a termination — restores a terminated worker to active status.
+ * Uses the Oracle HCM "reverseTermination" action on a work relationship.
+ * Throws on failure (403, 404, etc.) — callers should catch and handle.
+ */
+export async function reverseTermination(
+  baseUrl: string,
+  personId: number,
+  workRelationshipId: number,
+  creds: BasicAuthCredentials = DEFAULT_REST_CREDS,
+): Promise<void> {
+  const endpoint = `/hcmRestApi/resources/latest/workers/${personId}/child/workRelationships/${workRelationshipId}/action/reverseTermination`;
+  await hcmPost(baseUrl, endpoint, {}, creds);
+}
+
+/**
+ * Withdraw/cancel an absence record.
+ * Uses PATCH to update the absence status to WITHDRAWN.
+ */
+export async function withdrawAbsence(
+  baseUrl: string,
+  absenceId: number,
+  creds: BasicAuthCredentials = DEFAULT_REST_CREDS,
+): Promise<void> {
+  const endpoint = `/hcmRestApi/resources/latest/absences/${absenceId}`;
+  await hcmPatch(baseUrl, endpoint, { absenceStatusCd: 'WITHDRAWN' }, creds);
+}
+
+/**
+ * Delete an element entry record.
+ */
+export async function deleteElementEntry(
+  baseUrl: string,
+  elementEntryId: number,
+  creds: BasicAuthCredentials = DEFAULT_REST_CREDS,
+): Promise<void> {
+  const endpoint = `/hcmRestApi/resources/latest/elementEntries/${elementEntryId}`;
+  await hcmDelete(baseUrl, endpoint, creds);
+}
+
+/**
+ * Terminate a worker via REST API.
+ * Used by pre-flight to re-terminate an already-rehired person so the rehire test can run again.
+ * Requires ActionCode, TerminationDate, and optionally NotificationDate.
+ */
+export async function terminateWorker(
+  baseUrl: string,
+  personId: number,
+  workRelationshipId: number,
+  terminationDate: string,
+  creds: BasicAuthCredentials = DEFAULT_REST_CREDS,
+): Promise<void> {
+  const endpoint = `/hcmRestApi/resources/latest/workers/${personId}/child/workRelationships/${workRelationshipId}/action/terminateWorkRelationship`;
+  await hcmPost(baseUrl, endpoint, {
+    ActionCode: 'TERMINATE_EMPLOYMENT',
+    TerminationDate: terminationDate,
+    NotificationDate: terminationDate,
+  }, creds);
 }

@@ -116,7 +116,13 @@ export class TimeAdminFlow extends BaseTimeLaborFlow {
     } catch (err) {
       console.log(`[TimeAdmin] HR transactions via admin failed, falling back to ESS: ${err}`);
       await this.navigateToTimeESS();
-      await this.timecardPage.clickAddTimeCard();
+
+      // ESS: try Current Time Card first (always exists), then Add Time Card
+      try {
+        await this.timecardPage.clickCurrentTimeCard();
+      } catch {
+        await this.timecardPage.clickAddTimeCard();
+      }
       await this.timecardPage.fillFromTestCase(tc, fd);
       await this.timecardPage.submitTimecard();
     }
