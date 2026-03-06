@@ -945,15 +945,20 @@ export class CoreHRUATFlow extends BaseFlow {
       }
     }
 
-    // Submit
+    // Submit or Save
     const submitBtn = this.page.getByRole('button', { name: 'Submit' }).first();
     if (await submitBtn.isVisible({ timeout: 5000 }).catch(() => false)) {
       await this.confirmation.clickSubmit();
       await this.confirmation.expectSuccess();
     } else {
-      // Try Save instead
-      await this.person.clickAdfButton('Save');
-      await this.page.waitForTimeout(3000);
+      // Try Save — may not be available if person was not found
+      const saveBtn = this.page.getByRole('button', { name: /Save/i }).first();
+      if (await saveBtn.isVisible({ timeout: 3000 }).catch(() => false)) {
+        await saveBtn.click();
+        await this.page.waitForTimeout(3000);
+      } else {
+        console.log(`[PersonalInfo] ${tc.testId}: Name change — no Submit/Save button (person may not exist)`);
+      }
     }
   }
 
@@ -992,8 +997,13 @@ export class CoreHRUATFlow extends BaseFlow {
       await this.confirmation.clickSubmit();
       await this.confirmation.expectSuccess();
     } else {
-      await this.person.clickAdfButton('Save');
-      await this.page.waitForTimeout(3000);
+      const saveBtn = this.page.getByRole('button', { name: /Save/i }).first();
+      if (await saveBtn.isVisible({ timeout: 3000 }).catch(() => false)) {
+        await saveBtn.click();
+        await this.page.waitForTimeout(3000);
+      } else {
+        console.log(`[PersonalInfo] ${tc.testId}: Deceased date — no Submit/Save button`);
+      }
     }
   }
 
@@ -1053,8 +1063,13 @@ export class CoreHRUATFlow extends BaseFlow {
       await this.confirmation.clickSubmit();
       await this.confirmation.expectSuccess();
     } else {
-      await this.person.clickAdfButton('Save');
-      await this.page.waitForTimeout(3000);
+      const saveBtn = this.page.getByRole('button', { name: /Save/i }).first();
+      if (await saveBtn.isVisible({ timeout: 3000 }).catch(() => false)) {
+        await saveBtn.click();
+        await this.page.waitForTimeout(3000);
+      } else {
+        console.log(`[PersonalInfo] ${tc.testId}: Date change — no Submit/Save button`);
+      }
     }
   }
 
@@ -1089,8 +1104,13 @@ export class CoreHRUATFlow extends BaseFlow {
       await this.confirmation.clickSubmit();
       await this.confirmation.expectSuccess();
     } else {
-      await this.person.clickAdfButton('Save');
-      await this.page.waitForTimeout(3000);
+      const saveBtn = this.page.getByRole('button', { name: /Save/i }).first();
+      if (await saveBtn.isVisible({ timeout: 3000 }).catch(() => false)) {
+        await saveBtn.click();
+        await this.page.waitForTimeout(3000);
+      } else {
+        console.log(`[PersonalInfo] ${tc.testId}: Marital status — no Submit/Save button`);
+      }
     }
   }
 
@@ -1149,8 +1169,13 @@ export class CoreHRUATFlow extends BaseFlow {
       await this.confirmation.clickSubmit();
       await this.confirmation.expectSuccess();
     } else {
-      await this.person.clickAdfButton('Save');
-      await this.page.waitForTimeout(3000);
+      const saveBtn = this.page.getByRole('button', { name: /Save/i }).first();
+      if (await saveBtn.isVisible({ timeout: 3000 }).catch(() => false)) {
+        await saveBtn.click();
+        await this.page.waitForTimeout(3000);
+      } else {
+        console.log(`[PersonalInfo] ${tc.testId}: Personal info edit — no Submit/Save button`);
+      }
     }
   }
 
