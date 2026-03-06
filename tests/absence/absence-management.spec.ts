@@ -79,6 +79,10 @@ function getFlowType(tc: UATTestCase): 'entry' | 'approval' | 'admin' {
 
   // HR Specialist routing
   if (category.includes('hr')) {
+    // HR Specialist bereavement/FMLA approval — check before script ID '402' which can also be approval
+    if (bp.includes('approval') || bp.includes('approve')) {
+      return 'approval';
+    }
     // HR Specialist absence entry/add tests
     if (bp.includes('absence entry') || bp.includes('add absence') ||
         scriptId.includes('402')) {
@@ -91,10 +95,6 @@ function getFlowType(tc: UATTestCase): 'entry' | 'approval' | 'admin' {
     }
     // HR Specialist withdraw
     if (bp.includes('withdraw') || scriptId.includes('2901')) {
-      return 'approval';
-    }
-    // HR Specialist bereavement/FMLA approval
-    if (bp.includes('approval') || bp.includes('approve')) {
       return 'approval';
     }
     // Admin scripts (enrollment, balance, accrual, scheduled processes, work schedule)

@@ -82,6 +82,14 @@ export async function clickAndWait(page: Page, selector: string): Promise<void> 
  * Returns the original string if not a valid serial number.
  */
 export function excelSerialToDate(serial: string): string {
+  // Handle "todays date" placeholder — return today's date in MM/DD/YYYY format
+  if (/today/i.test(serial)) {
+    const today = new Date();
+    const mm = String(today.getMonth() + 1).padStart(2, '0');
+    const dd = String(today.getDate()).padStart(2, '0');
+    const yyyy = today.getFullYear();
+    return `${mm}/${dd}/${yyyy}`;
+  }
   const num = Number(serial);
   if (!Number.isFinite(num) || num < 1) return serial;
   // Excel epoch: 1899-12-30 (accounting for the Lotus 1-2-3 leap year bug)

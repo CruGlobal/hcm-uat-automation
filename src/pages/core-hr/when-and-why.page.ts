@@ -22,7 +22,8 @@ export class WhenAndWhyPage extends BasePage {
   // Legal Employer (LOV combobox with autocomplete)
   private readonly legalEmployer = this.page.locator('[id$="SP1:selectOneChoice3::content"]');
   // Worker Type / Proposed Worker Type
-  private readonly workerType = this.page.locator('[id$="SP1:selectOneChoice4::content"]');
+  // CWR form uses "soc2" suffix; Hire/Add Pending Worker use "selectOneChoice4"
+  private readonly workerType = this.page.locator('[id$="SP1:selectOneChoice4::content"], [id$="SP1:soc2::content"]').first();
   // Worker Number (appears after Legal Employer selection on Hire form)
   private readonly workerNumber = this.page.locator('[id$="SP1:it1::content"]');
 

@@ -20,6 +20,17 @@ export class StaffDesignationPage extends BasePage {
     const designation = getField(tc, 'Designation');
     const primary = getField(tc, 'Primary');
 
+    // Check if the Staff Designation section is actually rendered on this page.
+    // This section only appears in certain Oracle HCM wizards/flows.
+    const sectionPresent =
+      await this.effectiveDate.isVisible({ timeout: 5_000 }).catch(() => false) ||
+      await this.staffAccountNumber.isVisible({ timeout: 3_000 }).catch(() => false);
+
+    if (!sectionPresent) {
+      console.log('[StaffDesignation] Section not visible on this page — skipping');
+      return;
+    }
+
     if (effDate) {
       const dateStr = excelSerialToDate(effDate);
       await this.fillInput(this.effectiveDate, dateStr);
@@ -56,7 +67,14 @@ export class StaffDesignationPage extends BasePage {
   }
 
   private async fillInput(locator: ReturnType<Page['locator']>, value: string): Promise<void> {
-    await locator.clear();
+    try {
+      await locator.clear({ timeout: 5_000 });
+    } catch {
+      // ADF date fields can hang on clear() — fall back to select-all + delete
+      await locator.click();
+      await locator.press('Control+a');
+      await locator.press('Delete');
+    }
     await locator.fill(value);
     await locator.press('Tab');
     await this.waitForJET();

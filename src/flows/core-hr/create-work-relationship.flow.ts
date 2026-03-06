@@ -896,7 +896,7 @@ export class CreateWorkRelationshipFlow extends BaseCoreHRFlow {
     const workerType = getField(tc, 'Use Person > Worker Type') || getField(tc, 'Worker Type');
     if (workerType) {
       await fillAdfSelect('Worker Type', workerType,
-        ['[id$="SP1:selectOneChoice1::content"]', '[id$="SP1:selectOneChoice4::content"]']);
+        ['[id$="SP1:selectOneChoice1::content"]', '[id$="SP1:selectOneChoice4::content"]', '[id$="SP1:soc2::content"]']);
     }
   }
 }
