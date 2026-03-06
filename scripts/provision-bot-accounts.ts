@@ -83,6 +83,9 @@ const BOT_ROLE_MAP: Record<string, string[]> = {
   // Benefits bot
   bot_benefit_admin: [...HR_SPECIALIST_ROLES, 'Benefits Administrator'],
 
+  // Time & Labor bot
+  bot_time_admin: [...HR_SPECIALIST_ROLES, 'Time and Labor Manager'],
+
   // Compensation bots
   bot_comp_spec: [...HR_SPECIALIST_ROLES, 'Compensation Specialist'],
   bot_comp_comm_approver: [...LINE_MANAGER_ROLES, 'Compensation Specialist'],
@@ -450,101 +453,46 @@ async function createAccountViaUI(
   await waitForJET(page);
   await page.screenshot({ path: `/tmp/create-account-${bot.botName}-step1-form.png` }).catch(() => {});
 
-  // Step 2: Find and fill the "Person" / "Associated Person" field
-  // The bot's last name IS the botName (first name is "uat")
-  const personSearchTerm = bot.botName;
-  let personFieldFilled = false;
-
-  // Strategy A: input field with "Person" label or placeholder
-  const personSelectors = [
-    'input[id*="person" i]',
-    'input[id*="Person"]',
-    'input[aria-label*="Person"]',
-    'input[placeholder*="person" i]',
-    'input[placeholder*="Search"]',
+  // Step 2: Fill User Information fields (First Name, Last Name, Email)
+  // The "Add User Account" form has plain text fields, not a Person LOV.
+  const labeledFields: Array<{ label: string; value: string }> = [
+    { label: 'First Name', value: 'UAT' },
+    { label: 'Last Name', value: bot.botName.replace(/^bot_/, '') },
+    { label: 'Email', value: `uat.${bot.botName}@cru.org` },
   ];
-  for (const sel of personSelectors) {
-    const field = page.locator(sel).first();
+  for (const { label, value } of labeledFields) {
+    const field = page.getByLabel(label, { exact: true });
     if (await field.isVisible({ timeout: 2000 }).catch(() => false)) {
-      await field.clear();
-      await field.pressSequentially(personSearchTerm, { delay: 50 });
-      await page.waitForTimeout(3000);
-      // Check if autocomplete dropdown appeared
-      const suggestion = page.locator(`li:has-text("${personSearchTerm}"), [role="option"]:has-text("${personSearchTerm}")`).first();
-      if (await suggestion.isVisible({ timeout: 3000 }).catch(() => false)) {
-        await suggestion.click();
-        await page.waitForTimeout(2000);
-        personFieldFilled = true;
-        console.log(`    Person selected via autocomplete (${sel})`);
-        break;
-      }
-      // If no autocomplete, try Tab to trigger LOV
-      await field.press('Tab');
-      await page.waitForTimeout(2000);
-      personFieldFilled = true;
-      console.log(`    Person field filled via ${sel} (Tab-triggered)`);
-      break;
+      await field.fill(value);
+      console.log(`    ${label}: ${value}`);
     }
   }
-
-  if (!personFieldFilled) {
-    // Strategy B: look for any text input that's NOT username/password
-    const allInputs = page.locator('input[type="text"]:visible');
-    const count = await allInputs.count();
-    console.log(`    Found ${count} visible text inputs, trying first for person field...`);
-    if (count > 0) {
-      const firstInput = allInputs.first();
-      await firstInput.clear();
-      await firstInput.pressSequentially(personSearchTerm, { delay: 50 });
-      await page.waitForTimeout(3000);
-      const suggestion = page.locator(`li:has-text("${personSearchTerm}"), [role="option"]:has-text("${personSearchTerm}")`).first();
-      if (await suggestion.isVisible({ timeout: 3000 }).catch(() => false)) {
-        await suggestion.click();
-        await page.waitForTimeout(2000);
-        personFieldFilled = true;
-      } else {
-        await firstInput.press('Tab');
-        await page.waitForTimeout(2000);
-        personFieldFilled = true;
-      }
-    }
-  }
-
-  await page.screenshot({ path: `/tmp/create-account-${bot.botName}-step2-person.png` }).catch(() => {});
-
-  if (!personFieldFilled) {
-    console.log(`    WARNING: Could not find/fill person field. Continuing anyway...`);
-  }
+  await page.screenshot({ path: `/tmp/create-account-${bot.botName}-step2-info.png` }).catch(() => {});
 
   // Step 3: Fill User Name field
   let userNameFilled = false;
-  const userNameSelectors = [
-    'input[id*="UserName" i]',
-    'input[id*="userName"]',
-    'input[id*="username"]',
-    'input[aria-label*="User Name"]',
-    'input[placeholder*="User Name" i]',
-  ];
-  for (const sel of userNameSelectors) {
-    const field = page.locator(sel).first();
-    if (await field.isVisible({ timeout: 2000 }).catch(() => false)) {
-      await field.clear();
-      await field.fill(username);
-      userNameFilled = true;
-      console.log(`    Username filled via ${sel}`);
-      break;
-    }
-  }
-
-  if (!userNameFilled) {
-    // Fallback: second text input (first was person field)
-    const allInputs = page.locator('input[type="text"]:visible');
-    const count = await allInputs.count();
-    if (count >= 2) {
-      await allInputs.nth(1).clear();
-      await allInputs.nth(1).fill(username);
-      userNameFilled = true;
-      console.log(`    Username filled via 2nd text input fallback`);
+  // Try label-based first (most reliable for this form)
+  const userNameByLabel = page.getByLabel('User Name', { exact: true });
+  if (await userNameByLabel.isVisible({ timeout: 3000 }).catch(() => false)) {
+    await userNameByLabel.fill(username);
+    userNameFilled = true;
+    console.log(`    Username filled via label: ${username}`);
+  } else {
+    // Fallback: id-based selectors
+    const userNameSelectors = [
+      'input[id*="UserName" i]',
+      'input[id*="userName"]',
+      'input[id*="username"]',
+    ];
+    for (const sel of userNameSelectors) {
+      const field = page.locator(sel).first();
+      if (await field.isVisible({ timeout: 2000 }).catch(() => false)) {
+        await field.clear();
+        await field.fill(username);
+        userNameFilled = true;
+        console.log(`    Username filled via ${sel}`);
+        break;
+      }
     }
   }
 
@@ -970,6 +918,12 @@ async function provisionBot(
       });
       await page.waitForTimeout(2000);
     }
+
+    // Clear any leftover ADF modal glass pane before role assignment
+    await page.evaluate(() => {
+      document.querySelectorAll('.AFModalGlassPane').forEach(el => el.remove());
+    });
+    await page.waitForTimeout(2000);
 
     // Assign roles
     let rolesResult = { added: [] as string[], skipped: [] as string[], errors: [] as string[] };

@@ -1,5 +1,7 @@
 import { type Page } from '@playwright/test';
 import { BaseTimeLaborFlow } from './base-time-labor.flow';
+import { getFieldData } from '../../data/uat-plan-provider';
+import { getField } from '../../data/test-data-provider';
 import type { UATTestCase, TestCase } from '../../data/types';
 
 /**
@@ -22,8 +24,32 @@ export class TimecardEntryFlow extends BaseTimeLaborFlow {
     super(page);
   }
 
-  async execute(tc: UATTestCase): Promise<void> {
+  /**
+   * For ESS tests, try to login as the target employee from field data.
+   * Falls back to bot login if no person number or provisioning fails.
+   */
+  private async loginAsTargetEmployeeOrBot(tc: UATTestCase): Promise<void> {
+    const cat = (tc.transactionCategory || '').toLowerCase();
+    // Only use employee login for ESS (employee) tests, not manager/HR specialist tests
+    if (cat.includes('employee') || cat.includes('ess') || cat === '') {
+      const fd = getFieldData(tc.testId);
+      if (fd) {
+        const personNumber = getField(fd, 'person number') || getField(fd, 'personnumber');
+        if (personNumber) {
+          try {
+            await this.loginAsEmployee(personNumber, tc.testId);
+            return;
+          } catch (err) {
+            console.warn(`[TimecardEntry] ${tc.testId}: Could not login as employee ${personNumber}, falling back to bot: ${err}`);
+          }
+        }
+      }
+    }
     await this.loginToHCM(tc);
+  }
+
+  async execute(tc: UATTestCase): Promise<void> {
+    await this.loginAsTargetEmployeeOrBot(tc);
 
     const action = this.getFlowAction(tc);
     console.log(`[TimecardEntry] ${tc.testId} action="${action}" bp="${tc.businessProcess}" script="${tc.testScript}"`);

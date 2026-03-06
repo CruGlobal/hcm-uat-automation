@@ -1382,9 +1382,17 @@ export class TimecardPage extends BasePage {
 
   /** Click "Team Time Cards" link in the Time Management sidebar. */
   async clickTeamTimeCards(): Promise<void> {
+    // Already on the Redwood Team Time Cards page? Skip clicking.
+    const alreadyOnPage = await this.page.locator('h1:has-text("Team Time Cards")').isVisible({ timeout: 3000 }).catch(() => false);
+    if (alreadyOnPage) {
+      console.log('[Timecard] Already on Team Time Cards page, skipping click');
+      return;
+    }
+
     const hasLink = await this.teamTimeCardsLink.isVisible({ timeout: 5000 }).catch(() => false);
     if (hasLink) {
-      await this.teamTimeCardsLink.click();
+      // force: true bypasses AFZOrderLayerContainer overlay that may linger after Navigator close
+      await this.teamTimeCardsLink.click({ force: true });
     } else {
       // Try clicking in the navigator
       const sideLink = this.page.locator('a:has-text("Team Time Cards")').first();
@@ -1397,17 +1405,27 @@ export class TimecardPage extends BasePage {
     await this.waitForJET();
   }
 
-  /** Click the create "+" button on Classic Team Time Cards page. */
+  /** Click the create/add button on Team Time Cards page (Classic or Redwood). */
   async clickCreateTimecard(): Promise<void> {
+    // Redwood uses "Add" button; Classic uses "Create" link/button
+    const addBtn = this.page.getByRole('button', { name: 'Add', exact: true }).first();
+    const hasAddBtn = await addBtn.isVisible({ timeout: 5000 }).catch(() => false);
+    if (hasAddBtn) {
+      await addBtn.click({ force: true });
+      await this.page.waitForTimeout(5000);
+      await this.waitForJET();
+      return;
+    }
+
     const hasBtn = await this.createTimecardButton.isVisible({ timeout: 5000 }).catch(() => false);
     if (hasBtn) {
-      await this.createTimecardButton.click();
+      await this.createTimecardButton.click({ force: true });
     } else {
       // Try the "+" icon button
       const plusButton = this.page.locator(
         'a[title*="Create"], button[title*="Create"], [aria-label*="Create"]'
       ).first();
-      await plusButton.click();
+      await plusButton.click({ force: true });
     }
     await this.page.waitForTimeout(5000);
     await this.waitForJET();

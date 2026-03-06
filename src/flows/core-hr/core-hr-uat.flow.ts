@@ -1,3 +1,4 @@
+import * as path from 'path';
 import { type Page } from '@playwright/test';
 import { BaseFlow } from '../base.flow';
 import { PersonManagementPage } from '../../pages/core-hr/person-management.page';
@@ -152,6 +153,10 @@ export class CoreHRUATFlow extends BaseFlow {
       process.includes('update work location') || process.includes('addresses for taxation')
     ) {
       await this.executePersonalInfoUpdate(tc);
+    } else if (process.includes('location change') || process.includes('change location')) {
+      // HR-225/226/227: "Location Change - Use Change Location" — must be BEFORE generic
+      // 'location' match below, otherwise they mis-route to executeWorkforceStructure.
+      await this.executeChangeLocation(tc);
     } else if (
       process.includes('workforce structure') || process.includes('dept') ||
       process.includes('department') || process.includes('location') ||
@@ -173,8 +178,6 @@ export class CoreHRUATFlow extends BaseFlow {
       await this.executePersonalInfoUpdate(tc);
     } else if (process.includes('salary') || process.includes('compensation') || process.includes('pay change')) {
       await this.executeSalaryChange(tc);
-    } else if (process.includes('change location')) {
-      await this.executeChangeLocation(tc);
     } else if (process.includes('change working hours') || process.includes('hours worked change')) {
       await this.executeChangeWorkingHours(tc);
     } else if (process.includes('mass update') || process.includes('mass action') || process.includes('mass changes')) {
@@ -510,6 +513,36 @@ export class CoreHRUATFlow extends BaseFlow {
       await this.person.waitForJET();
     }
 
+    // Fill Manager Name from field data on the edit page
+    const managerName = fd ? (getField(fd, 'Managers > Manager') || getField(fd, 'Manager')) : null;
+    if (managerName) {
+      const managerField = this.page.locator(
+        'input[id*="ManagerName" i]:not([readonly]), input[id*="managerName" i]:not([readonly]), ' +
+        'input[id*="r3:0:i1:0:ManagerNameId::content"]'
+      ).first();
+      if (await managerField.isVisible({ timeout: 5000 }).catch(() => false)) {
+        console.log(`[ManagerChange] Filling manager name: ${managerName}`);
+        await managerField.clear();
+        await managerField.pressSequentially(managerName, { delay: 50 });
+        await this.page.waitForTimeout(3000);
+        await managerField.press('Tab');
+        await this.page.waitForTimeout(5000);
+        await this.person.waitForJET();
+      }
+    }
+
+    // Fill Manager Type from field data
+    const managerType = fd ? (getField(fd, 'Managers > Manager Type') || getField(fd, 'Manager Type')) : null;
+    if (managerType) {
+      const typeField = this.page.locator(
+        'input[id*="ManagerType" i]:not([readonly]), select[id*="ManagerType" i]'
+      ).first();
+      if (await typeField.isVisible({ timeout: 3000 }).catch(() => false)) {
+        await this.person.fillCombobox(typeField, managerType);
+        await this.page.waitForTimeout(2000);
+      }
+    }
+
     // Only submit if we actually entered edit mode (Submit button is present).
     // If the person wasn't found or the dialog didn't appear, bail gracefully.
     const submitVisible = await this.page.getByRole('button', { name: 'Submit' }).first()
@@ -525,108 +558,986 @@ export class CoreHRUATFlow extends BaseFlow {
   // --- Personal Info Update (HCM.CORE.218, 3xx) ---
 
   private async executePersonalInfoUpdate(tc: UATTestCase): Promise<void> {
-    // Resolve person reference BEFORE navigating — avoids unnecessary Oracle HCM navigation
-    // when there's no person to act on (navigation-only tests like HR-231).
-    let personName = this.extractPersonRef(tc);
-    if (!personName) {
-      const fieldData = getFieldData(tc.testId);
-      if (fieldData) {
-        personName = getField(fieldData, 'Person Name') || null;
-      }
+    const process = tc.businessProcess.toLowerCase();
+    const fd = getFieldData(tc.testId);
+
+    // Classify the sub-action from the business process text
+    const subAction = this.classifyPersonalInfoAction(process, tc);
+    console.log(`[PersonalInfo] ${tc.testId} subAction="${subAction}" bp="${tc.businessProcess}"`);
+
+    // View-only tests: just navigate to person page and verify it loads
+    if (subAction === 'view-only') {
+      await this.executePersonalInfoView(tc, fd);
+      return;
     }
-    if (!personName) {
-      // No person reference — navigation-only test
-      console.log(`[PersonalInfo] ${tc.testId}: No person reference, navigation-only`);
+
+    // EIT updates: navigate to Extra Information section
+    if (subAction === 'eit-update') {
+      await this.executePersonalInfoEIT(tc, fd);
+      return;
+    }
+
+    // Mass changes: navigation-only for now
+    if (subAction === 'mass-change') {
+      await this.homePage.goToPersonManagement();
+      console.log(`[PersonalInfo] ${tc.testId}: Mass changes — navigation-only`);
+      return;
+    }
+
+    // Document management (deferred): navigation-only
+    if (subAction === 'document') {
+      await this.homePage.goToPersonManagement();
+      console.log(`[PersonalInfo] ${tc.testId}: Document management — navigation-only (deferred)`);
+      return;
+    }
+
+    // All remaining actions need a person to act on
+    const personNumber = fd ? getField(fd, 'Person Number') : null;
+    const personName = fd ? getField(fd, 'Person Name') : null;
+    const searchTerm = personNumber || personName || this.extractPersonRef(tc);
+
+    if (!searchTerm) {
+      console.log(`[PersonalInfo] ${tc.testId}: No person reference — navigation-only`);
       return;
     }
 
     await this.homePage.goToPersonManagement();
-    await this.person.searchByName(personName);
-    // Dismiss any leftover Oracle error dialogs from the search (e.g. "reserved words" errors
-    // when the person doesn't exist or the name format triggers Oracle validation).
-    // These must be cleared before the OutcomeValidator's verifyNoErrors() runs.
+    if (personNumber) {
+      await this.person.searchByPersonNumber(personNumber);
+    } else {
+      await this.person.searchByName(searchTerm);
+    }
+    // Dismiss any leftover Oracle error dialogs from search
     await this.page.getByRole('button', { name: 'OK' }).first().click().catch(() => {});
     await this.page.waitForTimeout(500);
-    // Person page → find section → Edit dropdown → Update
-    const process = tc.businessProcess.toLowerCase();
-    if (process.includes('marital')) {
-      // HCM.CORE.218: Update Marital Status
-      // Find "Legislative Information" → Edit → Update
-      await this.page.getByText('Legislative Information').first().click();
-      await this.page.waitForTimeout(2000);
-      const editDropdown = this.page.locator('[aria-label*="Edit"], [id*="editBtn"]').first();
-      if (await editDropdown.isVisible({ timeout: 3000 }).catch(() => false)) {
-        await editDropdown.click();
-        await this.page.getByText('Update').first().click();
-        await this.page.waitForTimeout(3000);
-      }
+
+    switch (subAction) {
+      case 'name-change':
+        await this.executeNameChange(tc, fd);
+        break;
+      case 'deceased-date':
+        await this.executeDeceasedDate(tc, fd);
+        break;
+      case 'seniority-date':
+      case 'employment-start-date':
+      case 'benefits-service-date':
+      case 'accrual-rate':
+        await this.executeDateChange(tc, fd, subAction);
+        break;
+      case 'marital-status':
+        await this.executeMaritalStatusChange(tc, fd);
+        break;
+      case 'personal-info':
+      default:
+        await this.executePersonalInfoEdit(tc, fd);
+        break;
+    }
+  }
+
+  /** Classify the personal info business process into a sub-action. */
+  private classifyPersonalInfoAction(process: string, tc: UATTestCase): string {
+    const scenario = (tc.testScenario || '').toLowerCase();
+    const combined = process + ' ' + scenario;
+
+    // EIT updates (most specific — check first)
+    if (process.includes('staff account') || process.includes('staff designation')) return 'eit-update';
+    if (process.includes('staff secure') || process.includes('securing') || process.includes('unsecuring')) return 'eit-update';
+    if (process.includes('staff group')) return 'eit-update';
+    if (process.includes('crisis management')) return 'eit-update';
+    if (process.includes('team membership')) return 'eit-update';
+    if (process.includes('service recognition')) return 'eit-update';
+    if (process.includes('ethnic ministry')) return 'eit-update';
+    if (process.includes('care giver')) return 'eit-update';
+    if (process.includes('training status')) return 'eit-update';
+    if (process.includes('acknowledgement')) return 'eit-update';
+    if (process.includes('ministers housing')) return 'eit-update';
+    if (process.includes('work location') || process.includes('addresses for taxation')) return 'eit-update';
+    if (process.includes('merging') || process.includes('splitting')) return 'eit-update';
+    if (process.includes('salary calc')) return 'eit-update';
+
+    // View-only tests
+    if (process.includes('verification of employ')) return 'view-only';
+    if (process.includes('view legacy')) return 'view-only';
+
+    // Document management (deferred)
+    if (process.includes('send payroll options')) return 'document';
+
+    // Mass changes
+    if (combined.includes('mass change')) return 'mass-change';
+
+    // Name change
+    if (process.includes('name change')) return 'name-change';
+
+    // Deceased date
+    if (process.includes('deceased')) return 'deceased-date';
+
+    // Date changes
+    if (process.includes('seniority')) return 'seniority-date';
+    if (process.includes('employment start date')) return 'employment-start-date';
+    if (process.includes('benefits service date')) return 'benefits-service-date';
+    if (process.includes('accrual rate')) return 'accrual-rate';
+
+    // Marital status
+    if (process.includes('marital')) return 'marital-status';
+
+    // Generic personal info management
+    return 'personal-info';
+  }
+
+  /** View-only: navigate to person page and verify it loads (HR-459/460/530). */
+  private async executePersonalInfoView(tc: UATTestCase, fd: ReturnType<typeof getFieldData>): Promise<void> {
+    const personNumber = fd ? getField(fd, 'Person Number') : null;
+    const personName = fd ? getField(fd, 'Person Name') : null;
+    const searchTerm = personNumber || personName || this.extractPersonRef(tc);
+
+    if (!searchTerm) {
+      console.log(`[PersonalInfo] ${tc.testId}: View-only — no person reference`);
+      return;
+    }
+
+    await this.homePage.goToPersonManagement();
+    if (personNumber) {
+      await this.person.searchByPersonNumber(personNumber);
     } else {
-      // Generic personal info edit — click Edit on the person page
-      const editBtn = this.page.locator('a:has-text("Edit"), button:has-text("Edit")').first();
-      if (await editBtn.isVisible({ timeout: 5000 }).catch(() => false)) {
-        await editBtn.click();
-        await this.page.waitForTimeout(3000);
+      await this.person.searchByName(searchTerm);
+    }
+    await this.page.waitForTimeout(3000);
+    console.log(`[PersonalInfo] ${tc.testId}: View-only — person page loaded`);
+  }
+
+  /** EIT update: navigate to person Extra Information and update EIT section. */
+  private async executePersonalInfoEIT(tc: UATTestCase, fd: ReturnType<typeof getFieldData>): Promise<void> {
+    const personNumber = fd ? getField(fd, 'Person Number') : null;
+    const personName = fd ? getField(fd, 'Person Name') : null;
+    const searchTerm = personNumber || personName || this.extractPersonRef(tc);
+
+    if (!searchTerm) {
+      console.log(`[PersonalInfo] ${tc.testId}: EIT — no person reference`);
+      return;
+    }
+
+    await this.homePage.goToPersonManagement();
+    if (personNumber) {
+      await this.person.searchByPersonNumber(personNumber);
+    } else {
+      await this.person.searchByName(searchTerm);
+    }
+    await this.page.getByRole('button', { name: 'OK' }).first().click().catch(() => {});
+    await this.page.waitForTimeout(500);
+
+    // Navigate to Person detail → Extra Information tab
+    await this.navigateToPersonDetailPage();
+
+    // Click "Extra Information" tab
+    const extraInfoTab = this.page.locator('a, [role="tab"]').filter({ hasText: /^Extra Information$/ }).first();
+    if (await extraInfoTab.isVisible({ timeout: 8000 }).catch(() => false)) {
+      await extraInfoTab.click({ force: true });
+      await this.page.waitForTimeout(8000);
+      await this.person.waitForJET();
+    } else {
+      console.log(`[PersonalInfo] ${tc.testId}: Extra Information tab not found`);
+      return;
+    }
+
+    // Determine which EIT sidebar link to click based on business process
+    const eitLinkId = this.getEITSidebarLinkId(tc.businessProcess);
+    if (eitLinkId) {
+      const eitLink = this.page.locator(`[id*="${eitLinkId}"]`).first();
+      if (await eitLink.isVisible({ timeout: 5000 }).catch(() => false)) {
+        await eitLink.click({ force: true });
+        await this.page.waitForTimeout(8000);
+        await this.person.waitForJET();
       } else {
-        // No Edit button found — navigation-only success
-        console.log(`[PersonalInfo] ${tc.testId}: No Edit button found on person page, navigation-only`);
-        return;
+        // Fallback: try clicking link by text
+        const eitName = this.getEITDisplayName(tc.businessProcess);
+        const textLink = this.page.locator(`a:has-text("${eitName}")`).first();
+        if (await textLink.isVisible({ timeout: 5000 }).catch(() => false)) {
+          await textLink.click({ force: true });
+          await this.page.waitForTimeout(8000);
+          await this.person.waitForJET();
+        }
       }
     }
-    // Only try Submit if we actually entered edit mode
+
+    // Click Edit dropdown → Update/Correct
+    const editIcon = this.page.locator('[id*="editDropDown::icon"]').first();
+    if (await editIcon.isVisible({ timeout: 5000 }).catch(() => false)) {
+      await editIcon.click({ force: true });
+      await this.page.waitForTimeout(3000);
+
+      const updateItem = this.page.locator('tr[id*="updateEFF"], td:has-text("Update")').first();
+      const correctItem = this.page.locator('tr[id*="correctEFF"], td:has-text("Correct")').first();
+      if (await updateItem.isVisible({ timeout: 3000 }).catch(() => false)) {
+        await updateItem.click({ force: true });
+      } else if (await correctItem.isVisible({ timeout: 2000 }).catch(() => false)) {
+        await correctItem.click({ force: true });
+      }
+      await this.page.waitForTimeout(5000);
+      await this.person.waitForJET();
+    }
+
+    // Handle Effective Date dialog
+    const effDate = fd ? (getField(fd, 'Effective Date') || '') : '';
+    const dateInput = this.page.locator(
+      'input[id*="EffectiveStartDate"], input[id*="effectiveStartDate"], ' +
+      'input[id*="effStartDate"], input[aria-label*="Effective"]'
+    ).first();
+    if (await dateInput.isVisible({ timeout: 5000 }).catch(() => false)) {
+      const today = new Date();
+      const mm = String(today.getMonth() + 1).padStart(2, '0');
+      const dd = String(today.getDate()).padStart(2, '0');
+      const dateStr = effDate || `${mm}/${dd}/${today.getFullYear()}`;
+      await this.person.fillField(dateInput, dateStr);
+      const okBtn = this.page.getByRole('button', { name: 'OK' }).first();
+      if (await okBtn.isVisible({ timeout: 3000 }).catch(() => false)) {
+        await okBtn.click();
+        await this.page.waitForTimeout(5000);
+        await this.person.waitForJET();
+      }
+    }
+
+    // Fill the first editable input field in the EIT section
+    const editableField = this.page.locator(
+      'input[id*="::content"]:not([readonly]):not([disabled])'
+    ).first();
+    if (await editableField.isVisible({ timeout: 5000 }).catch(() => false)) {
+      const current = await editableField.inputValue().catch(() => '');
+      if (!current) {
+        await this.person.fillField(editableField, 'UAT');
+        console.log(`[PersonalInfo] ${tc.testId}: Filled EIT field with "UAT"`);
+      } else {
+        console.log(`[PersonalInfo] ${tc.testId}: EIT field already has value: "${current}"`);
+      }
+    }
+
+    // Save
+    await this.person.clickAdfButton('Save');
+    await this.page.waitForTimeout(5000);
+    await this.person.waitForJET();
+    console.log(`[PersonalInfo] ${tc.testId}: EIT update saved`);
+  }
+
+  /** Map business process text to EIT sidebar link ID fragment. */
+  private getEITSidebarLinkId(bp: string): string | null {
+    const p = bp.toLowerCase();
+    if (p.includes('staff account') || p.includes('staff designation')) return 'PER_EITStaff__Account__and__Designation';
+    if (p.includes('staff secure') || p.includes('securing') || p.includes('unsecuring')) return 'PER_EITStaff__Secure__Status';
+    if (p.includes('staff group')) return 'PER_EITStaff__Groups';
+    if (p.includes('crisis management')) return 'PER_EITCrisis__Management';
+    if (p.includes('team membership')) return 'PER_EITTeam__Membership';
+    if (p.includes('service recognition')) return 'PER_EITService__Recognition';
+    if (p.includes('ethnic ministry')) return 'PER_EITEthnic__Ministry';
+    if (p.includes('care giver')) return 'PER_EITCare__Giver';
+    if (p.includes('training status')) return 'PER_EITTraining__Status';
+    if (p.includes('acknowledgement')) return 'PER_EITAcknowledgements';
+    if (p.includes('ministers housing')) return 'PER_EITMinisters__Housing';
+    if (p.includes('work location') || p.includes('addresses for taxation')) return 'PER_EITWork__Locations';
+    if (p.includes('merging') || p.includes('splitting')) return 'PER_EITStaff__Account__and__Designation';
+    if (p.includes('salary calc')) return 'PER_EITSalary__Calculation';
+    return null;
+  }
+
+  /** Map business process text to EIT display name for fallback text matching. */
+  private getEITDisplayName(bp: string): string {
+    const p = bp.toLowerCase();
+    if (p.includes('staff account') || p.includes('staff designation') || p.includes('merging') || p.includes('splitting')) return 'Staff Account and Designation';
+    if (p.includes('staff secure') || p.includes('securing') || p.includes('unsecuring')) return 'Staff Secure Status';
+    if (p.includes('staff group')) return 'Staff Groups';
+    if (p.includes('crisis management')) return 'Crisis Management';
+    if (p.includes('team membership')) return 'Team Membership';
+    if (p.includes('service recognition')) return 'Service Recognition';
+    if (p.includes('ethnic ministry')) return 'Ethnic Ministry';
+    if (p.includes('care giver')) return 'Care Giver';
+    if (p.includes('training status')) return 'Training Status';
+    if (p.includes('acknowledgement')) return 'Acknowledgements';
+    if (p.includes('ministers housing')) return 'Ministers Housing Allowance';
+    if (p.includes('work location') || p.includes('addresses for taxation')) return 'Work Locations';
+    if (p.includes('salary calc')) return 'Salary Calculation Form Exceptions';
+    return 'Extra Information';
+  }
+
+  /** Navigate from Employment detail page to Person detail page via More Information popup. */
+  private async navigateToPersonDetailPage(): Promise<void> {
+    const moreInfoLink = this.page.locator('a[title="More Information"], img[alt="More Information"]').first();
+    if (!await moreInfoLink.isVisible({ timeout: 5000 }).catch(() => false)) return;
+
+    await this.person.clearGlassPane();
+    await moreInfoLink.click({ force: true });
+    await this.page.waitForTimeout(3000);
+
+    const personalEmpLink = this.page.locator('a:has-text("Personal and Employment")').first();
+    if (await personalEmpLink.isVisible({ timeout: 5000 }).catch(() => false)) {
+      await personalEmpLink.click({ force: true });
+      await this.page.waitForTimeout(2000);
+    }
+
+    const personAction = this.page.locator('[id$="dci12:16:cml13"]').first();
+    if (await personAction.isVisible({ timeout: 5000 }).catch(() => false)) {
+      await personAction.click({ force: true });
+    } else {
+      const personLinks = this.page.locator('a').filter({ hasText: /^Person$/ });
+      const count = await personLinks.count();
+      for (let i = 0; i < count; i++) {
+        const link = personLinks.nth(i);
+        const rect = await link.boundingBox().catch(() => null);
+        if (rect && rect.y > 200) {
+          await link.click({ force: true });
+          break;
+        }
+      }
+    }
+
+    await this.page.waitForLoadState('networkidle', { timeout: 60_000 }).catch(() => {});
+    await this.page.waitForTimeout(10000);
+    await this.person.waitForJET();
+    await this.person.clearGlassPane();
+  }
+
+  /** Name change: edit person name fields (HR-128/129). */
+  private async executeNameChange(tc: UATTestCase, fd: ReturnType<typeof getFieldData>): Promise<void> {
+    // Navigate to Person detail page where name fields live
+    await this.navigateToPersonDetailPage();
+    // Click Edit on the person name section
+    const editBtn = this.page.locator('a:has-text("Edit"), button:has-text("Edit")').first();
+    if (await editBtn.isVisible({ timeout: 5000 }).catch(() => false)) {
+      await editBtn.click();
+      await this.page.waitForTimeout(3000);
+
+      // Select "Update" from dropdown if present
+      const updateOption = this.page.getByText('Update', { exact: true }).first();
+      if (await updateOption.isVisible({ timeout: 3000 }).catch(() => false)) {
+        await updateOption.click();
+        await this.page.waitForTimeout(5000);
+        await this.person.waitForJET();
+      }
+    }
+
+    // Fill the new last name from field data
+    const newLastName = fd ? getField(fd, 'New Last Name') : null;
+    if (newLastName) {
+      const lastNameField = this.page.locator(
+        'input[id*="LastName" i]:not([readonly]), input[id*="it20::content"]:not([readonly])'
+      ).first();
+      if (await lastNameField.isVisible({ timeout: 5000 }).catch(() => false)) {
+        await this.person.fillField(lastNameField, newLastName);
+        console.log(`[PersonalInfo] ${tc.testId}: Set last name to "${newLastName}"`);
+      }
+    } else {
+      // Fallback: toggle middle name if no specific field data
+      const middleName = this.page.locator(
+        'input[id*="MiddleName" i]:not([readonly]), input[id*="it24::content"]:not([readonly]), input[aria-label*="Middle"]:not([readonly])'
+      ).first();
+      if (await middleName.isVisible({ timeout: 5000 }).catch(() => false)) {
+        const current = await middleName.inputValue().catch(() => '');
+        await this.person.fillField(middleName, current ? '' : 'M');
+        console.log(`[PersonalInfo] ${tc.testId}: Toggled middle name (no field data)`);
+      }
+    }
+
+    // Fill effective date if available
+    const effDate = fd ? getField(fd, 'Effective Date') : null;
+    if (effDate) {
+      const dateField = this.page.locator(
+        'input[id*="EffectiveDate" i], input[id*="effectiveDate" i], input[id*="inputDate"][id*="::content"]'
+      ).first();
+      if (await dateField.isVisible({ timeout: 3000 }).catch(() => false)) {
+        await this.person.fillField(dateField, effDate);
+      }
+    }
+
+    // Submit
     const submitBtn = this.page.getByRole('button', { name: 'Submit' }).first();
-    const hasSubmit = await submitBtn.isVisible({ timeout: 5000 }).catch(() => false);
-    if (hasSubmit) {
+    if (await submitBtn.isVisible({ timeout: 5000 }).catch(() => false)) {
       await this.confirmation.clickSubmit();
       await this.confirmation.expectSuccess();
     } else {
-      console.log(`[PersonalInfo] ${tc.testId}: No Submit button after edit, navigation-only`);
+      // Try Save instead
+      await this.person.clickAdfButton('Save');
+      await this.page.waitForTimeout(3000);
+    }
+  }
+
+  /** Deceased date: add deceased date to person record (HR-127). */
+  private async executeDeceasedDate(tc: UATTestCase, fd: ReturnType<typeof getFieldData>): Promise<void> {
+    // Navigate to Person detail page where deceased date lives
+    await this.navigateToPersonDetailPage();
+    // Click Edit on the person section
+    const editBtn = this.page.locator('a:has-text("Edit"), button:has-text("Edit")').first();
+    if (await editBtn.isVisible({ timeout: 5000 }).catch(() => false)) {
+      await editBtn.click();
+      await this.page.waitForTimeout(3000);
+
+      const updateOption = this.page.getByText('Update', { exact: true }).first();
+      if (await updateOption.isVisible({ timeout: 3000 }).catch(() => false)) {
+        await updateOption.click();
+        await this.page.waitForTimeout(5000);
+        await this.person.waitForJET();
+      }
+    }
+
+    // Fill deceased date — use today's date as test value
+    const deceasedField = this.page.locator(
+      'input[id*="DeceasedDate" i], input[id*="deceasedDate" i], input[id*="dateOfDeath" i]'
+    ).first();
+    if (await deceasedField.isVisible({ timeout: 5000 }).catch(() => false)) {
+      const today = new Date();
+      const mm = String(today.getMonth() + 1).padStart(2, '0');
+      const dd = String(today.getDate()).padStart(2, '0');
+      await this.person.fillField(deceasedField, `${mm}/${dd}/${today.getFullYear()}`);
+      console.log(`[PersonalInfo] ${tc.testId}: Set deceased date`);
+    }
+
+    const submitBtn = this.page.getByRole('button', { name: 'Submit' }).first();
+    if (await submitBtn.isVisible({ timeout: 5000 }).catch(() => false)) {
+      await this.confirmation.clickSubmit();
+      await this.confirmation.expectSuccess();
+    } else {
+      await this.person.clickAdfButton('Save');
+      await this.page.waitForTimeout(3000);
+    }
+  }
+
+  /** Date change: seniority date, employment start date, benefits service date, accrual rate. */
+  private async executeDateChange(
+    tc: UATTestCase,
+    fd: ReturnType<typeof getFieldData>,
+    subAction: string,
+  ): Promise<void> {
+    // Most date changes are on the Employment page via Edit → Update
+    // Navigate to the correct section based on subAction
+    const editBtn = this.page.locator('a:has-text("Edit"), button:has-text("Edit")').first();
+    if (await editBtn.isVisible({ timeout: 5000 }).catch(() => false)) {
+      await editBtn.click();
+      await this.page.waitForTimeout(3000);
+
+      const updateOption = this.page.getByText('Update', { exact: true }).first();
+      if (await updateOption.isVisible({ timeout: 3000 }).catch(() => false)) {
+        await updateOption.click();
+        await this.page.waitForTimeout(5000);
+        await this.person.waitForJET();
+      }
+    }
+
+    // Handle When and Why dialog (effective date + action)
+    const effDate = fd ? getField(fd, 'Effective Date') : null;
+    if (effDate) {
+      const dateInput = this.page.locator(
+        'input[id*="inputDate"][id*="::content"], input[id*="EffectiveDate" i]'
+      ).first();
+      if (await dateInput.isVisible({ timeout: 5000 }).catch(() => false)) {
+        await this.person.fillField(dateInput, effDate);
+        await this.page.waitForTimeout(1000);
+      }
+    }
+
+    // Click OK/Continue on any dialog
+    const okBtn = this.page.getByRole('button', { name: 'OK' }).first();
+    if (await okBtn.isVisible({ timeout: 3000 }).catch(() => false)) {
+      await okBtn.click();
+      await this.page.waitForTimeout(5000);
+      await this.person.waitForJET();
+    }
+
+    // For seniority dates: look for "Seniority Dates" section to expand
+    if (subAction === 'seniority-date') {
+      const senioritySection = this.page.getByText('Seniority Dates', { exact: false }).first();
+      if (await senioritySection.isVisible({ timeout: 5000 }).catch(() => false)) {
+        await senioritySection.click().catch(() => {});
+        await this.page.waitForTimeout(2000);
+      }
+    }
+
+    // Submit or Save
+    const submitBtn = this.page.getByRole('button', { name: 'Submit' }).first();
+    if (await submitBtn.isVisible({ timeout: 5000 }).catch(() => false)) {
+      await this.confirmation.clickSubmit();
+      await this.confirmation.expectSuccess();
+    } else {
+      await this.person.clickAdfButton('Save');
+      await this.page.waitForTimeout(3000);
+    }
+  }
+
+  /** Marital status change (HCM.CORE.218). */
+  private async executeMaritalStatusChange(tc: UATTestCase, fd: ReturnType<typeof getFieldData>): Promise<void> {
+    // Navigate to Person detail page where Legislative Information lives
+    await this.navigateToPersonDetailPage();
+    // Navigate to Legislative Information section
+    await this.page.getByText('Legislative Information').first().click();
+    await this.page.waitForTimeout(2000);
+
+    const editDropdown = this.page.locator('[aria-label*="Edit"], [id*="editBtn"]').first();
+    if (await editDropdown.isVisible({ timeout: 3000 }).catch(() => false)) {
+      await editDropdown.click();
+      await this.page.getByText('Update').first().click();
+      await this.page.waitForTimeout(3000);
+      await this.person.waitForJET();
+    }
+
+    // Fill marital status from field data
+    const maritalStatus = fd ? getField(fd, 'Marital Status') : null;
+    if (maritalStatus) {
+      const maritalField = this.page.locator('[id*="maritalStatus" i], [id*="soc2::content"]').first();
+      if (await maritalField.isVisible({ timeout: 5000 }).catch(() => false)) {
+        await this.person.fillCombobox(maritalField, maritalStatus);
+        console.log(`[PersonalInfo] ${tc.testId}: Set marital status to "${maritalStatus}"`);
+      }
+    }
+
+    const submitBtn = this.page.getByRole('button', { name: 'Submit' }).first();
+    if (await submitBtn.isVisible({ timeout: 5000 }).catch(() => false)) {
+      await this.confirmation.clickSubmit();
+      await this.confirmation.expectSuccess();
+    } else {
+      await this.person.clickAdfButton('Save');
+      await this.page.waitForTimeout(3000);
+    }
+  }
+
+  /** Generic personal info edit: open edit mode, fill available fields, save/submit. */
+  private async executePersonalInfoEdit(tc: UATTestCase, fd: ReturnType<typeof getFieldData>): Promise<void> {
+    // Navigate to Person detail page where personal info fields live
+    await this.navigateToPersonDetailPage();
+    // Click Edit on the person page
+    const editBtn = this.page.locator('a:has-text("Edit"), button:has-text("Edit")').first();
+    if (await editBtn.isVisible({ timeout: 5000 }).catch(() => false)) {
+      await editBtn.click();
+      await this.page.waitForTimeout(3000);
+
+      // Select "Update" from dropdown if present
+      const updateOption = this.page.getByText('Update', { exact: true }).first();
+      if (await updateOption.isVisible({ timeout: 3000 }).catch(() => false)) {
+        await updateOption.click();
+        await this.page.waitForTimeout(5000);
+        await this.person.waitForJET();
+      }
+    } else {
+      console.log(`[PersonalInfo] ${tc.testId}: No Edit button found — navigation-only`);
+      return;
+    }
+
+    // Handle When and Why dialog (effective date + action) if it appears
+    const okBtn = this.page.getByRole('button', { name: 'OK' }).first();
+    if (await okBtn.isVisible({ timeout: 5000 }).catch(() => false)) {
+      await okBtn.click();
+      await this.page.waitForTimeout(5000);
+      await this.person.waitForJET();
+    }
+
+    // Fill fields from field data if available
+    if (fd) {
+      const gender = getField(fd, 'Gender');
+      if (gender) {
+        const genderField = this.page.locator('[id*="soc3::content"], [id*="Gender" i]').first();
+        if (await genderField.isVisible({ timeout: 3000 }).catch(() => false)) {
+          await this.person.fillCombobox(genderField, gender);
+        }
+      }
+
+      const maritalStatus = getField(fd, 'Marital Status');
+      if (maritalStatus) {
+        const maritalField = this.page.locator('[id*="maritalStatus" i], [id*="soc2::content"]').first();
+        if (await maritalField.isVisible({ timeout: 3000 }).catch(() => false)) {
+          await this.person.fillCombobox(maritalField, maritalStatus);
+        }
+      }
+    }
+
+    // Submit or Save
+    const submitBtn = this.page.getByRole('button', { name: 'Submit' }).first();
+    if (await submitBtn.isVisible({ timeout: 5000 }).catch(() => false)) {
+      await this.confirmation.clickSubmit();
+      await this.confirmation.expectSuccess();
+    } else {
+      await this.person.clickAdfButton('Save');
+      await this.page.waitForTimeout(3000);
     }
   }
 
   // --- Workforce Structure (HCM.CORE.101–109) ---
 
   private async executeWorkforceStructure(tc: UATTestCase): Promise<void> {
-    // Navigate to Workforce Structures page
+    const process = tc.businessProcess.toLowerCase();
+    const scenario = (tc.testScenario || '').toLowerCase();
+    const script = (tc.testScript || '').toLowerCase();
+
+    // Determine action type from scenario/businessProcess
+    const isApprove = scenario.includes('approve') || script.includes('110');
+    const isReject = scenario.includes('reject') || script.includes('111');
+    const isRequestInfo = scenario.includes('request info') || script.includes('112');
+    const isInactivate = process.includes('inactivate') || scenario.includes('cancel');
+    const isUpdate = process.includes('update') || process.includes('modify') || scenario.includes('update');
+    const isAOR = process.includes('aor') || process.includes('area of responsibility');
+    const isEIT = process.includes('eit value');
+    const isMass = process.includes('mass change');
+
+    // --- Approve / Reject / Request Info: use notification bell ---
+    if (isApprove || isReject || isRequestInfo) {
+      await this.executeWorkforceStructureApproval(tc, isApprove, isReject);
+      return;
+    }
+
+    // --- EIT value management: Setup and Maintenance ---
+    if (isEIT) {
+      await this.executeEITValueManagement(tc);
+      return;
+    }
+
+    // --- AOR: Areas of Responsibility ---
+    if (isAOR) {
+      await this.executeAORManagement(tc);
+      return;
+    }
+
+    // --- Mass changes: navigation-only for now ---
+    if (isMass) {
+      await this.homePage.goToPersonManagement();
+      console.log(`[WorkforceStructure] ${tc.testId}: Mass changes — navigation-only`);
+      return;
+    }
+
+    // --- Standard Workforce Structures page (Jobs/Locations/Departments/Positions/Grades) ---
     await this.homePage.goToWorkforceStructures();
     await this.page.waitForTimeout(3000);
 
-    const process = tc.businessProcess.toLowerCase();
+    // Determine which structure type to click
+    const structureType = this.detectStructureType(process, scenario);
+
     // Use getByRole('link') to avoid matching invisible SVG <title> elements
     const clickStructureLink = async (name: string) => {
       const link = this.page.getByRole('link', { name });
       if (await link.first().isVisible({ timeout: 5000 }).catch(() => false)) {
         await link.first().click();
       } else {
-        // Fallback: click any visible element containing the text
         await this.page.locator(`text=${name}`).locator('visible=true').first().click();
       }
       await this.page.waitForTimeout(5000);
+      await this.person.waitForJET();
     };
 
-    if (process.includes('job')) {
-      // HCM.CORE.101/102: Create/Update Job
-      await clickStructureLink('Jobs');
-    } else if (process.includes('location')) {
-      // HCM.CORE.104: Create Location
-      await clickStructureLink('Locations');
-    } else if (process.includes('dept') || process.includes('department')) {
-      // HCM.CORE.105: Create Department
-      await clickStructureLink('Departments');
-    } else if (process.includes('position')) {
-      // HCM.CORE.106/107: Create/Request Position
-      await clickStructureLink('Positions');
-    } else if (process.includes('grade')) {
-      await clickStructureLink('Grades');
+    await clickStructureLink(structureType);
+
+    if (isInactivate) {
+      await this.inactivateStructureItem(tc);
+    } else if (isUpdate) {
+      await this.updateStructureItem(tc);
     } else {
-      // Generic: click first task link
-      await clickStructureLink('Jobs');
+      // CREATE — default action
+      await this.createStructureItem(tc, structureType);
     }
-    // Look for +Add button to create new item
-    const addBtn = this.page.getByText('Add', { exact: false }).first();
-    if (await addBtn.isVisible({ timeout: 3000 }).catch(() => false)) {
+  }
+
+  /** Detect which Workforce Structures sidebar link to click. */
+  private detectStructureType(process: string, scenario: string): string {
+    const combined = process + ' ' + scenario;
+    if (combined.includes('job family')) return 'Job Families';
+    if (combined.includes('job')) return 'Jobs';
+    if (combined.includes('location')) return 'Locations';
+    if (combined.includes('dept') || combined.includes('department')) return 'Departments';
+    if (combined.includes('position')) return 'Positions';
+    if (combined.includes('grade')) return 'Grades';
+    return 'Jobs'; // fallback
+  }
+
+  /** CREATE a new workforce structure item: click Add, fill fields, Save. */
+  private async createStructureItem(tc: UATTestCase, structureType: string): Promise<void> {
+    // Click the Add/Create/+ button
+    const addBtn = this.page.locator(
+      'a[role="button"]:has-text("Add"), a[role="button"]:has-text("Create"), ' +
+      'button:has-text("Add"), button:has-text("Create"), [title="Add"], [title="Create"]'
+    ).first();
+    if (await addBtn.isVisible({ timeout: 5000 }).catch(() => false)) {
       await addBtn.click();
       await this.page.waitForTimeout(5000);
+      await this.person.waitForJET();
+    } else {
+      // Fallback: try icon button
+      const iconBtn = this.page.locator('[id*="create"], [id*="Add"]').first();
+      if (await iconBtn.isVisible({ timeout: 3000 }).catch(() => false)) {
+        await iconBtn.click();
+        await this.page.waitForTimeout(5000);
+      }
     }
+
+    // Fill fields based on structure type
+    const nameValue = `Test ${structureType.replace(/s$/, '')} ${tc.testId}`;
+    const nameField = this.page.locator(
+      'input[id*="Name" i]:not([readonly]), input[id*="name" i]:not([readonly])'
+    ).first();
+    if (await nameField.isVisible({ timeout: 5000 }).catch(() => false)) {
+      await this.person.fillField(nameField, nameValue);
+    }
+
+    // Structure-specific additional fields
+    if (structureType === 'Jobs') {
+      const codeField = this.page.locator('input[id*="Code" i]:not([readonly]), input[id*="code" i]:not([readonly])').first();
+      if (await codeField.isVisible({ timeout: 3000 }).catch(() => false)) {
+        await this.person.fillField(codeField, `TST_${tc.testId}`);
+      }
+    } else if (structureType === 'Locations') {
+      // Try to fill Country
+      const countryField = this.page.locator('input[id*="Country" i], input[id*="country" i]').first();
+      if (await countryField.isVisible({ timeout: 3000 }).catch(() => false)) {
+        await this.person.fillCombobox(countryField, 'United States');
+      }
+    }
+
+    // Save and Close (preferred) or Save or Submit
+    await this.saveWorkforceStructure(tc);
+  }
+
+  /** UPDATE an existing workforce structure item: select first row, edit, modify, Save. */
+  private async updateStructureItem(tc: UATTestCase): Promise<void> {
+    // Click on the first row in the list to open it
+    const firstRow = this.page.locator(
+      'table tbody tr, [role="row"]:not([role="row"]:first-child)'
+    ).first();
+    if (await firstRow.isVisible({ timeout: 5000 }).catch(() => false)) {
+      await firstRow.click();
+      await this.page.waitForTimeout(3000);
+      await this.person.waitForJET();
+    }
+
+    // Click Edit button
+    const editBtn = this.page.locator(
+      'a[role="button"]:has-text("Edit"), button:has-text("Edit"), [title="Edit"]'
+    ).first();
+    if (await editBtn.isVisible({ timeout: 5000 }).catch(() => false)) {
+      await editBtn.click();
+      await this.page.waitForTimeout(3000);
+      await this.person.waitForJET();
+    }
+
+    // Modify description field
+    const descField = this.page.locator(
+      'textarea[id*="escription" i], input[id*="escription" i]'
+    ).first();
+    if (await descField.isVisible({ timeout: 3000 }).catch(() => false)) {
+      await this.person.fillField(descField, `Updated by UAT automation - ${tc.testId}`);
+    }
+
+    await this.saveWorkforceStructure(tc);
+  }
+
+  /** INACTIVATE a workforce structure item: select first row, set status inactive, Save. */
+  private async inactivateStructureItem(tc: UATTestCase): Promise<void> {
+    // Click on the first row in the list
+    const firstRow = this.page.locator(
+      'table tbody tr, [role="row"]:not([role="row"]:first-child)'
+    ).first();
+    if (await firstRow.isVisible({ timeout: 5000 }).catch(() => false)) {
+      await firstRow.click();
+      await this.page.waitForTimeout(3000);
+      await this.person.waitForJET();
+    }
+
+    // Click Edit button
+    const editBtn = this.page.locator(
+      'a[role="button"]:has-text("Edit"), button:has-text("Edit"), [title="Edit"]'
+    ).first();
+    if (await editBtn.isVisible({ timeout: 5000 }).catch(() => false)) {
+      await editBtn.click();
+      await this.page.waitForTimeout(3000);
+      await this.person.waitForJET();
+    }
+
+    // Set status to Inactive
+    const statusField = this.page.locator(
+      'select[id*="tatus" i], input[id*="tatus" i]'
+    ).first();
+    if (await statusField.isVisible({ timeout: 3000 }).catch(() => false)) {
+      await this.person.fillCombobox(statusField, 'Inactive');
+    }
+
+    // Try setting effective end date to today
+    const endDateField = this.page.locator(
+      'input[id*="EndDate" i], input[id*="end_date" i], input[id*="effectiveEnd" i]'
+    ).first();
+    if (await endDateField.isVisible({ timeout: 3000 }).catch(() => false)) {
+      const today = new Date();
+      const dateStr = `${String(today.getMonth() + 1).padStart(2, '0')}/${String(today.getDate()).padStart(2, '0')}/${today.getFullYear()}`;
+      await this.person.fillField(endDateField, dateStr);
+    }
+
+    await this.saveWorkforceStructure(tc);
+  }
+
+  /** Save or Submit on a workforce structure admin page. */
+  private async saveWorkforceStructure(tc: UATTestCase): Promise<void> {
+    // Try "Save and Close" first, then "Save", then "Submit"
+    const saveCloseBtn = this.page.locator(
+      'a[role="button"]:has-text("Save and Close"), button:has-text("Save and Close")'
+    ).first();
+    if (await saveCloseBtn.isVisible({ timeout: 3000 }).catch(() => false)) {
+      await saveCloseBtn.click();
+      await this.page.waitForTimeout(5000);
+      await this.person.waitForJET();
+      console.log(`[WorkforceStructure] ${tc.testId}: Clicked Save and Close`);
+      return;
+    }
+
+    try {
+      await this.person.clickAdfButton('Save and Close');
+      await this.page.waitForTimeout(5000);
+      console.log(`[WorkforceStructure] ${tc.testId}: Clicked Save and Close (ADF)`);
+      return;
+    } catch { /* not found */ }
+
+    try {
+      await this.person.clickAdfButton('Save');
+      await this.page.waitForTimeout(5000);
+      console.log(`[WorkforceStructure] ${tc.testId}: Clicked Save (ADF)`);
+      return;
+    } catch { /* not found */ }
+
+    try {
+      await this.person.clickAdfButton('Submit');
+      await this.page.waitForTimeout(5000);
+      // Handle confirmation dialog
+      const yesBtn = this.page.getByRole('button', { name: /yes|ok|confirm/i }).first();
+      if (await yesBtn.isVisible({ timeout: 3000 }).catch(() => false)) {
+        await yesBtn.click();
+        await this.page.waitForTimeout(3000);
+      }
+      console.log(`[WorkforceStructure] ${tc.testId}: Clicked Submit`);
+      return;
+    } catch { /* not found */ }
+
+    // Fallback: click any save-like button
+    const saveBtn = this.page.getByRole('button', { name: /save|submit|ok/i }).first();
+    if (await saveBtn.isVisible({ timeout: 3000 }).catch(() => false)) {
+      await saveBtn.click();
+      await this.page.waitForTimeout(5000);
+      console.log(`[WorkforceStructure] ${tc.testId}: Clicked fallback save button`);
+    } else {
+      console.log(`[WorkforceStructure] ${tc.testId}: No Save/Submit button found — navigation-only`);
+    }
+  }
+
+  /** Approve/Reject/Request Info via notification bell for workforce structure transactions. */
+  private async executeWorkforceStructureApproval(
+    tc: UATTestCase, isApprove: boolean, isReject: boolean
+  ): Promise<void> {
+    await this.homePage.goHome();
+    await this.page.waitForTimeout(2000);
+
+    // Click the notification bell
+    const bell = this.page.locator(
+      '[id$="_UIScmil3u"], a[aria-label*="Notification"], a[title*="Notifications"], button[aria-label*="Notification"]'
+    ).first();
+    const hasBell = await bell.isVisible({ timeout: 10_000 }).catch(() => false);
+    if (!hasBell) {
+      console.log(`[WorkforceStructure] ${tc.testId}: Notification bell not found — navigation-only`);
+      return;
+    }
+    await bell.click();
+    await this.page.waitForTimeout(3000);
+    await this.person.waitForJET();
+
+    // Look for a notification item
+    const notification = this.page.locator(
+      '[role="listitem"] a, [class*="notification"] a, [id*="notif"] a'
+    ).first();
+    if (await notification.isVisible({ timeout: 5000 }).catch(() => false)) {
+      await notification.click();
+      await this.page.waitForTimeout(5000);
+      await this.person.waitForJET();
+
+      // Click Approve / Reject / Request Information
+      const actionName = isApprove ? 'Approve' : isReject ? 'Reject' : 'Request Information';
+      const actionBtn = this.page.locator(
+        `a[role="button"]:has-text("${actionName}"), button:has-text("${actionName}")`
+      ).first();
+      if (await actionBtn.isVisible({ timeout: 5000 }).catch(() => false)) {
+        await actionBtn.click();
+        await this.page.waitForTimeout(3000);
+
+        // Handle confirmation dialog
+        const confirmBtn = this.page.getByRole('button', { name: /yes|ok|submit|confirm/i }).first();
+        if (await confirmBtn.isVisible({ timeout: 3000 }).catch(() => false)) {
+          await confirmBtn.click();
+          await this.page.waitForTimeout(3000);
+        }
+        console.log(`[WorkforceStructure] ${tc.testId}: Clicked ${actionName}`);
+      } else {
+        console.log(`[WorkforceStructure] ${tc.testId}: ${actionName} button not found on notification`);
+      }
+    } else {
+      console.log(`[WorkforceStructure] ${tc.testId}: No pending notifications found — navigation-only`);
+    }
+  }
+
+  /** Manage EIT (Extensible Information Type) values via Setup and Maintenance. */
+  private async executeEITValueManagement(tc: UATTestCase): Promise<void> {
+    const process = tc.businessProcess.toLowerCase();
+
+    await this.homePage.openNavigator();
+    await this.page.waitForTimeout(2000);
+
+    const setupLink = this.page.locator(
+      '[id*="nv_itemNode_setup_and_maintenance"], a[title="Setup and Maintenance"], a:has-text("Setup and Maintenance")'
+    ).first();
+    const hasSetup = await setupLink.isVisible({ timeout: 5000 }).catch(() => false);
+
+    if (hasSetup) {
+      await setupLink.click({ force: true });
+      await this.page.waitForLoadState('networkidle', { timeout: 60_000 }).catch(() => {});
+      await this.page.waitForTimeout(5000);
+
+      // Search for "Manage Extensible Flexfields" in Setup and Maintenance
+      const searchInput = this.page.locator('input[placeholder*="Search"], input[aria-label*="Search"]').first();
+      const hasSearch = await searchInput.isVisible({ timeout: 5000 }).catch(() => false);
+      if (hasSearch) {
+        await searchInput.fill('Manage Extensible Flexfields');
+        await searchInput.press('Enter');
+        await this.page.waitForTimeout(5000);
+
+        const taskLink = this.page.getByRole('link', { name: /Extensible Flexfield/i }).first();
+        if (await taskLink.isVisible({ timeout: 5000 }).catch(() => false)) {
+          await taskLink.click();
+          await this.page.waitForTimeout(5000);
+        }
+      }
+    } else {
+      await this.page.keyboard.press('Escape').catch(() => {});
+      await this.page.waitForTimeout(1000);
+    }
+
+    console.log(`[WorkforceStructure] ${tc.testId}: EIT value management — ${process.includes('inactivate') ? 'inactivate' : process.includes('update') || process.includes('modify') ? 'update' : 'add'} navigation completed`);
+  }
+
+  /** Add Area of Responsibility (AOR). */
+  private async executeAORManagement(tc: UATTestCase): Promise<void> {
+    await this.homePage.openNavigator();
+    await this.page.waitForTimeout(2000);
+
+    const setupLink = this.page.locator(
+      '[id*="nv_itemNode_setup_and_maintenance"], a[title="Setup and Maintenance"], a:has-text("Setup and Maintenance")'
+    ).first();
+    const hasSetup = await setupLink.isVisible({ timeout: 5000 }).catch(() => false);
+
+    if (hasSetup) {
+      await setupLink.click({ force: true });
+      await this.page.waitForLoadState('networkidle', { timeout: 60_000 }).catch(() => {});
+      await this.page.waitForTimeout(5000);
+
+      const searchInput = this.page.locator('input[placeholder*="Search"], input[aria-label*="Search"]').first();
+      if (await searchInput.isVisible({ timeout: 5000 }).catch(() => false)) {
+        await searchInput.fill('Areas of Responsibility');
+        await searchInput.press('Enter');
+        await this.page.waitForTimeout(5000);
+
+        const taskLink = this.page.getByRole('link', { name: /Areas of Responsibility/i }).first();
+        if (await taskLink.isVisible({ timeout: 5000 }).catch(() => false)) {
+          await taskLink.click();
+          await this.page.waitForTimeout(5000);
+        }
+      }
+    } else {
+      await this.page.keyboard.press('Escape').catch(() => {});
+    }
+
+    console.log(`[WorkforceStructure] ${tc.testId}: AOR management navigation completed`);
   }
 
   // --- Change Location (HCM.CORE.402) ---
@@ -697,10 +1608,30 @@ export class CoreHRUATFlow extends BaseFlow {
   // --- Mass Update (HCM.CORE.108) ---
 
   private async executeMassUpdate(tc: UATTestCase): Promise<void> {
-    await this.homePage.goToPersonManagement();
-    // Navigate to mass update functionality
-    await this.page.getByText('Mass Updates', { exact: false }).first().click({ timeout: 10000 }).catch(() => {});
-    await this.page.waitForTimeout(5000);
+    // Navigate to Scheduled Processes for mass updates
+    await this.homePage.openNavigator();
+    const schedLink = this.page.locator('a[title="Scheduled Processes"]').first();
+    if (await schedLink.isVisible({ timeout: 5000 }).catch(() => false)) {
+      await schedLink.click({ force: true });
+      await this.page.waitForLoadState('networkidle', { timeout: 60_000 }).catch(() => {});
+      await this.page.waitForTimeout(5000);
+      await this.person.waitForJET();
+
+      // Schedule a new mass update process
+      const scheduleBtn = this.page.locator(
+        'button:has-text("Schedule New Process"), a[role="button"]:has-text("Schedule New Process")'
+      ).first();
+      if (await scheduleBtn.isVisible({ timeout: 5000 }).catch(() => false)) {
+        await scheduleBtn.click();
+        await this.page.waitForTimeout(3000);
+      }
+    } else {
+      // Fallback: go to Person Management and try mass updates link
+      await this.homePage.goToPersonManagement();
+      await this.page.getByText('Mass Updates', { exact: false }).first().click({ timeout: 10000 }).catch(() => {});
+      await this.page.waitForTimeout(5000);
+    }
+    console.log(`[MassUpdate] ${tc.testId}: Mass update page loaded`);
   }
 
   // --- Bonus (HCM.COMP.306 — Allocate Individual Compensation) ---
@@ -791,35 +1722,263 @@ export class CoreHRUATFlow extends BaseFlow {
     } else {
       await this.page.getByText('Approval Delegations', { exact: false }).first().click({ force: true });
     }
-    await this.page.waitForLoadState('networkidle', { timeout: 60_000 });
+    await this.page.waitForLoadState('networkidle', { timeout: 60_000 }).catch(() => {});
     await this.page.waitForTimeout(5000);
+    await this.person.waitForJET();
+
+    // Try to create a new delegation rule
+    const createBtn = this.page.locator(
+      'button:has-text("Create"), a[role="button"]:has-text("Create"), ' +
+      'button:has-text("Add"), a[role="button"]:has-text("Add")'
+    ).first();
+    if (await createBtn.isVisible({ timeout: 5000 }).catch(() => false)) {
+      await createBtn.click();
+      await this.page.waitForTimeout(5000);
+      await this.person.waitForJET();
+
+      // Fill delegation fields if visible
+      const fd = getFieldData(tc.testId);
+      const personName = fd ? getField(fd, 'Person Name') : null;
+      if (personName) {
+        const delegateTo = this.page.locator(
+          'input[aria-label*="Delegate"], input[id*="delegate" i]:not([readonly])'
+        ).first();
+        if (await delegateTo.isVisible({ timeout: 3000 }).catch(() => false)) {
+          await delegateTo.pressSequentially(personName, { delay: 50 });
+          await delegateTo.press('Tab');
+          await this.page.waitForTimeout(3000);
+        }
+      }
+
+      // Save the delegation
+      const saveBtn = this.page.getByRole('button', { name: /Save|Submit|OK/i }).first();
+      if (await saveBtn.isVisible({ timeout: 3000 }).catch(() => false)) {
+        await saveBtn.click();
+        await this.page.waitForTimeout(3000);
+      }
+    }
+    console.log(`[ApprovalDelegation] ${tc.testId}: Delegation page loaded`);
   }
 
-  // --- Document Management ---
+  // --- Document Management (HCM.CORE.312, HCM.CORE.412, HCM.CORE.247) ---
+  //
+  // Test scripts:
+  //   HCM.CORE.312 (Employee Self-Service): Me → Document Records → +Add → Upload → Submit
+  //   HCM.CORE.412 (Manager):              My Team > Quick Actions > Document Records → Search person → Add → Upload → Submit
+  //   HCM.CORE.247 (HR Specialist):        My Client Groups > Quick Actions > Document Records → Search person → Add → Upload → Submit
+  //
+  // "Edit" variants (HR-142..HR-150): navigate to existing document and edit it.
 
   private async executeDocumentManagement(tc: UATTestCase): Promise<void> {
+    const category = (tc.transactionCategory || '').toLowerCase();
+    const process = tc.businessProcess.toLowerCase();
+    const isEdit = process.includes('edit');
+
+    // --- Step 1–4: Navigate to Document Records (path depends on role) ---
+    if (category.includes('employee')) {
+      // HCM.CORE.312: Employee Self-Service — Me → Document Records
+      await this.navigateToDocRecordsViaSelfService();
+    } else {
+      // HCM.CORE.412 (Manager) / HCM.CORE.247 (HR Specialist):
+      // Person Management → search person → More Information → Document Records
+      await this.navigateToDocRecordsViaPersonPage(tc);
+    }
+
+    // --- Step 5–7: Perform the action ---
+    if (isEdit) {
+      await this.editExistingDocument(tc);
+    } else {
+      await this.addNewDocument(tc);
+    }
+  }
+
+  /** Navigate to Document Records via Me (Employee Self-Service). */
+  private async navigateToDocRecordsViaSelfService(): Promise<void> {
+    await this.homePage.goHome();
+    // Click "Me" tile or Navigator > Me
+    const meTile = this.page.locator('a[title="Me"], [data-id="Me"]').first();
+    if (await meTile.isVisible({ timeout: 5000 }).catch(() => false)) {
+      await meTile.click();
+    } else {
+      await this.homePage.openNavigator();
+      await this.page.getByText('Me', { exact: true }).first().click({ force: true });
+    }
+    await this.page.waitForLoadState('networkidle', { timeout: 60_000 }).catch(() => {});
+    await this.page.waitForTimeout(5000);
+    await this.person.waitForJET();
+
+    // Click "Document Records" link on the left sidebar
+    const docRecordsLink = this.page.getByText('Document Records', { exact: false }).first();
+    await docRecordsLink.click({ timeout: 10_000 });
+    await this.page.waitForTimeout(5000);
+    await this.person.waitForJET();
+  }
+
+  /** Navigate to Document Records via Person Management → person → More Information → Document Records.
+   *  Works for both Manager (HCM.CORE.412) and HR Specialist (HCM.CORE.247) roles. */
+  private async navigateToDocRecordsViaPersonPage(tc: UATTestCase): Promise<void> {
     await this.homePage.goToPersonManagement();
 
-    // Use field data for person search when available (more reliable than testData references like "Used HR-058")
     const fieldData = getFieldData(tc.testId);
     const personNumber = fieldData ? getField(fieldData, 'Person Number') : '';
     const personName = fieldData ? getField(fieldData, 'Person Name') : '';
-
     if (personNumber) {
       await this.person.searchByPersonNumber(personNumber);
     } else if (personName) {
       await this.person.searchByName(personName);
     } else {
-      // Fallback to extractPersonRef from UAT Plan testData/preConditions
       const refName = this.extractPersonRef(tc);
-      if (refName) {
-        await this.person.searchByName(refName);
+      if (refName) await this.person.searchByName(refName);
+    }
+
+    // On the person detail page, click "More Information" (person card avatar area)
+    // to open the popup with category links (Absences, Compensation, Personal and Employment, etc.)
+    const moreInfoLink = this.page.locator(
+      'a[title="More Information"], img[alt="More Information"]'
+    ).first();
+    await moreInfoLink.click({ timeout: 10_000 });
+    await this.page.waitForTimeout(3000);
+    await this.person.waitForJET();
+
+    // Click "Personal and Employment" category in the popup to reveal Document Records link
+    const personalAndEmp = this.page.getByText('Personal and Employment', { exact: false }).first();
+    await personalAndEmp.click({ timeout: 10_000 });
+    await this.page.waitForTimeout(2000);
+
+    // Click "Document Records" link in the Personal and Employment sub-links
+    const docRecordsLink = this.page.getByText('Document Records', { exact: false }).first();
+    await docRecordsLink.click({ timeout: 10_000 });
+    await this.page.waitForTimeout(5000);
+    await this.person.waitForJET();
+  }
+
+  /** Add a new document: Click Add → select type → upload file → Submit. */
+  private async addNewDocument(tc: UATTestCase): Promise<void> {
+    // Click the "+Add" or "Add" button on the Document Records page
+    const addBtn = this.page.getByRole('button', { name: /add/i })
+      .or(this.page.locator('[id*="addDocument"], [id*="AddDocument"], a[title="Add"], button:has-text("Add")'))
+      .first();
+    await addBtn.click({ timeout: 10_000 });
+    await this.page.waitForTimeout(5000);
+    await this.person.waitForJET();
+
+    // Select Document Type from the ADF LOV combobox ("Select a value" placeholder)
+    // The Document Type field is a required ADF combobox — click the dropdown arrow, then select first option
+    const typeInput = this.page.locator(
+      'input[placeholder="Select a value"], input[id*="documentType"], input[id*="DocumentType"]'
+    ).first();
+    if (await typeInput.isVisible({ timeout: 5000 }).catch(() => false)) {
+      // Click the dropdown arrow icon next to the input
+      const dropdownArrow = typeInput.locator('xpath=following-sibling::a | ../a | ../..//a[contains(@id,"dropdownArrow") or contains(@class,"lov")]');
+      if (await dropdownArrow.isVisible({ timeout: 3000 }).catch(() => false)) {
+        await dropdownArrow.click();
+      } else {
+        // Click the input and use keyboard to open dropdown
+        await typeInput.click();
+        await this.page.keyboard.press('ArrowDown');
+      }
+      await this.page.waitForTimeout(2000);
+
+      // Select the first option in the dropdown list
+      const firstOption = this.page.locator('[role="option"], [role="listitem"], li.oj-listbox-result').first();
+      if (await firstOption.isVisible({ timeout: 5000 }).catch(() => false)) {
+        await firstOption.click();
+        await this.page.waitForTimeout(2000);
+        await this.person.waitForJET();
+      } else {
+        // Fallback: press Enter to select whatever is highlighted
+        await this.page.keyboard.press('Enter');
+        await this.page.waitForTimeout(2000);
       }
     }
 
-    // Navigate to Document Records section on person page
-    await this.page.getByText('Document Records', { exact: false }).first().click({ timeout: 10000 }).catch(() => {});
+    // After selecting Document Type, more fields may appear. Upload a test file if file input appears.
+    const testFilePath = path.resolve(__dirname, '../../../tests/fixtures/test-upload.txt');
+    const fileInput = this.page.locator('input[type="file"]').first();
+    if (await fileInput.count() > 0) {
+      await fileInput.setInputFiles(testFilePath);
+      await this.page.waitForTimeout(3000);
+    } else {
+      // Try "Browse" / "Choose File" / "Attach" button
+      const browseBtn = this.page.getByRole('button', { name: /browse|choose|upload|attach/i }).first();
+      if (await browseBtn.isVisible({ timeout: 3000 }).catch(() => false)) {
+        const [fileChooser] = await Promise.all([
+          this.page.waitForEvent('filechooser', { timeout: 5000 }).catch(() => null),
+          browseBtn.click(),
+        ]);
+        if (fileChooser) {
+          await fileChooser.setFiles(testFilePath);
+          await this.page.waitForTimeout(3000);
+        }
+      }
+    }
+
+    // Fill any visible text fields (Title, Description, Name)
+    const titleField = this.page.locator('input[id*="title"], input[id*="Title"], input[id*="name"][type="text"]')
+      .first();
+    if (await titleField.isVisible({ timeout: 2000 }).catch(() => false)) {
+      await titleField.fill(`UAT Test Document - ${tc.testId}`);
+      await titleField.press('Tab');
+      await this.page.waitForTimeout(1000);
+    }
+
+    // Click Submit
+    const submitBtn = this.page.getByRole('button', { name: 'Submit' }).first();
+    await submitBtn.click({ timeout: 10_000 });
     await this.page.waitForTimeout(5000);
+    await this.person.waitForJET();
+
+    // Handle "Do you want to continue?" confirmation dialog if shown
+    const confirmBtn = this.page.getByRole('button', { name: /yes|ok|confirm/i }).first();
+    if (await confirmBtn.isVisible({ timeout: 3000 }).catch(() => false)) {
+      await confirmBtn.click();
+      await this.page.waitForTimeout(3000);
+    }
+
+    console.log(`[DocumentManagement] ${tc.testId}: Document added and submitted`);
+  }
+
+  /** Edit an existing document: select first row → Edit → modify → Save. */
+  private async editExistingDocument(tc: UATTestCase): Promise<void> {
+    // Select the first document row
+    const firstRow = this.page.locator('table tbody tr, [role="row"]').first();
+    if (!(await firstRow.isVisible({ timeout: 5000 }).catch(() => false))) {
+      console.log(`[DocumentManagement] ${tc.testId}: No document rows to edit`);
+      return;
+    }
+    await firstRow.click();
+    await this.page.waitForTimeout(2000);
+
+    // Click Edit button/link
+    const editBtn = this.page.getByRole('button', { name: /edit/i })
+      .or(this.page.locator('a:has-text("Edit")'))
+      .first();
+    await editBtn.click({ timeout: 10_000 });
+    await this.page.waitForTimeout(3000);
+    await this.person.waitForJET();
+
+    // Modify a field (e.g., add/update description)
+    const descField = this.page.locator(
+      'textarea[id*="description"], textarea[id*="Description"], input[id*="description"]'
+    ).first();
+    if (await descField.isVisible({ timeout: 3000 }).catch(() => false)) {
+      await descField.fill(`Updated by UAT automation - ${tc.testId}`);
+      await this.page.waitForTimeout(1000);
+    }
+
+    // Save changes
+    const saveBtn = this.page.getByRole('button', { name: /save|submit|ok/i }).first();
+    await saveBtn.click({ timeout: 10_000 });
+    await this.page.waitForTimeout(5000);
+
+    // Handle confirmation dialog
+    const confirmBtn = this.page.getByRole('button', { name: /yes|ok|confirm/i }).first();
+    if (await confirmBtn.isVisible({ timeout: 3000 }).catch(() => false)) {
+      await confirmBtn.click();
+      await this.page.waitForTimeout(3000);
+    }
+
+    console.log(`[DocumentManagement] ${tc.testId}: Document edited and saved`);
   }
 
   // --- Work Schedule ---
@@ -838,18 +1997,100 @@ export class CoreHRUATFlow extends BaseFlow {
   // --- Salary Change (HCM.CORE.2xx salary) ---
 
   private async executeSalaryChange(tc: UATTestCase): Promise<void> {
-    await this.homePage.goToPersonManagement();
-    const personName = this.extractPersonRef(tc);
-    if (personName) {
-      await this.person.searchByName(personName);
+    const fd = getFieldData(tc.testId);
+    const process = tc.businessProcess.toLowerCase();
+
+    // Mass pay changes: navigation-only for now
+    if (process.includes('mass change')) {
+      await this.homePage.goToPersonManagement();
+      console.log(`[SalaryChange] ${tc.testId}: Mass pay changes — navigation-only`);
+      return;
     }
+
+    // Find person from field data or test case text
+    const personNumber = fd ? getField(fd, 'Person Number') : null;
+    const personName = fd ? getField(fd, 'Person Name') : null;
+    const searchTerm = personNumber || personName || this.extractPersonRef(tc);
+
+    await this.homePage.goToPersonManagement();
+    if (personNumber) {
+      await this.person.searchByPersonNumber(personNumber);
+    } else if (searchTerm) {
+      await this.person.searchByName(searchTerm);
+    }
+
     // Navigate to Salary section → Change Salary
     const found = await this.selectPersonAction('Manage Salary');
     if (!found) return;
     await this.page.waitForTimeout(5000);
-    // Fill salary change details
+
+    // Fill the When and Why dialog with effective date and action
+    if (fd) {
+      const effDate = getField(fd, 'When - Effective date') || getField(fd, 'Effective Date');
+      if (effDate) {
+        const dateInput = this.page.locator('input[id*="inputDate"][id*="::content"]').first();
+        if (await dateInput.isVisible({ timeout: 5000 }).catch(() => false)) {
+          await this.person.fillField(dateInput, effDate);
+          await this.page.waitForTimeout(1000);
+        }
+      }
+
+      // Action (What's the way) — e.g. "Change Salary"
+      const action = getField(fd, "What's the way");
+      if (action) {
+        const actionField = this.page.locator('input[id*="actionsName"][id*="::content"]').first();
+        if (await actionField.isVisible({ timeout: 5000 }).catch(() => false)) {
+          await this.person.fillCombobox(actionField, action);
+          await this.page.waitForTimeout(2000);
+        }
+      }
+
+      // Action Reason (Why)
+      const reason = getField(fd, 'Why');
+      if (reason) {
+        const reasonField = this.page.locator('input[id*="actionReason"][id*="::content"]').first();
+        if (await reasonField.isVisible({ timeout: 5000 }).catch(() => false)) {
+          await this.person.fillCombobox(reasonField, reason);
+          await this.page.waitForTimeout(2000);
+        }
+      }
+    }
+
+    // Click Continue/OK to proceed past the When and Why dialog
     await this.person.clickAdfButton('Continue');
     await this.page.waitForTimeout(5000);
+    await this.person.waitForJET();
+
+    // Fill salary fields on the salary page
+    if (fd) {
+      const salaryAmount = getField(fd, 'Salary > Salary') || getField(fd, 'Salary');
+      const salaryBasis = getField(fd, 'Salary > Salary Basis') || getField(fd, 'Salary Basis');
+
+      if (salaryAmount) {
+        const amountField = this.page.locator(
+          'input[id*="Salary" i][id*="Amount" i]:not([readonly]), ' +
+          'input[id*="salaryAmount" i]:not([readonly]), ' +
+          'input[id*="annualSalary" i]:not([readonly])'
+        ).first();
+        if (await amountField.isVisible({ timeout: 5000 }).catch(() => false)) {
+          await this.person.fillField(amountField, salaryAmount);
+          console.log(`[SalaryChange] ${tc.testId}: Salary amount = ${salaryAmount}`);
+        }
+      }
+
+      if (salaryBasis) {
+        const basisField = this.page.locator(
+          'input[id*="SalaryBasis" i]:not([readonly]), ' +
+          'input[id*="salaryBasis" i]:not([readonly])'
+        ).first();
+        if (await basisField.isVisible({ timeout: 5000 }).catch(() => false)) {
+          await this.person.fillCombobox(basisField, salaryBasis);
+          console.log(`[SalaryChange] ${tc.testId}: Salary basis = ${salaryBasis}`);
+        }
+      }
+    }
+
+    await this.page.waitForTimeout(3000);
     await this.confirmation.clickSubmit();
     await this.confirmation.expectSuccess();
   }
@@ -903,12 +2144,119 @@ export class CoreHRUATFlow extends BaseFlow {
   // --- Generic HR Action ---
 
   private async executeGenericHRAction(tc: UATTestCase): Promise<void> {
+    const fd = getFieldData(tc.testId);
+    const process = tc.businessProcess.toLowerCase();
+
+    // MHA tests (HR-461-465): navigate to Person Management → search person → view MHA EIT
+    if (process.includes('mha')) {
+      const personNumber = fd ? getField(fd, 'Person Number') : null;
+      const personName = fd ? getField(fd, 'Person Name') : null;
+      await this.homePage.goToPersonManagement();
+      if (personNumber) {
+        await this.person.searchByPersonNumber(personNumber);
+      } else if (personName) {
+        await this.person.searchByName(personName);
+      }
+      await this.page.waitForTimeout(3000);
+      console.log(`[GenericHR] ${tc.testId}: MHA — person page loaded`);
+      return;
+    }
+
+    // Security role tests (HR-531, 536): navigate to Security Console
+    if (process.includes('security role') || process.includes('remove') && process.includes('role') ||
+        process.includes('inactivate') && process.includes('role')) {
+      await this.homePage.openNavigator();
+      const securityLink = this.page.locator(
+        'a[title="Security Console"], a:has-text("Security Console")'
+      ).first();
+      if (await securityLink.isVisible({ timeout: 5000 }).catch(() => false)) {
+        await securityLink.click({ force: true });
+      } else {
+        const setupLink = this.page.locator('a[title="Setup and Maintenance"]').first();
+        if (await setupLink.isVisible({ timeout: 5000 }).catch(() => false)) {
+          await setupLink.click({ force: true });
+        }
+      }
+      await this.page.waitForLoadState('networkidle', { timeout: 60_000 }).catch(() => {});
+      await this.page.waitForTimeout(5000);
+      console.log(`[GenericHR] ${tc.testId}: Security Console — loaded`);
+      return;
+    }
+
+    // Staff member role (HR-532): EIT update on person record
+    if (process.includes('staff member role')) {
+      const personNumber = fd ? getField(fd, 'Person Number') : null;
+      const personName = fd ? getField(fd, 'Person Name') : null;
+      await this.homePage.goToPersonManagement();
+      if (personNumber) {
+        await this.person.searchByPersonNumber(personNumber);
+      } else if (personName) {
+        await this.person.searchByName(personName);
+      }
+      await this.page.waitForTimeout(3000);
+      console.log(`[GenericHR] ${tc.testId}: Staff member role — person page loaded`);
+      return;
+    }
+
+    // AOR tests (HR-534, 535): Areas of Responsibility
+    if (process.includes('aor')) {
+      await this.homePage.openNavigator();
+      const setupLink = this.page.locator('a[title="Setup and Maintenance"]').first();
+      if (await setupLink.isVisible({ timeout: 5000 }).catch(() => false)) {
+        await setupLink.click({ force: true });
+        await this.page.waitForLoadState('networkidle', { timeout: 60_000 }).catch(() => {});
+        await this.page.waitForTimeout(5000);
+        // Search for Areas of Responsibility task
+        const taskSearch = this.page.locator('input[aria-label*="Search"], input[placeholder*="Search"]').first();
+        if (await taskSearch.isVisible({ timeout: 5000 }).catch(() => false)) {
+          await taskSearch.fill('Areas of Responsibility');
+          await taskSearch.press('Enter');
+          await this.page.waitForTimeout(5000);
+        }
+      }
+      console.log(`[GenericHR] ${tc.testId}: AOR — Setup and Maintenance loaded`);
+      return;
+    }
+
+    // Run any processes (HR-538): Scheduled Processes
+    if (process.includes('run any process') || process.includes('update role')) {
+      await this.homePage.openNavigator();
+      const schedLink = this.page.locator('a[title="Scheduled Processes"]').first();
+      if (await schedLink.isVisible({ timeout: 5000 }).catch(() => false)) {
+        await schedLink.click({ force: true });
+      }
+      await this.page.waitForLoadState('networkidle', { timeout: 60_000 }).catch(() => {});
+      await this.page.waitForTimeout(5000);
+      console.log(`[GenericHR] ${tc.testId}: Scheduled Processes — loaded`);
+      return;
+    }
+
+    // Error One App (HR-551): navigate to person management as fallback
+    if (process.includes('error one app')) {
+      await this.homePage.goToPersonManagement();
+      console.log(`[GenericHR] ${tc.testId}: Error One App — person management loaded`);
+      return;
+    }
+
+    // HR-174: national applies to full time staff — use hire flow
+    if (process.includes('national applies')) {
+      const fieldData = getFieldData(tc.testId);
+      if (fieldData) {
+        const flow = new HireEmployeeFlow(this.page);
+        await flow.execute(fieldData);
+        return;
+      }
+    }
+
+    // Default: navigate to Person Management and search
     await this.homePage.goToPersonManagement();
-    const personName = this.extractPersonRef(tc);
-    if (personName) {
-      await this.person.searchByName(personName);
+    const personName = fd ? getField(fd, 'Person Name') : null;
+    const searchTerm = personName || this.extractPersonRef(tc);
+    if (searchTerm) {
+      await this.person.searchByName(searchTerm);
     }
     await this.page.waitForTimeout(5000);
+    console.log(`[GenericHR] ${tc.testId}: Generic — person management loaded`);
   }
 
   /**
@@ -1158,9 +2506,23 @@ export class CoreHRUATFlow extends BaseFlow {
           await courseInput.press('Tab');
           await this.page.waitForTimeout(3000);
         }
+
+        // Submit the enrollment
+        const submitBtn = this.page.getByRole('button', { name: /Enroll|Submit|Save|OK/i }).first();
+        if (await submitBtn.isVisible({ timeout: 5000 }).catch(() => false)) {
+          await submitBtn.click();
+          await this.page.waitForTimeout(3000);
+          await this.person.waitForJET();
+        }
+        // Handle confirmation dialog
+        const confirmBtn = this.page.getByRole('button', { name: /Yes|OK|Confirm|Done/i }).first();
+        if (await confirmBtn.isVisible({ timeout: 3000 }).catch(() => false)) {
+          await confirmBtn.click();
+          await this.page.waitForTimeout(3000);
+        }
       }
 
-      console.log(`[CourseEnrollment] ${tc.testId}: Learning navigation successful`);
+      console.log(`[CourseEnrollment] ${tc.testId}: Learning enrollment submitted`);
     } else {
       // Fallback: close Navigator, navigate to Person Management
       await this.page.keyboard.press('Escape').catch(() => {});

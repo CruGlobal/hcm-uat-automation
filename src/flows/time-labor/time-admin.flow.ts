@@ -114,7 +114,6 @@ export class TimeAdminFlow extends BaseTimeLaborFlow {
     try {
       await this.navigateToTimeAdmin();
 
-      // Try to use Team Time Cards to enter on behalf of employee
       await this.timecardPage.clickTeamTimeCards();
       await this.timecardPage.clickCreateTimecard();
       if (personName) await this.timecardPage.searchPerson(personName);
@@ -222,7 +221,8 @@ export class TimeAdminFlow extends BaseTimeLaborFlow {
    */
   private async hrTimecardReview(tc: UATTestCase): Promise<void> {
     const fd = this.getTestFieldData(tc.testId);
-    const personName = this.extractFieldWithFallback(fd, tc.testData, 'Person Name', 'person');
+    const personName = this.extractFieldWithFallback(fd, tc.testData, 'Person Name', 'person')
+      || (tc.testData && !tc.testData.includes(':') ? tc.testData.trim() : undefined);
     const scenario = (tc.testScenario || '').toLowerCase();
 
     try {

@@ -42,11 +42,33 @@ export class BaseBenefitsFlow extends BaseFlow {
 
   /**
    * Login and navigate to Employee Self-Service Benefits enrollment summary.
-   * Uses the deep link to the Redwood ESS enrollment page.
+   * For ESS tests with field data, logs in as the target employee (so they
+   * see their own benefits/enrollment plans). Falls back to bot login.
    */
   async loginAndNavigateToSelfService(tc?: UATTestCase): Promise<void> {
-    await this.loginToHCM(tc);
+    if (tc) {
+      await this.loginAsTargetEmployeeOrBot(tc);
+    } else {
+      await this.loginToHCM(tc);
+    }
     await this.benefits.navigateToSelfServiceBenefits();
+  }
+
+  /**
+   * Try to login as the target employee from field data.
+   * If no person number or provisioning fails, falls back to bot login.
+   */
+  private async loginAsTargetEmployeeOrBot(tc: UATTestCase): Promise<void> {
+    const personNumber = this.getPersonNumber(tc);
+    if (personNumber) {
+      try {
+        await this.loginAsEmployee(personNumber, tc.testId);
+        return;
+      } catch (err) {
+        console.warn(`[Benefits] ${tc.testId}: Could not login as employee ${personNumber}, falling back to bot: ${err}`);
+      }
+    }
+    await this.loginToHCM(tc);
   }
 
   /**

@@ -264,17 +264,87 @@ export class JourneyAssignmentFlow extends BaseJourneysFlow {
     const bp = tc.businessProcess.toLowerCase();
 
     if (bp.includes('mass assignment') || bp.includes('launchpad')) {
+      // Mass assignment: go to Explore tab and try to assign
       await this.journeysPage.selectTab('Explore');
+      await this.page.waitForTimeout(3000);
+
+      // Try to click an "Assign" button if visible
+      const assignBtn = this.page.locator(
+        'button:has-text("Assign"), a[role="button"]:has-text("Assign")'
+      ).first();
+      if (await assignBtn.isVisible({ timeout: 5000 }).catch(() => false)) {
+        await assignBtn.click();
+        await this.page.waitForTimeout(3000);
+      }
       await this.journeysPage.screenshot(`journey-mass-${tc.testId}`);
-    } else if (bp.includes('cancellation') || bp.includes('closure') ||
-               bp.includes('manager view') || bp.includes('reassignment')) {
+
+    } else if (bp.includes('cancellation') || bp.includes('closure')) {
+      // Journey cancellation/closure: find journey and cancel/close it
       await this.journeysPage.selectTab('Organization Journeys');
       if (fieldData) {
         const personName = getField(fieldData, 'Person Name');
         if (personName) await this.journeysPage.searchPerson(personName);
       }
       await this.journeysPage.clickFirstJourneyResult();
+      await this.page.waitForTimeout(3000);
+
+      // Try to click Cancel or Close button
+      const actionBtn = this.page.locator(
+        'button:has-text("Cancel"), button:has-text("Close"), ' +
+        'a[role="button"]:has-text("Cancel"), a[role="button"]:has-text("Close")'
+      ).first();
+      if (await actionBtn.isVisible({ timeout: 5000 }).catch(() => false)) {
+        await actionBtn.click();
+        await this.page.waitForTimeout(3000);
+        // Confirm dialog
+        const confirmBtn = this.page.getByRole('button', { name: /Yes|OK|Confirm/i }).first();
+        if (await confirmBtn.isVisible({ timeout: 3000 }).catch(() => false)) {
+          await confirmBtn.click();
+          await this.page.waitForTimeout(3000);
+        }
+      }
       await this.journeysPage.screenshot(`journey-admin-${tc.testId}`);
+
+    } else if (bp.includes('manager view') || bp.includes('reassignment')) {
+      // Manager view/reassignment: search in Organization Journeys and view
+      await this.journeysPage.selectTab('Organization Journeys');
+      if (fieldData) {
+        const personName = getField(fieldData, 'Person Name');
+        if (personName) await this.journeysPage.searchPerson(personName);
+      }
+      await this.journeysPage.clickFirstJourneyResult();
+      await this.page.waitForTimeout(3000);
+
+      // Try reassignment if applicable
+      if (bp.includes('reassignment')) {
+        const reassignBtn = this.page.locator(
+          'button:has-text("Reassign"), a[role="button"]:has-text("Reassign")'
+        ).first();
+        if (await reassignBtn.isVisible({ timeout: 5000 }).catch(() => false)) {
+          await reassignBtn.click();
+          await this.page.waitForTimeout(3000);
+        }
+      }
+      await this.journeysPage.screenshot(`journey-admin-${tc.testId}`);
+
+    } else if (bp.includes('synchronize') || bp.includes('template')) {
+      // Synchronize journey template: go to admin settings
+      await this.journeysPage.selectTab('Organization Journeys');
+      await this.page.waitForTimeout(3000);
+      console.log(`[Journeys] ${tc.testId}: Template sync — admin page loaded`);
+      await this.journeysPage.screenshot(`journey-admin-${tc.testId}`);
+
+    } else if (bp.includes('attachment') || bp.includes('document record')) {
+      // Document attachments: go to journey and verify attachment area
+      await this.journeysPage.selectTab('Organization Journeys');
+      if (fieldData) {
+        const personName = getField(fieldData, 'Person Name');
+        if (personName) await this.journeysPage.searchPerson(personName);
+      }
+      await this.journeysPage.clickFirstJourneyResult();
+      await this.page.waitForTimeout(3000);
+      await this.journeysPage.screenshot(`journey-admin-${tc.testId}`);
+
     } else {
       // Default admin: go to Organization Journeys and search
       await this.journeysPage.selectTab('Organization Journeys');
@@ -282,6 +352,7 @@ export class JourneyAssignmentFlow extends BaseJourneysFlow {
         const personName = getField(fieldData, 'Person Name');
         if (personName) await this.journeysPage.searchPerson(personName);
       }
+      await this.journeysPage.clickFirstJourneyResult();
       await this.journeysPage.screenshot(`journey-admin-${tc.testId}`);
     }
   }

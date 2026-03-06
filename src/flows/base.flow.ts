@@ -3,6 +3,8 @@ import { LoginPage } from '../pages/login.page';
 import { HomePage } from '../pages/home.page';
 import { resolveUser, needsSwitch, getCurrentUser, setCurrentUser } from '../config/user-session-manager';
 import type { UATTestCase } from '../data/types';
+import { provisionEmployeeLogin } from '../../scripts/lib/hcm-rest-api';
+import { resolveApiCredentials } from '../validation/api-credentials';
 
 /**
  * Base flow shared across all modules.
@@ -46,6 +48,33 @@ export class BaseFlow {
       // No tc (sub-flow) — parent already logged in, ensure session is alive
       await this.loginPage.fullLogin();
     }
+  }
+
+  /**
+   * Login as a specific employee by person number.
+   * Provisions their credentials via SCIM (reset password + ensure active),
+   * then does a direct Oracle login as that employee.
+   * Used for ESS tests where the bot needs to act as the target employee.
+   */
+  async loginAsEmployee(personNumber: string, testId?: string): Promise<void> {
+    const baseUrl = process.env.ORACLE_HCM_URL || 'https://stafflife-icahjb-test.fa.ocs.oraclecloud.com';
+    const apiCreds = resolveApiCredentials();
+
+    const loginCreds = await provisionEmployeeLogin(baseUrl, personNumber, undefined, apiCreds);
+    if (!loginCreds) {
+      throw new Error(`[BaseFlow] Cannot provision login for person ${personNumber}${testId ? ` (${testId})` : ''} — no SCIM user found`);
+    }
+
+    console.log(`[BaseFlow] Logging in as employee ${loginCreds.username} (person ${personNumber})${testId ? ` for test ${testId}` : ''}`);
+
+    // Logout current session if any
+    if (getCurrentUser() !== null) {
+      await this.loginPage.logout();
+      setCurrentUser(null);
+    }
+
+    await this.loginPage.fullLogin(loginCreds.username, loginCreds.password);
+    setCurrentUser(`employee:${personNumber}`);
   }
 
   /** Navigate to the home page. */

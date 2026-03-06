@@ -46,6 +46,7 @@ const BOT_USERS: BotUserIdentity[] = [
   { botName: 'bot_local_us_capacity', sheetName: 'David Soncrant', personNumber: '10817009' },
   { botName: 'bot_payroll_spec', sheetName: 'Janet Vankirk', personNumber: '10817013' },
   { botName: 'bot_comp_comm_approver', sheetName: 'Jim Bengston', personNumber: '10817014' },
+  { botName: 'bot_time_admin', sheetName: 'Time Admin Bot', personNumber: '10818206' },
 
   // ── Alias mappings (unmapped testers → load-balanced across bots) ──
   // Greedy assignment: largest tester → lightest bot, all bots have comprehensive roles.
@@ -94,14 +95,9 @@ const DEFAULT_BOT: BotUserIdentity = { botName: 'bot_hr_admin', sheetName: '', p
  * When a tester's tests in a specific module need a different bot
  * (e.g., because the default bot lacks the right security roles),
  * add an entry here: "testerName|module" → botName.
- *
- * Lisa Franklin's T&L tests need Time Management admin access,
- * which bot_comp_spec doesn't have. Route them to bot_hr_admin instead.
- * Janet Vankirk's T&L Admin test also needs Time Management access.
  */
 const MODULE_BOT_OVERRIDES: Record<string, string> = {
-  'lisa franklin|time and labor': 'bot_hr_admin',
-  'janet vankirk|time and labor': 'bot_hr_admin',
+  // Currently empty — T&L overrides moved to TEST_ID_BOT_OVERRIDES for precision
 };
 
 /**
@@ -115,11 +111,33 @@ const MODULE_BOT_OVERRIDES: Record<string, string> = {
  * Delete Enrollment) are routed to bot_payroll_admin (Grace George) instead.
  */
 const TEST_ID_BOT_OVERRIDES: Record<string, string> = {
+  // Absence tests needing plan enrollment → bot_payroll_admin
   'AB-054.00': 'bot_payroll_admin',
   'AB-056.00': 'bot_payroll_admin',
   'AB.021.00': 'bot_payroll_admin',
   'AB.022.00': 'bot_payroll_admin',
   'AB.027.00': 'bot_payroll_admin',
+  // T&L HR Specialist tests → bot_time_admin (needs Time and Labor Manager role)
+  'TL-001': 'bot_time_admin',
+  'TL-003': 'bot_time_admin',
+  'TL-004': 'bot_time_admin',
+  'TL-005': 'bot_time_admin',
+  'TL-006': 'bot_time_admin',
+  'TL-007': 'bot_time_admin',
+  'TL-053': 'bot_time_admin',
+  'TL-054': 'bot_time_admin',
+  'TL-057': 'bot_time_admin',
+  'TL-073': 'bot_time_admin',
+  'TL-074': 'bot_time_admin',
+  'TL-075': 'bot_time_admin',
+  'TL-081': 'bot_time_admin',
+  'TL-082': 'bot_time_admin',
+  'TL-084': 'bot_time_admin',
+  // T&L Admin/System tests → bot_time_admin
+  'TL-011': 'bot_time_admin',
+  'TL-033': 'bot_time_admin',
+  'TL-041': 'bot_time_admin',
+  'TL-091': 'bot_time_admin',
 };
 
 /**

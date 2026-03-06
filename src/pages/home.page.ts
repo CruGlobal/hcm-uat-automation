@@ -54,6 +54,32 @@ export class HomePage extends BasePage {
     await this.waitForJET();
   }
 
+  /** Close the Navigator panel if it's currently open. */
+  async closeNavigator(): Promise<void> {
+    // Check if Navigator button is expanded (panel open)
+    const navExpanded = this.page.locator('button[aria-expanded="true"] img[alt="Navigator"], button[aria-expanded="true"]:has(img[alt="Navigator"])').first();
+    const showMoreLess = this.page.locator('a:has-text("Show Less"), a:has-text("Show More")').first();
+    const isOpen = await navExpanded.isVisible({ timeout: 2000 }).catch(() => false)
+      || await showMoreLess.isVisible({ timeout: 1000 }).catch(() => false);
+    if (!isOpen) return;
+
+    console.log('[Home] Navigator panel is open, closing...');
+
+    // Method 1: Click the Navigator button to toggle it closed (most reliable)
+    const navButton = this.page.locator('button:has(img[alt="Navigator"])').first();
+    if (await navButton.isVisible({ timeout: 2000 }).catch(() => false)) {
+      await navButton.click({ force: true });
+      await this.page.waitForTimeout(1500);
+      // Verify it closed
+      const stillOpen = await showMoreLess.isVisible({ timeout: 1000 }).catch(() => false);
+      if (!stillOpen) return;
+    }
+
+    // Method 2: Press Escape to dismiss
+    await this.page.keyboard.press('Escape');
+    await this.page.waitForTimeout(1000);
+  }
+
   /**
    * Generic navigator helper: opens the hamburger menu, clicks a nav item by
    * its ADF id suffix, and waits for the destination page to settle.
@@ -84,7 +110,10 @@ export class HomePage extends BasePage {
       await byId.click({ force: true, timeout: 10_000 });
     }
     await this.page.waitForLoadState('networkidle', { timeout: 60_000 });
-    await this.page.waitForTimeout(5000);
+    await this.page.waitForTimeout(3000);
+    // Close Navigator if it's still open (overlays content and blocks clicks)
+    await this.closeNavigator();
+    await this.page.waitForTimeout(2000);
   }
 
   /** Navigate to My Client Groups > New Person task page. */

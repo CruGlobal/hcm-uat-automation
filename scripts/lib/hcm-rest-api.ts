@@ -376,6 +376,77 @@ export async function unlockBotAccount(
   return scimUnlockUser(baseUrl, user.id, creds);
 }
 
+/**
+ * Look up a SCIM user by Oracle HCM person number.
+ * Two-step approach: publicWorkers API → Username → SCIM lookup by userName.
+ * Oracle's SCIM implementation uses a non-standard FA extension (not enterprise:2.0),
+ * so we can't filter SCIM by employeeNumber directly.
+ */
+export async function scimLookupByPersonNumber(
+  baseUrl: string,
+  personNumber: string,
+  creds: BasicAuthCredentials = getDefaultRestCreds(),
+): Promise<{ id: string; userName: string; active: boolean } | null> {
+  // Step 1: Get username from publicWorkers API
+  const endpoint = `/hcmRestApi/resources/latest/publicWorkers?q=PersonNumber=${personNumber}&onlyData=true&limit=1&fields=Username`;
+  try {
+    const result = await hcmRequest('GET', baseUrl, endpoint, creds);
+    const username = result.data?.items?.[0]?.Username;
+    if (!username) {
+      console.warn(`[SCIM] No publicWorker/username found for person number ${personNumber}`);
+      return null;
+    }
+
+    // Step 2: SCIM lookup by username
+    return await scimLookupUser(baseUrl, username, creds);
+  } catch (err: any) {
+    console.warn(`[SCIM] Error looking up person number ${personNumber}: ${err.message || err}`);
+    return null;
+  }
+}
+
+/**
+ * Provision login credentials for a target employee.
+ * Looks up the employee's SCIM user by PersonNumber, resets their password,
+ * and ensures the account is active. Returns { username, password } for direct login.
+ */
+export async function provisionEmployeeLogin(
+  baseUrl: string,
+  personNumber: string,
+  password?: string,
+  creds: BasicAuthCredentials = getDefaultRestCreds(),
+): Promise<{ username: string; password: string } | null> {
+  const user = await scimLookupByPersonNumber(baseUrl, personNumber, creds);
+  if (!user) {
+    console.warn(`[SCIM] No user account found for person number ${personNumber}`);
+    return null;
+  }
+  console.log(`[SCIM] Found user ${user.userName} for person ${personNumber} (active: ${user.active})`);
+
+  // Ensure account is active
+  if (!user.active) {
+    await scimUnlockUser(baseUrl, user.id, creds);
+  }
+
+  // Generate a unique password to avoid Oracle password-reuse policy rejection.
+  // Use a timestamp suffix to guarantee uniqueness across invocations.
+  const actualPassword = password || `UatAuto!${Date.now().toString(36)}@cru`;
+
+  // Reset password — try twice with different passwords if first attempt fails
+  // (Oracle rejects reusing the same password)
+  let reset = await scimResetPassword(baseUrl, user.id, actualPassword, creds);
+  if (!reset) {
+    const fallbackPassword = `UatAuto!${(Date.now() + 1).toString(36)}@cru`;
+    console.log(`[SCIM] Retrying password reset for ${user.userName} with alternate password`);
+    reset = await scimResetPassword(baseUrl, user.id, fallbackPassword, creds);
+    if (reset) return { username: user.userName, password: fallbackPassword };
+    console.warn(`[SCIM] Failed to reset password for ${user.userName}`);
+    return null;
+  }
+
+  return { username: user.userName, password: actualPassword };
+}
+
 // ── Domain-Specific Operations ───────────────────────────────────────
 
 /**

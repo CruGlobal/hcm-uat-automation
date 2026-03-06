@@ -367,14 +367,25 @@ export class CompensationManagementFlow extends BaseCompensationFlow {
       }
     }
     await this.compensation.waitForJET();
+
+    // Submit/Save after filling grade
+    const submitBtn = this.page.getByRole('button', { name: 'Submit' }).first();
+    if (await submitBtn.isVisible({ timeout: 5000 }).catch(() => false)) {
+      await this.compensation.clickSubmit();
+    } else {
+      const saveBtn = this.page.getByRole('button', { name: 'Save' }).first();
+      if (await saveBtn.isVisible({ timeout: 3000 }).catch(() => false)) {
+        await this.compensation.clickSave();
+      }
+    }
     await this.compensation.screenshot(`comp-grade-step-${tc.testId}`);
   }
 
   /** Handle Wage Range Workflow / Minimum Wage compliance. */
   private async handleWageRange(tc: UATTestCase, fieldData: TestCase | undefined): Promise<void> {
-    // Wage range is typically viewed, not edited
     // Navigate to workforce compensation area
     await this.compensation.massChangeSalaries();
+    await this.compensation.waitForJET();
 
     if (fieldData) {
       const salaryAmount = getField(fieldData, 'Salary Amount');
@@ -382,9 +393,28 @@ export class CompensationManagementFlow extends BaseCompensationFlow {
       if (salaryAmount) {
         console.log(`[Compensation] Wage range check - salary: ${salaryAmount}, basis: ${salaryBasis}`);
       }
+
+      // Try to fill salary fields if editable
+      const amountField = this.page.locator(
+        'input[aria-label*="Salary" i]:not([readonly]), input[aria-label*="Amount" i]:not([readonly])'
+      ).first();
+      if (salaryAmount && await amountField.isVisible({ timeout: 3000 }).catch(() => false)) {
+        await this.compensation.fillField(amountField, salaryAmount);
+      }
     }
 
-    await this.compensation.waitForJET();
+    // Submit/Save if available
+    const submitBtn = this.page.getByRole('button', { name: 'Submit' }).first();
+    if (await submitBtn.isVisible({ timeout: 5000 }).catch(() => false)) {
+      await this.compensation.clickSubmit();
+    } else {
+      const saveBtn = this.page.getByRole('button', { name: 'Save' }).first();
+      if (await saveBtn.isVisible({ timeout: 3000 }).catch(() => false)) {
+        await this.compensation.clickSave();
+      } else {
+        console.log(`[Compensation] ${tc.testId}: Wage range — review-only (no Save/Submit)`);
+      }
+    }
     await this.compensation.screenshot(`comp-wage-range-${tc.testId}`);
   }
 

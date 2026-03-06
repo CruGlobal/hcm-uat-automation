@@ -3,6 +3,7 @@ import { BaseAbsenceFlow } from './base-absence.flow';
 import type { UATTestCase } from '../../data/types';
 import { getFieldData } from '../../data/uat-plan-provider';
 import { getField } from '../../data/test-data-provider';
+import { getCurrentUser } from '../../config/user-session-manager';
 
 /**
  * Flow: Absence Entry
@@ -120,16 +121,40 @@ export class AbsenceEntryFlow extends BaseAbsenceFlow {
   }
 
   /**
+   * Login as the target employee (from field data) for ESS tests.
+   * If field data has a person number, provisions that employee's credentials
+   * and logs in as them. Falls back to bot login if no field data.
+   * Returns the person number if logged in as employee, null if using bot.
+   */
+  private async loginAsTargetEmployee(tc: UATTestCase): Promise<string | null> {
+    const fieldData = getFieldData(tc.testId);
+    if (fieldData) {
+      const personNumber = getField(fieldData, 'person number') || getField(fieldData, 'personnumber');
+      if (personNumber) {
+        try {
+          await this.loginAsEmployee(personNumber, tc.testId);
+          return personNumber;
+        } catch (err) {
+          console.warn(`[AbsenceEntry] ${tc.testId}: Could not login as employee ${personNumber}, falling back to bot: ${err}`);
+        }
+      }
+    }
+    // Fallback: login as bot
+    await this.loginToHCM(tc);
+    return null;
+  }
+
+  /**
    * Common ESS Add Absence path used by multiple routes.
-   * Login -> ESS -> Add Absence tile/button -> Fill -> Submit
+   * Login as the target employee -> ESS -> Add Absence -> Fill -> Submit
    *
-   * The ESS page may show the tile view (Add Absence tile) or the
-   * Absence Balance view (with "Add Absence" button in header).
-   * Bot users without absence plan enrollment see the Balance page
-   * with "After you're enrolled..." message but can still add absences.
+   * When field data has a person number, logs in as that employee so the
+   * absence is created under their account (ESS self-service).
+   * Falls back to bot login if employee login fails.
    */
   private async essAddAbsence(tc: UATTestCase): Promise<void> {
-    await this.loginAndNavigateToAbsenceESS(tc);
+    await this.loginAsTargetEmployee(tc);
+    await this.navigateToAbsenceESS();
 
     // Try the header "Add Absence" button first (works from any ESS sub-page).
     // Oracle Redwood renders this as a link-styled button in the header bar.
@@ -202,7 +227,8 @@ export class AbsenceEntryFlow extends BaseAbsenceFlow {
    *        View submitted absence details
    */
   private async employeeViewsSubmittedAbsence(tc: UATTestCase): Promise<void> {
-    await this.loginAndNavigateToAbsenceESS(tc);
+    await this.loginAsTargetEmployee(tc);
+    await this.navigateToAbsenceESS();
 
     // Click the "Existing Absences" tile card
     await this.absence.clickExistingAbsencesTile();
@@ -217,7 +243,8 @@ export class AbsenceEntryFlow extends BaseAbsenceFlow {
    *        Select absence -> Edit -> Update dates -> Submit
    */
   private async employeeExtendsOrShortensLeave(tc: UATTestCase): Promise<void> {
-    await this.loginAndNavigateToAbsenceESS(tc);
+    await this.loginAsTargetEmployee(tc);
+    await this.navigateToAbsenceESS();
 
     // View existing absences
     await this.absence.clickExistingAbsencesTile();

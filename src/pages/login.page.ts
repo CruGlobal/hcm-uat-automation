@@ -172,23 +172,36 @@ export class LoginPage extends BasePage {
 
     // Check for Oracle OAM credential rejection (URL stays at auth_cred_submit = login failed)
     if (this.page.url().includes('auth_cred_submit')) {
-      // Auto-unlock via SCIM REST API (set active=true)
-      if (username.startsWith('uat.')) {
-        const unlocked = await this.tryUnlockBot(username);
-        if (unlocked) {
-          // Retry login once after unlock
-          console.log(`[Login] Retrying login for ${username} after unlock...`);
-          await this.page.goto('/');
-          await this.page.waitForLoadState('networkidle', { timeout: 30_000 }).catch(() => {});
-          await this.nativeUserId.waitFor({ state: 'visible', timeout: 15_000 });
-          await this.nativeUserId.fill(username);
-          await this.nativePassword.fill(password);
-          await this.nativeSignIn.click();
-          await this.page.waitForLoadState('networkidle', { timeout: 60_000 }).catch(() => {});
-          if (!this.page.url().includes('auth_cred_submit')) return; // retry succeeded
+      // Retry once after a backoff — OAM rate-limits under concurrent load
+      console.log(`[Login] OAM rejected ${username} — waiting 30s for rate-limit cooldown before retry...`);
+      await this.page.waitForTimeout(30_000);
+      await this.page.goto('/');
+      await this.page.waitForLoadState('networkidle', { timeout: 30_000 }).catch(() => {});
+      await this.nativeUserId.waitFor({ state: 'visible', timeout: 15_000 });
+      await this.nativeUserId.fill(username);
+      await this.nativePassword.fill(password);
+      await this.nativeSignIn.click({ timeout: 90_000 });
+      await this.page.waitForLoadState('networkidle', { timeout: 60_000 }).catch(() => {});
+
+      if (this.page.url().includes('auth_cred_submit')) {
+        // Still rejected — try SCIM unlock for locked accounts
+        if (username.startsWith('uat.')) {
+          const unlocked = await this.tryUnlockBot(username);
+          if (unlocked) {
+            console.log(`[Login] Retrying login for ${username} after SCIM unlock...`);
+            await this.page.goto('/');
+            await this.page.waitForLoadState('networkidle', { timeout: 30_000 }).catch(() => {});
+            await this.nativeUserId.waitFor({ state: 'visible', timeout: 15_000 });
+            await this.nativeUserId.fill(username);
+            await this.nativePassword.fill(password);
+            await this.nativeSignIn.click();
+            await this.page.waitForLoadState('networkidle', { timeout: 60_000 }).catch(() => {});
+            if (!this.page.url().includes('auth_cred_submit')) return; // unlock+retry succeeded
+          }
         }
+        throw new Error(`[Login] Oracle OAM rejected credentials for ${username} — account may be locked, disabled, or password incorrect. URL: ${this.page.url()}`);
       }
-      throw new Error(`[Login] Oracle OAM rejected credentials for ${username} — account may be locked, disabled, or password incorrect. URL: ${this.page.url()}`);
+      console.log(`[Login] Retry succeeded for ${username} after rate-limit cooldown`);
     }
 
     // Handle Oracle intermediate pages (retry up to 5 times)

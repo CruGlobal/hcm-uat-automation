@@ -41,14 +41,24 @@ export class BaseTimeLaborFlow extends BaseFlow {
   async navigateToTimeAdmin(): Promise<void> {
     try {
       await this.homePage.goToTimeAdmin();
+      // Close Navigator if it's still open (it overlays the page and blocks clicks)
+      await this.homePage.closeNavigator();
+      // Remove any lingering ADF overlay (AFZOrderLayerContainer) that blocks pointer events
+      await this.page.evaluate(() => {
+        document.querySelectorAll('.AFZOrderLayerContainer').forEach(el => {
+          if ((el as HTMLElement).style.display !== 'none') {
+            (el as HTMLElement).style.pointerEvents = 'none';
+          }
+        });
+      }).catch(() => {});
       await this.page.waitForTimeout(5000);
       // Verify we actually landed on Time Management (not bounced to home)
       const url = this.page.url();
       if (url.includes('time') || url.includes('Time')) return;
 
-      // Also check for Time Management page elements (sidebar links, Team Time Cards)
+      // Also check for Time Management page elements (sidebar links, Team Time Cards heading)
       const timeManagementIndicator = this.page.locator(
-        'a:has-text("Team Time Cards"), [id*="TimeManagement"], ' +
+        'h1:has-text("Team Time Cards"), a:has-text("Team Time Cards"), [id*="TimeManagement"], ' +
         'h1:has-text("Time Management"), a:has-text("Time Administration")'
       ).first();
       if (await timeManagementIndicator.isVisible({ timeout: 3000 }).catch(() => false)) return;
@@ -272,8 +282,12 @@ export class BaseTimeLaborFlow extends BaseFlow {
     // HR Specialist Configuration (HCM.OTL.3901, 4101, 4201, 4301)
     if ([3901, 4101, 4201, 4301].includes(scriptNum)) return 'hr-config';
 
-    // HR Specialist Timecard Entry (HCM.OTL.4501, 4601, 4701, 5501)
-    if ([4501, 4601, 5501].includes(scriptNum)) return 'hr-timecard-entry';
+    // HR Specialist Timecard Entry (HCM.OTL.4601, 4701)
+    // Note: 4501 is "Search and View", 5501 is "Reports" — routed to hr-timecard-review
+    if (scriptNum === 4601) return 'hr-timecard-entry';
+
+    // HR Specialist Search/View/Reports (HCM.OTL.4501, 5501)
+    if ([4501, 5501].includes(scriptNum)) return 'hr-timecard-review';
 
     // HR Specialist Timecard Review/Dashboard (HCM.OTL.5601, 5701)
     // 5601 = OTL Dashboards (view submitted/approved status)

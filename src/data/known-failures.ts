@@ -130,44 +130,7 @@ const KNOWN_FAILURES: Record<string, KnownFailure> = {
     },
   },
 
-  // ── Core HR: Document Records missing ─────────────────────────────
-
-  'HR-138': {
-    reason:
-      'Cannot upload documents — "Document of Record" type missing from dropdown',
-    validate: async (page, tc) => {
-      // This validation checks that the Document Records UI has the required
-      // upload capability and "Document of Record" category.
-      // The flow should have already navigated to the person's Document Records.
-
-      // Look for "Add" button or upload action on the Document Records page
-      const addButton = page
-        .getByRole('button', { name: /add/i })
-        .or(page.locator('button:has-text("Add")'))
-        .first();
-      await expect(
-        addButton,
-        'HR-138: "Add" button should exist on Document Records page',
-      ).toBeVisible({ timeout: 10_000 });
-
-      // Check that "Document of Record" type is available
-      // Click Add to open the creation dialog, then check the Type dropdown
-      await addButton.click();
-      await page.waitForTimeout(2_000);
-
-      const typeDropdown = page
-        .locator('select, [role="combobox"], [role="listbox"]')
-        .filter({ hasText: /document/i })
-        .first();
-      const docOfRecordOption = page.getByText('Document of Record', {
-        exact: false,
-      });
-      await expect(
-        docOfRecordOption,
-        'HR-138: "Document of Record" type should be available in the document type dropdown',
-      ).toBeVisible({ timeout: 10_000 });
-    },
-  },
+  // HR-138 removed: flow now performs full document upload (Add → type → upload → Submit)
 
   // ── Core HR: Form configuration issues ────────────────────────────
 
@@ -493,27 +456,8 @@ const KNOWN_FAILURES: Record<string, KnownFailure> = {
     },
   },
 
-  'HR-139': {
-    reason: 'Document submission missing "Document of Record" type in dropdown',
-    validate: async (page, tc) => {
-      const docOfRecord = page.getByText('Document of Record', { exact: false });
-      await expect(
-        docOfRecord,
-        'HR-139: "Document of Record" type should be available in document type dropdown',
-      ).toBeVisible({ timeout: 10_000 });
-    },
-  },
-
-  'HR-576': {
-    reason: 'Document submission missing "Document of Record" type in dropdown',
-    validate: async (page, tc) => {
-      const docOfRecord = page.getByText('Document of Record', { exact: false });
-      await expect(
-        docOfRecord,
-        'HR-576: "Document of Record" type should be available in document type dropdown',
-      ).toBeVisible({ timeout: 10_000 });
-    },
-  },
+  // HR-139 removed: flow now performs full document upload (Add → type → upload → Submit)
+  // HR-576 removed: flow now performs full document upload (Add → type → upload → Submit)
 
   'HR-258': {
     reason: 'Global transfer (Company Change) fails — assignment change not completed',
