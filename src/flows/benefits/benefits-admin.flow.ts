@@ -403,7 +403,7 @@ export class BenefitsAdminFlow extends BaseBenefitsFlow {
     // Soft assertion: page should show plan or coverage status
     try {
       const planText = this.page.getByText(/plan|coverage|enrolled|active|suspended/i).first();
-      expect.soft(await planText.isVisible({ timeout: 5000 }).catch(() => false),
+      expect.soft(await planText.isVisible({ timeout: 1000 }).catch(() => false),
         `[Benefits] ${tc.testId}: Expected plan/coverage status text visible for military leave`).toBeTruthy();
     } catch {
       console.warn(`[Benefits] ${tc.testId}: Could not verify plan status for military leave`);

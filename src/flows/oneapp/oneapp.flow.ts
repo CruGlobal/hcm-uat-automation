@@ -88,7 +88,7 @@ export class OneAppFlow extends BaseFlow {
   /** Prepare for Hire -- creates a pending worker via the Add Pending Worker wizard. */
   private async executePrepareForHire(tc: UATTestCase, fieldData: TestCase | undefined): Promise<void> {
     await this.homePage.goToAddPendingWorker();
-    await this.page.waitForTimeout(5000);
+    await this.page.waitForTimeout(2000);
     await this.person.waitForJET();
 
     if (fieldData) {
@@ -114,11 +114,11 @@ export class OneAppFlow extends BaseFlow {
       if (personType) {
         const mapped = personType.toLowerCase().includes('contingent') ? 'Contingent worker' : 'Employee';
         const wtField = this.page.getByRole('combobox', { name: 'Proposed Worker Type' }).first();
-        const wtVisible = await wtField.isVisible({ timeout: 5000 }).catch(() => false);
+        const wtVisible = await wtField.isVisible({ timeout: 1000 }).catch(() => false);
         console.log(`[OneApp] Worker Type field visible: ${wtVisible}`);
         if (wtVisible) {
           await this.person.fillCombobox(wtField, mapped);
-          await this.page.waitForTimeout(2000);
+          await this.page.waitForTimeout(500);
         }
       }
 
@@ -137,7 +137,7 @@ export class OneAppFlow extends BaseFlow {
 
         if (firstName) {
           const fnField = this.page.getByRole('textbox', { name: 'First Name' }).first();
-          if (await fnField.isVisible({ timeout: 5000 }).catch(() => false)) {
+          if (await fnField.isVisible({ timeout: 1000 }).catch(() => false)) {
             await this.person.fillField(fnField, firstName);
           }
         }
@@ -148,7 +148,7 @@ export class OneAppFlow extends BaseFlow {
       await this.person.clickAdfButton('Next').catch(async () => {
         // ADF Next not found — try regular button fallback
         const nextBtn = this.page.getByRole('button', { name: 'Next' }).first();
-        if (await nextBtn.isVisible({ timeout: 5000 }).catch(() => false)) {
+        if (await nextBtn.isVisible({ timeout: 1000 }).catch(() => false)) {
           await nextBtn.click();
         } else {
           console.log(`[OneApp] Next button not found on Step 1 — navigation verified`);
@@ -160,7 +160,7 @@ export class OneAppFlow extends BaseFlow {
 
       // Check if we're still on Identification (validation error blocked Next)
       const stillOnIdent = await this.page.getByText('Add a Pending Worker: Identification')
-        .isVisible({ timeout: 3000 }).catch(() => false);
+        .isVisible({ timeout: 1000 }).catch(() => false);
       if (stillOnIdent) {
         console.log(`[OneApp] WARNING: Still on Identification page after Next — validation may have blocked`);
         // Try to see any error messages
@@ -203,27 +203,27 @@ export class OneAppFlow extends BaseFlow {
               if (options.length > 0) {
                 console.log(`[OneApp] Selecting first Business Unit option: ${options[0].label}`);
                 await buField.selectOption(options[0].value);
-                await this.page.waitForTimeout(2000);
+                await this.page.waitForTimeout(500);
               }
             } else {
               // ADF LOV input — click the search icon to open LOV dialog and pick first row
               const lovIcon = buField.locator('xpath=../..').locator('[id*="dropdownPopup"], [id*="::lovIconCe"], a[id*="::lovIconCe"]').first();
-              const hasLovIcon = await lovIcon.isVisible({ timeout: 3000 }).catch(() => false);
+              const hasLovIcon = await lovIcon.isVisible({ timeout: 1000 }).catch(() => false);
               if (hasLovIcon) {
                 await lovIcon.click();
-                await this.page.waitForTimeout(3000);
+                await this.page.waitForTimeout(1000);
                 // Click first data row in LOV popup
                 const firstRow = this.page.locator('[_afrrk] td, .xfe table tbody tr td').first();
-                if (await firstRow.isVisible({ timeout: 5000 }).catch(() => false)) {
+                if (await firstRow.isVisible({ timeout: 1000 }).catch(() => false)) {
                   await firstRow.dblclick();
-                  await this.page.waitForTimeout(2000);
+                  await this.page.waitForTimeout(500);
                 }
               } else {
                 // Last resort: just type a known pattern and Tab
                 console.log('[OneApp] Trying "Cru" for Business Unit');
                 await buField.fill('Cru');
                 await buField.press('Tab');
-                await this.page.waitForTimeout(3000);
+                await this.page.waitForTimeout(1000);
                 await this.person.waitForJET();
               }
             }
@@ -254,13 +254,13 @@ export class OneAppFlow extends BaseFlow {
    */
   private async dismissMatchingPersonDialog(): Promise<void> {
     const dialog = this.page.getByText('Matching Person Records');
-    const visible = await dialog.isVisible({ timeout: 3000 }).catch(() => false);
+    const visible = await dialog.isVisible({ timeout: 1000 }).catch(() => false);
     if (visible) {
       console.log('[OneApp] "Matching Person Records" dialog detected — clicking Continue');
       const continueBtn = this.page.getByRole('button', { name: 'Continue' }).first();
-      if (await continueBtn.isVisible({ timeout: 3000 }).catch(() => false)) {
+      if (await continueBtn.isVisible({ timeout: 1000 }).catch(() => false)) {
         await continueBtn.click();
-        await this.page.waitForTimeout(5000);
+        await this.page.waitForTimeout(2000);
         await this.person.waitForJET();
       }
     }
@@ -269,7 +269,7 @@ export class OneAppFlow extends BaseFlow {
   /** New Hire & Additional Salary -- hires and sets up salary. */
   private async executeNewHire(tc: UATTestCase, fieldData: TestCase | undefined): Promise<void> {
     await this.homePage.goToHireEmployee();
-    await this.page.waitForTimeout(5000);
+    await this.page.waitForTimeout(2000);
     await this.person.waitForJET();
 
     if (fieldData) {
@@ -289,9 +289,9 @@ export class OneAppFlow extends BaseFlow {
       if (personType) {
         const mapped = personType.toLowerCase().includes('contingent') ? 'Contingent worker' : 'Employee';
         const wtField = this.page.getByRole('combobox', { name: /Worker Type|Proposed Worker Type/i }).first();
-        if (await wtField.isVisible({ timeout: 5000 }).catch(() => false)) {
+        if (await wtField.isVisible({ timeout: 1000 }).catch(() => false)) {
           await this.person.fillCombobox(wtField, mapped);
-          await this.page.waitForTimeout(2000);
+          await this.page.waitForTimeout(500);
         }
       }
 
@@ -305,7 +305,7 @@ export class OneAppFlow extends BaseFlow {
         }
         if (firstName) {
           const fnField = this.page.getByRole('textbox', { name: 'First Name' }).first();
-          if (await fnField.isVisible({ timeout: 5000 }).catch(() => false)) {
+          if (await fnField.isVisible({ timeout: 1000 }).catch(() => false)) {
             await this.person.fillField(fnField, firstName);
           }
         }
@@ -317,20 +317,20 @@ export class OneAppFlow extends BaseFlow {
 
       // Step 2: Person Information → Step 3: Employment
       await this.clickWizardButton('Next');
-      await this.page.waitForTimeout(3000);
+      await this.page.waitForTimeout(1000);
 
       // Step 3: Employment — try to fill Department, Job from field data
       const dept = getField(fieldData, 'Department');
       if (dept) {
         const deptField = this.page.getByRole('combobox', { name: 'Department' }).first();
-        if (await deptField.isVisible({ timeout: 5000 }).catch(() => false)) {
+        if (await deptField.isVisible({ timeout: 1000 }).catch(() => false)) {
           await this.person.fillCombobox(deptField, dept, 5000);
         }
       }
       const job = getField(fieldData, 'Job');
       if (job) {
         const jobField = this.page.getByRole('combobox', { name: 'Job' }).first();
-        if (await jobField.isVisible({ timeout: 5000 }).catch(() => false)) {
+        if (await jobField.isVisible({ timeout: 1000 }).catch(() => false)) {
           await this.person.fillCombobox(jobField, job, 5000);
         }
       }
@@ -378,7 +378,7 @@ export class OneAppFlow extends BaseFlow {
       if (effectiveDate) {
         const dateStr = /^\d+$/.test(effectiveDate) ? excelSerialToDate(effectiveDate) : effectiveDate;
         const dateField = this.page.locator('input[aria-label*="Effective Date"], input[aria-label*="When"]').first();
-        if (await dateField.isVisible({ timeout: 5000 }).catch(() => false)) {
+        if (await dateField.isVisible({ timeout: 1000 }).catch(() => false)) {
           await this.person.fillField(dateField, dateStr);
           console.log(`[OneApp] ${tc.testId}: Filled effective date: ${dateStr}`);
         }
@@ -392,14 +392,14 @@ export class OneAppFlow extends BaseFlow {
       const dept = getField(fieldData, 'Department');
       if (dept) {
         const deptField = this.page.getByRole('combobox', { name: 'Department' }).first();
-        if (await deptField.isVisible({ timeout: 5000 }).catch(() => false)) {
+        if (await deptField.isVisible({ timeout: 1000 }).catch(() => false)) {
           await this.person.fillCombobox(deptField, dept, 5000);
         }
       }
       const job = getField(fieldData, 'Job');
       if (job) {
         const jobField = this.page.getByRole('combobox', { name: 'Job' }).first();
-        if (await jobField.isVisible({ timeout: 5000 }).catch(() => false)) {
+        if (await jobField.isVisible({ timeout: 1000 }).catch(() => false)) {
           await this.person.fillCombobox(jobField, job, 5000);
         }
       }
@@ -431,23 +431,23 @@ export class OneAppFlow extends BaseFlow {
       // Fallback: try the "Edit" dropdown on the Assignment section
       const editBtn = this.page.getByRole('button', { name: 'Edit' }).first()
         .or(this.page.locator('button:has-text("Edit")').first());
-      const editVisible = await editBtn.isVisible({ timeout: 5000 }).catch(() => false);
+      const editVisible = await editBtn.isVisible({ timeout: 1000 }).catch(() => false);
       if (editVisible) {
         console.log('[OneApp] Using Edit dropdown on Assignment section');
         await editBtn.click();
-        await this.page.waitForTimeout(2000);
+        await this.page.waitForTimeout(500);
 
         const updateItem = this.page.locator(
           '[role="menuitem"]:has-text("Update"), [role="menuitem"]:has-text("Change Assignment"), [role="option"]:has-text("Update")'
         ).first();
         const menuLink = this.page.getByText('Update', { exact: false }).first();
-        if (await updateItem.isVisible({ timeout: 3000 }).catch(() => false)) {
+        if (await updateItem.isVisible({ timeout: 1000 }).catch(() => false)) {
           await updateItem.click();
-          await this.page.waitForTimeout(5000);
+          await this.page.waitForTimeout(2000);
           await this.person.waitForJET();
-        } else if (await menuLink.isVisible({ timeout: 3000 }).catch(() => false)) {
+        } else if (await menuLink.isVisible({ timeout: 1000 }).catch(() => false)) {
           await menuLink.click();
-          await this.page.waitForTimeout(5000);
+          await this.page.waitForTimeout(2000);
           await this.person.waitForJET();
         } else {
           await this.page.keyboard.press('Escape');
@@ -473,7 +473,7 @@ export class OneAppFlow extends BaseFlow {
       const job = getField(fieldData, 'Job');
       if (job) {
         const jobField = this.page.getByRole('combobox', { name: 'Job' }).first();
-        if (await jobField.isVisible({ timeout: 5000 }).catch(() => false)) {
+        if (await jobField.isVisible({ timeout: 1000 }).catch(() => false)) {
           console.log(`[OneApp] ${tc.testId}: Filling Job: ${job}`);
           await this.person.fillCombobox(jobField, job, 5000);
         }
@@ -481,12 +481,12 @@ export class OneAppFlow extends BaseFlow {
     }
 
     const nextBtn = this.page.getByRole('button', { name: 'Next' }).first();
-    if (await nextBtn.isVisible({ timeout: 5000 }).catch(() => false)) {
+    if (await nextBtn.isVisible({ timeout: 1000 }).catch(() => false)) {
       await this.clickWizardButton('Next');
     }
 
     const submitBtn = this.page.getByRole('button', { name: 'Submit' }).first();
-    if (await submitBtn.isVisible({ timeout: 5000 }).catch(() => false)) {
+    if (await submitBtn.isVisible({ timeout: 1000 }).catch(() => false)) {
       await this.confirmation.clickSubmit();
       await this.confirmation.expectSuccess();
     } else {
@@ -514,7 +514,7 @@ export class OneAppFlow extends BaseFlow {
     const actionsBtn = this.page.locator(
       'button:has-text("Actions"), a[role="button"]:has-text("Actions"), [id*="Actions"]'
     ).first();
-    const hasActions = await actionsBtn.isVisible({ timeout: 5000 }).catch(() => false);
+    const hasActions = await actionsBtn.isVisible({ timeout: 1000 }).catch(() => false);
 
     if (hasActions) {
       await this.selectPersonAction('Manage Salary');
@@ -522,17 +522,17 @@ export class OneAppFlow extends BaseFlow {
       // Open Tasks sidebar panel and look for salary-related task
       console.log('[OneApp] No Actions button — trying Tasks sidebar panel');
       const tasksLink = this.page.locator('link:has-text("Tasks"), a:has-text("Tasks")').first();
-      if (await tasksLink.isVisible({ timeout: 5000 }).catch(() => false)) {
+      if (await tasksLink.isVisible({ timeout: 1000 }).catch(() => false)) {
         await tasksLink.click();
-        await this.page.waitForTimeout(3000);
+        await this.page.waitForTimeout(1000);
         await this.person.waitForJET();
 
         const salaryTask = this.page.locator(
           'a:has-text("Manage Salary"), a:has-text("Salary"), a:has-text("Payroll")'
         ).first();
-        if (await salaryTask.isVisible({ timeout: 5000 }).catch(() => false)) {
+        if (await salaryTask.isVisible({ timeout: 1000 }).catch(() => false)) {
           await salaryTask.click();
-          await this.page.waitForTimeout(5000);
+          await this.page.waitForTimeout(2000);
           await this.person.waitForJET();
         } else {
           console.log('[OneApp] No salary task in Tasks panel — verifying person exists as fallback');
@@ -551,7 +551,7 @@ export class OneAppFlow extends BaseFlow {
         const amountField = this.page.locator(
           'input[aria-label*="Amount"], input[aria-label*="Salary"], input[aria-label*="Annual"]'
         ).first();
-        if (await amountField.isVisible({ timeout: 5000 }).catch(() => false)) {
+        if (await amountField.isVisible({ timeout: 1000 }).catch(() => false)) {
           console.log(`[OneApp] ${tc.testId}: Filling salary amount: ${salaryAmount}`);
           await this.person.fillField(amountField, String(salaryAmount));
         }
@@ -560,12 +560,12 @@ export class OneAppFlow extends BaseFlow {
 
     // Only try wizard buttons if we successfully navigated to a salary form
     const continueBtn = this.page.getByRole('button', { name: 'Continue' }).first();
-    if (await continueBtn.isVisible({ timeout: 5000 }).catch(() => false)) {
+    if (await continueBtn.isVisible({ timeout: 1000 }).catch(() => false)) {
       await this.clickWizardButton('Continue');
     }
 
     const submitBtn = this.page.getByRole('button', { name: 'Submit' }).first();
-    if (await submitBtn.isVisible({ timeout: 5000 }).catch(() => false)) {
+    if (await submitBtn.isVisible({ timeout: 1000 }).catch(() => false)) {
       await this.confirmation.clickSubmit();
       await this.confirmation.expectSuccess();
     } else {
@@ -601,7 +601,7 @@ export class OneAppFlow extends BaseFlow {
         const amountField = this.page.locator(
           'input[aria-label*="Amount"], input[aria-label*="Salary"], input[aria-label*="Annual"]'
         ).first();
-        if (await amountField.isVisible({ timeout: 5000 }).catch(() => false)) {
+        if (await amountField.isVisible({ timeout: 1000 }).catch(() => false)) {
           console.log(`[OneApp] ${tc.testId}: Filling salary amount: ${salaryAmount}`);
           await this.person.fillField(amountField, String(salaryAmount));
         }
@@ -643,7 +643,7 @@ export class OneAppFlow extends BaseFlow {
       if (effectiveDate) {
         const dateStr = excelSerialToDate(effectiveDate);
         const dateField = this.page.locator('input[aria-label*="Effective Date"], input[aria-label*="When"]').first();
-        if (await dateField.isVisible({ timeout: 3000 }).catch(() => false)) {
+        if (await dateField.isVisible({ timeout: 1000 }).catch(() => false)) {
           await this.person.fillField(dateField, dateStr);
         }
       }
@@ -676,7 +676,7 @@ export class OneAppFlow extends BaseFlow {
   /** Generic OneApp action -- navigate to Person Management and search. */
   private async executeGenericOneApp(tc: UATTestCase, fieldData: TestCase | undefined): Promise<void> {
     await this.homePage.goToPersonManagement();
-    await this.page.waitForTimeout(5000);
+    await this.page.waitForTimeout(2000);
 
     if (fieldData) {
       const personName = getField(fieldData, 'Person Name');
@@ -694,22 +694,22 @@ export class OneAppFlow extends BaseFlow {
     const numInput = this.page.locator(
       '[id$="q1:value10::content"], input[aria-label*="Person Number"]'
     ).first();
-    if (await numInput.isVisible({ timeout: 5000 }).catch(() => false)) {
+    if (await numInput.isVisible({ timeout: 1000 }).catch(() => false)) {
       await numInput.fill(personNumber);
       const searchBtn = this.page.locator('[id$="q1::search"], button:has-text("Search")').first();
-      if (await searchBtn.isVisible({ timeout: 3000 }).catch(() => false)) {
+      if (await searchBtn.isVisible({ timeout: 1000 }).catch(() => false)) {
         await searchBtn.click();
       } else {
         await numInput.press('Enter');
       }
-      await this.page.waitForTimeout(5000);
+      await this.page.waitForTimeout(2000);
       await this.person.waitForJET();
 
       // Click first result
       const firstResult = this.page.locator('[role="row"] a').first();
-      if (await firstResult.isVisible({ timeout: 5000 }).catch(() => false)) {
+      if (await firstResult.isVisible({ timeout: 1000 }).catch(() => false)) {
         await firstResult.click();
-        await this.page.waitForTimeout(3000);
+        await this.page.waitForTimeout(1000);
         await this.person.waitForJET();
       }
     } else {
@@ -717,16 +717,16 @@ export class OneAppFlow extends BaseFlow {
       const searchInput = this.page.locator(
         '[id$="q1:value00::content"], input[aria-label*="Name"], input[placeholder*="Search"]'
       ).first();
-      if (await searchInput.isVisible({ timeout: 5000 }).catch(() => false)) {
+      if (await searchInput.isVisible({ timeout: 1000 }).catch(() => false)) {
         await searchInput.fill(personNumber);
         await searchInput.press('Enter');
-        await this.page.waitForTimeout(5000);
+        await this.page.waitForTimeout(2000);
         await this.person.waitForJET();
 
         const firstResult = this.page.locator('[role="row"] a').first();
-        if (await firstResult.isVisible({ timeout: 5000 }).catch(() => false)) {
+        if (await firstResult.isVisible({ timeout: 1000 }).catch(() => false)) {
           await firstResult.click();
-          await this.page.waitForTimeout(3000);
+          await this.page.waitForTimeout(1000);
           await this.person.waitForJET();
         }
       }
@@ -738,10 +738,10 @@ export class OneAppFlow extends BaseFlow {
     const searchInput = this.page.locator(
       '[id$="q1:value00::content"], input[aria-label*="Name"], input[placeholder*="Search"]'
     ).first();
-    if (await searchInput.isVisible({ timeout: 5000 }).catch(() => false)) {
+    if (await searchInput.isVisible({ timeout: 1000 }).catch(() => false)) {
       await searchInput.fill(name);
       await searchInput.press('Enter');
-      await this.page.waitForTimeout(5000);
+      await this.page.waitForTimeout(2000);
       await this.person.waitForJET();
 
       // Click first matching result
@@ -749,9 +749,9 @@ export class OneAppFlow extends BaseFlow {
       const firstResult = this.page.locator(
         `a:has-text("${firstName}"), [role="row"] a`
       ).first();
-      if (await firstResult.isVisible({ timeout: 5000 }).catch(() => false)) {
+      if (await firstResult.isVisible({ timeout: 1000 }).catch(() => false)) {
         await firstResult.click();
-        await this.page.waitForTimeout(3000);
+        await this.page.waitForTimeout(1000);
         await this.person.waitForJET();
       }
     }
@@ -764,11 +764,11 @@ export class OneAppFlow extends BaseFlow {
     } catch {
       // Fallback: try regular button click
       const btn = this.page.getByRole('button', { name: text }).first();
-      if (await btn.isVisible({ timeout: 5000 }).catch(() => false)) {
+      if (await btn.isVisible({ timeout: 1000 }).catch(() => false)) {
         await btn.click();
       }
     }
-    await this.page.waitForTimeout(2000);
+    await this.page.waitForTimeout(500);
     await this.person.waitForJET();
   }
 
@@ -786,23 +786,23 @@ export class OneAppFlow extends BaseFlow {
     const actionsBtn = this.page.locator(
       'button:has-text("Actions"), a[role="button"]:has-text("Actions"), [id*="Actions"]'
     ).first();
-    if (await actionsBtn.isVisible({ timeout: 5000 }).catch(() => false)) {
+    if (await actionsBtn.isVisible({ timeout: 1000 }).catch(() => false)) {
       await actionsBtn.click();
-      await this.page.waitForTimeout(2000);
+      await this.page.waitForTimeout(500);
 
       const actionLink = this.page.getByText(actionText, { exact: false }).first();
-      if (await actionLink.isVisible({ timeout: 3000 }).catch(() => false)) {
+      if (await actionLink.isVisible({ timeout: 1000 }).catch(() => false)) {
         await actionLink.click();
-        await this.page.waitForTimeout(5000);
+        await this.page.waitForTimeout(2000);
         await this.person.waitForJET();
         return true;
       }
 
       // Try menu item role
       const menuItem = this.page.locator(`[role="menuitem"]:has-text("${actionText}")`).first();
-      if (await menuItem.isVisible({ timeout: 3000 }).catch(() => false)) {
+      if (await menuItem.isVisible({ timeout: 1000 }).catch(() => false)) {
         await menuItem.click();
-        await this.page.waitForTimeout(5000);
+        await this.page.waitForTimeout(2000);
         await this.person.waitForJET();
         return true;
       }

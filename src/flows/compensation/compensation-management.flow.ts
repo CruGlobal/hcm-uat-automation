@@ -246,7 +246,7 @@ export class CompensationManagementFlow extends BaseCompensationFlow {
       const dateStr = excelSerialToDate(effectiveDate);
       console.log(`[Compensation] Effective date: ${effectiveDate} -> ${dateStr}`);
       const dateField = this.page.locator('input[aria-label*="Effective Date"], input[id*="EffectiveDate"]').first();
-      if (await dateField.isVisible({ timeout: 3000 }).catch(() => false)) {
+      if (await dateField.isVisible({ timeout: 1000 }).catch(() => false)) {
         await this.compensation.fillField(dateField, dateStr);
         filled = true;
       }
@@ -255,7 +255,7 @@ export class CompensationManagementFlow extends BaseCompensationFlow {
     if (salaryAmount) {
       console.log(`[Compensation] Salary amount: ${salaryAmount}`);
       const amountField = this.page.locator('input[aria-label*="Salary Amount"], input[aria-label*="Amount"]').first();
-      if (await amountField.isVisible({ timeout: 3000 }).catch(() => false)) {
+      if (await amountField.isVisible({ timeout: 1000 }).catch(() => false)) {
         await this.compensation.fillField(amountField, salaryAmount);
         filled = true;
       }
@@ -264,7 +264,7 @@ export class CompensationManagementFlow extends BaseCompensationFlow {
     if (salaryBasis) {
       console.log(`[Compensation] Salary basis: ${salaryBasis}`);
       const basisField = this.page.locator('input[aria-label*="Salary Basis"], select[aria-label*="Salary Basis"]').first();
-      if (await basisField.isVisible({ timeout: 3000 }).catch(() => false)) {
+      if (await basisField.isVisible({ timeout: 1000 }).catch(() => false)) {
         await this.compensation.fillCombobox(basisField, salaryBasis);
         filled = true;
       }
@@ -273,7 +273,7 @@ export class CompensationManagementFlow extends BaseCompensationFlow {
     if (actionCode && actionCode !== 'CONVERSION') {
       console.log(`[Compensation] Action code: ${actionCode}`);
       const actionField = this.page.locator('input[aria-label*="Action"], select[aria-label*="Action"]').first();
-      if (await actionField.isVisible({ timeout: 3000 }).catch(() => false)) {
+      if (await actionField.isVisible({ timeout: 1000 }).catch(() => false)) {
         await this.compensation.fillCombobox(actionField, actionCode);
         filled = true;
       }
@@ -290,12 +290,12 @@ export class CompensationManagementFlow extends BaseCompensationFlow {
     }
     // Manager review pages may not have a Submit button — try Submit, then Save, then pass as review-only
     const submitBtn = this.page.getByRole('button', { name: 'Submit' }).first();
-    const hasSubmit = await submitBtn.isVisible({ timeout: 5000 }).catch(() => false);
+    const hasSubmit = await submitBtn.isVisible({ timeout: 1000 }).catch(() => false);
     if (hasSubmit) {
       await this.compensation.clickSubmit();
     } else {
       const saveBtn = this.page.getByRole('button', { name: 'Save' }).first();
-      const hasSave = await saveBtn.isVisible({ timeout: 3000 }).catch(() => false);
+      const hasSave = await saveBtn.isVisible({ timeout: 1000 }).catch(() => false);
       if (hasSave) {
         await this.compensation.clickSave();
       } else {
@@ -313,12 +313,12 @@ export class CompensationManagementFlow extends BaseCompensationFlow {
       await this.compensation.fillIndividualCompensation(tc);
     }
     const submitBtn = this.page.getByRole('button', { name: 'Submit' }).first();
-    const hasSubmit = await submitBtn.isVisible({ timeout: 5000 }).catch(() => false);
+    const hasSubmit = await submitBtn.isVisible({ timeout: 1000 }).catch(() => false);
     if (hasSubmit) {
       await this.compensation.clickSubmit();
     } else {
       const saveBtn = this.page.getByRole('button', { name: 'Save' }).first();
-      const hasSave = await saveBtn.isVisible({ timeout: 3000 }).catch(() => false);
+      const hasSave = await saveBtn.isVisible({ timeout: 1000 }).catch(() => false);
       if (hasSave) {
         await this.compensation.clickSave();
       } else {
@@ -338,13 +338,13 @@ export class CompensationManagementFlow extends BaseCompensationFlow {
     // Merit Planning / proration review may not have a Submit button —
     // try to submit but don't fail if no button exists
     const submitBtn = this.page.getByRole('button', { name: 'Submit' }).first();
-    const hasSubmit = await submitBtn.isVisible({ timeout: 5000 }).catch(() => false);
+    const hasSubmit = await submitBtn.isVisible({ timeout: 1000 }).catch(() => false);
     if (hasSubmit) {
       await this.compensation.clickSubmit();
     } else {
       // Try Save as alternative
       const saveBtn = this.page.getByRole('button', { name: 'Save' }).first();
-      const hasSave = await saveBtn.isVisible({ timeout: 3000 }).catch(() => false);
+      const hasSave = await saveBtn.isVisible({ timeout: 1000 }).catch(() => false);
       if (hasSave) {
         await this.compensation.clickSave();
       } else {
@@ -390,14 +390,14 @@ export class CompensationManagementFlow extends BaseCompensationFlow {
       if (job) {
         console.log(`[Compensation] Job from field data: ${job}`);
         const jobField = this.page.locator('input[aria-label*="Job Code" i], input[aria-label*="Job Name" i], input[aria-label*="Job" i]').first();
-        if (await jobField.isVisible({ timeout: 5000 }).catch(() => false)) {
+        if (await jobField.isVisible({ timeout: 1000 }).catch(() => false)) {
           await this.compensation.fillField(jobField, job);
         }
       }
       if (dept) {
         console.log(`[Compensation] Department from field data: ${dept}`);
         const deptField = this.page.locator('input[aria-label*="Department" i]').first();
-        if (await deptField.isVisible({ timeout: 3000 }).catch(() => false)) {
+        if (await deptField.isVisible({ timeout: 1000 }).catch(() => false)) {
           await this.compensation.fillCombobox(deptField, dept);
         }
       }
@@ -407,11 +407,11 @@ export class CompensationManagementFlow extends BaseCompensationFlow {
       await this.compensation.fillJobCode(tc);
     }
     const submitBtn = this.page.getByRole('button', { name: 'Submit' }).first();
-    if (await submitBtn.isVisible({ timeout: 5000 }).catch(() => false)) {
+    if (await submitBtn.isVisible({ timeout: 1000 }).catch(() => false)) {
       await this.compensation.clickSubmit();
     } else {
       const saveBtn = this.page.getByRole('button', { name: 'Save' }).first();
-      if (await saveBtn.isVisible({ timeout: 3000 }).catch(() => false)) {
+      if (await saveBtn.isVisible({ timeout: 1000 }).catch(() => false)) {
         await this.compensation.clickSave();
       } else {
         console.log(`[Compensation] ${tc.testId}: Job code — review-only (no Save/Submit)`);
@@ -428,7 +428,7 @@ export class CompensationManagementFlow extends BaseCompensationFlow {
       if (grade) {
         console.log(`[Compensation] Grade: ${grade}`);
         const gradeField = this.page.locator('input[aria-label*="Grade"], select[aria-label*="Grade"]').first();
-        if (await gradeField.isVisible({ timeout: 3000 }).catch(() => false)) {
+        if (await gradeField.isVisible({ timeout: 1000 }).catch(() => false)) {
           await this.compensation.fillCombobox(gradeField, grade);
         }
       }
@@ -437,11 +437,11 @@ export class CompensationManagementFlow extends BaseCompensationFlow {
 
     // Submit/Save after filling grade
     const submitBtn = this.page.getByRole('button', { name: 'Submit' }).first();
-    if (await submitBtn.isVisible({ timeout: 5000 }).catch(() => false)) {
+    if (await submitBtn.isVisible({ timeout: 1000 }).catch(() => false)) {
       await this.compensation.clickSubmit();
     } else {
       const saveBtn = this.page.getByRole('button', { name: 'Save' }).first();
-      if (await saveBtn.isVisible({ timeout: 3000 }).catch(() => false)) {
+      if (await saveBtn.isVisible({ timeout: 1000 }).catch(() => false)) {
         await this.compensation.clickSave();
       }
     }
@@ -465,18 +465,18 @@ export class CompensationManagementFlow extends BaseCompensationFlow {
       const amountField = this.page.locator(
         'input[aria-label*="Salary" i]:not([readonly]), input[aria-label*="Amount" i]:not([readonly])'
       ).first();
-      if (salaryAmount && await amountField.isVisible({ timeout: 3000 }).catch(() => false)) {
+      if (salaryAmount && await amountField.isVisible({ timeout: 1000 }).catch(() => false)) {
         await this.compensation.fillField(amountField, salaryAmount);
       }
     }
 
     // Submit/Save if available
     const submitBtn = this.page.getByRole('button', { name: 'Submit' }).first();
-    if (await submitBtn.isVisible({ timeout: 5000 }).catch(() => false)) {
+    if (await submitBtn.isVisible({ timeout: 1000 }).catch(() => false)) {
       await this.compensation.clickSubmit();
     } else {
       const saveBtn = this.page.getByRole('button', { name: 'Save' }).first();
-      if (await saveBtn.isVisible({ timeout: 3000 }).catch(() => false)) {
+      if (await saveBtn.isVisible({ timeout: 1000 }).catch(() => false)) {
         await this.compensation.clickSave();
       } else {
         console.log(`[Compensation] ${tc.testId}: Wage range — review-only (no Save/Submit)`);
@@ -500,12 +500,12 @@ export class CompensationManagementFlow extends BaseCompensationFlow {
       await this.compensation.fillIndividualCompensation(tc);
     }
     const submitBtn = this.page.getByRole('button', { name: 'Submit' }).first();
-    const hasSubmit = await submitBtn.isVisible({ timeout: 5000 }).catch(() => false);
+    const hasSubmit = await submitBtn.isVisible({ timeout: 1000 }).catch(() => false);
     if (hasSubmit) {
       await this.compensation.clickSubmit();
     } else {
       const saveBtn = this.page.getByRole('button', { name: 'Save' }).first();
-      const hasSave = await saveBtn.isVisible({ timeout: 3000 }).catch(() => false);
+      const hasSave = await saveBtn.isVisible({ timeout: 1000 }).catch(() => false);
       if (hasSave) {
         await this.compensation.clickSave();
       } else {
@@ -522,12 +522,12 @@ export class CompensationManagementFlow extends BaseCompensationFlow {
       await this.compensation.fillBasePay(tc);
     }
     const submitBtn = this.page.getByRole('button', { name: 'Submit' }).first();
-    const hasSubmit = await submitBtn.isVisible({ timeout: 5000 }).catch(() => false);
+    const hasSubmit = await submitBtn.isVisible({ timeout: 1000 }).catch(() => false);
     if (hasSubmit) {
       await this.compensation.clickSubmit();
     } else {
       const saveBtn = this.page.getByRole('button', { name: 'Save' }).first();
-      const hasSave = await saveBtn.isVisible({ timeout: 3000 }).catch(() => false);
+      const hasSave = await saveBtn.isVisible({ timeout: 1000 }).catch(() => false);
       if (hasSave) {
         await this.compensation.clickSave();
       } else {

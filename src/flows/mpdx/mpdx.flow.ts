@@ -101,7 +101,7 @@ export class MPDXFlow extends BaseFlow {
         const basisField = this.page.locator(
           'input[aria-label*="Salary Basis"], input[aria-label*="Basis"], select[aria-label*="Basis"]'
         ).first();
-        if (await basisField.isVisible({ timeout: 3000 }).catch(() => false)) {
+        if (await basisField.isVisible({ timeout: 1000 }).catch(() => false)) {
           await this.mpdx.fillCombobox(basisField, salaryBasis);
           console.log(`[MPDX] ${tc.testId}: Filled Salary Basis: ${salaryBasis}`);
         }
@@ -110,7 +110,7 @@ export class MPDXFlow extends BaseFlow {
         const amountField = this.page.locator(
           'input[aria-label*="Salary Amount"], input[aria-label*="Amount"]'
         ).first();
-        if (await amountField.isVisible({ timeout: 3000 }).catch(() => false)) {
+        if (await amountField.isVisible({ timeout: 1000 }).catch(() => false)) {
           await this.mpdx.fillField(amountField, String(salaryAmount));
           console.log(`[MPDX] ${tc.testId}: Filled Salary Amount: ${salaryAmount}`);
         }
@@ -157,7 +157,7 @@ export class MPDXFlow extends BaseFlow {
         const amountField = this.page.locator(
           'input[aria-label*="MHA"], input[aria-label*="Amount"], input[aria-label*="Housing"]'
         ).first();
-        if (await amountField.isVisible({ timeout: 3000 }).catch(() => false)) {
+        if (await amountField.isVisible({ timeout: 1000 }).catch(() => false)) {
           await this.mpdx.fillField(amountField, String(mhaAmount));
           console.log(`[MPDX] ${tc.testId}: Filled MHA Amount: ${mhaAmount}`);
         }
@@ -170,7 +170,7 @@ export class MPDXFlow extends BaseFlow {
         const dateField = this.page.locator(
           'input[aria-label*="Board Approved"], input[aria-label*="Approved Date"], input[aria-label*="Date"]'
         ).first();
-        if (await dateField.isVisible({ timeout: 3000 }).catch(() => false)) {
+        if (await dateField.isVisible({ timeout: 1000 }).catch(() => false)) {
           await this.mpdx.fillField(dateField, dateStr);
           console.log(`[MPDX] ${tc.testId}: Filled Board Approved: ${dateStr}`);
         }
@@ -197,28 +197,28 @@ export class MPDXFlow extends BaseFlow {
       '[id$="q1:value10::content"], input[aria-label*="Person Number"]'
     ).first();
 
-    if (personNumber && await numInput.isVisible({ timeout: 5000 }).catch(() => false)) {
+    if (personNumber && await numInput.isVisible({ timeout: 1000 }).catch(() => false)) {
       await numInput.fill(personNumber);
       const searchBtn = this.page.locator('[id$="q1::search"], button:has-text("Search")').first();
-      if (await searchBtn.isVisible({ timeout: 3000 }).catch(() => false)) {
+      if (await searchBtn.isVisible({ timeout: 1000 }).catch(() => false)) {
         await searchBtn.click();
       } else {
         await numInput.press('Enter');
       }
-      await this.page.waitForTimeout(5000);
+      await this.page.waitForTimeout(2000);
       await this.mpdx.waitForJET();
-    } else if (personName && await searchInput.isVisible({ timeout: 5000 }).catch(() => false)) {
+    } else if (personName && await searchInput.isVisible({ timeout: 1000 }).catch(() => false)) {
       await searchInput.fill(personName);
       await searchInput.press('Enter');
-      await this.page.waitForTimeout(5000);
+      await this.page.waitForTimeout(2000);
       await this.mpdx.waitForJET();
     }
 
     // Click the first result to open person detail
     const firstResult = this.page.locator('[role="row"] a').first();
-    if (await firstResult.isVisible({ timeout: 5000 }).catch(() => false)) {
+    if (await firstResult.isVisible({ timeout: 1000 }).catch(() => false)) {
       await firstResult.click();
-      await this.page.waitForTimeout(3000);
+      await this.page.waitForTimeout(1000);
       await this.mpdx.waitForJET();
     }
 
@@ -226,17 +226,17 @@ export class MPDXFlow extends BaseFlow {
     const actionsBtn = this.page.locator(
       'button:has-text("Actions"), a[role="button"]:has-text("Actions")'
     ).first();
-    if (await actionsBtn.isVisible({ timeout: 5000 }).catch(() => false)) {
+    if (await actionsBtn.isVisible({ timeout: 1000 }).catch(() => false)) {
       await actionsBtn.click();
-      await this.page.waitForTimeout(2000);
+      await this.page.waitForTimeout(500);
 
       // Look for salary-related action
       const salaryAction = this.page.locator(
         '[role="menuitem"]:has-text("Manage Salary"), :text("Additional Salary"), :text("Salary")'
       ).first();
-      if (await salaryAction.isVisible({ timeout: 3000 }).catch(() => false)) {
+      if (await salaryAction.isVisible({ timeout: 1000 }).catch(() => false)) {
         await salaryAction.click();
-        await this.page.waitForTimeout(5000);
+        await this.page.waitForTimeout(2000);
         await this.mpdx.waitForJET();
         console.log(`[MPDX] ${tc.testId}: Opened salary action for ${personName}`);
       } else {
@@ -265,7 +265,7 @@ export class MPDXFlow extends BaseFlow {
         const empField = this.page.locator(
           'input[aria-label*="Person"], input[aria-label*="Employee"]'
         ).first();
-        if (await empField.isVisible({ timeout: 5000 }).catch(() => false)) {
+        if (await empField.isVisible({ timeout: 1000 }).catch(() => false)) {
           await this.mpdx.fillCombobox(empField, personName);
           console.log(`[MPDX] ${tc.testId}: Filled person for Savings Transfer: ${personName}`);
         }
@@ -288,7 +288,7 @@ export class MPDXFlow extends BaseFlow {
         const empField = this.page.locator(
           'input[aria-label*="Person"], input[aria-label*="Employee"], input[aria-label*="Name"]'
         ).first();
-        if (await empField.isVisible({ timeout: 5000 }).catch(() => false)) {
+        if (await empField.isVisible({ timeout: 1000 }).catch(() => false)) {
           await this.mpdx.fillCombobox(empField, personName);
           console.log(`[MPDX] ${tc.testId}: Filled person on expense report: ${personName}`);
         }

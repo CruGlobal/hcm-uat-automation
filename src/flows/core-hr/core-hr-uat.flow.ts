@@ -274,15 +274,15 @@ export class CoreHRUATFlow extends BaseFlow {
     } else {
       await this.homePage.goToHireEmployee();
     }
-    await this.page.waitForTimeout(5000);
+    await this.page.waitForTimeout(2000);
     await this.person.clickAdfButton('Continue');
-    await this.page.waitForTimeout(5000);
+    await this.page.waitForTimeout(2000);
     await this.person.clickAdfButton('Continue');
-    await this.page.waitForTimeout(5000);
+    await this.page.waitForTimeout(2000);
     await this.person.clickAdfButton('Continue');
-    await this.page.waitForTimeout(5000);
+    await this.page.waitForTimeout(2000);
     await this.person.clickAdfButton('Next');
-    await this.page.waitForTimeout(5000);
+    await this.page.waitForTimeout(2000);
     await this.confirmation.clickSubmit();
     await this.confirmation.expectSuccess();
   }
@@ -304,13 +304,13 @@ export class CoreHRUATFlow extends BaseFlow {
       await this.person.searchByName(personName);
     }
     await this.selectPersonAction('Create Work Relationship');
-    await this.page.waitForTimeout(5000);
+    await this.page.waitForTimeout(2000);
     await this.person.clickAdfButton('Continue');
-    await this.page.waitForTimeout(5000);
+    await this.page.waitForTimeout(2000);
     await this.person.clickAdfButton('Continue');
-    await this.page.waitForTimeout(5000);
+    await this.page.waitForTimeout(2000);
     await this.person.clickAdfButton('Next');
-    await this.page.waitForTimeout(5000);
+    await this.page.waitForTimeout(2000);
     await this.confirmation.clickSubmit();
     await this.confirmation.expectSuccess();
   }
@@ -332,11 +332,11 @@ export class CoreHRUATFlow extends BaseFlow {
       await this.person.searchByName(personName);
     }
     await this.selectPersonAction('Rehire');
-    await this.page.waitForTimeout(5000);
+    await this.page.waitForTimeout(2000);
     await this.person.clickAdfButton('Continue');
-    await this.page.waitForTimeout(5000);
+    await this.page.waitForTimeout(2000);
     await this.person.clickAdfButton('Next');
-    await this.page.waitForTimeout(5000);
+    await this.page.waitForTimeout(2000);
     await this.confirmation.clickSubmit();
     await this.confirmation.expectSuccess();
   }
@@ -358,11 +358,11 @@ export class CoreHRUATFlow extends BaseFlow {
       await this.person.searchByName(personName);
     }
     await this.selectPersonAction('Terminate');
-    await this.page.waitForTimeout(5000);
+    await this.page.waitForTimeout(2000);
     await this.person.clickAdfButton('Continue');
-    await this.page.waitForTimeout(5000);
+    await this.page.waitForTimeout(2000);
     await this.person.clickAdfButton('Continue');
-    await this.page.waitForTimeout(5000);
+    await this.page.waitForTimeout(2000);
     await this.confirmation.clickSubmit();
     await this.confirmation.expectSuccess();
   }
@@ -389,11 +389,11 @@ export class CoreHRUATFlow extends BaseFlow {
     } else {
       await this.selectPersonAction('Transfer');
     }
-    await this.page.waitForTimeout(5000);
+    await this.page.waitForTimeout(2000);
     await this.person.clickAdfButton('Continue');
-    await this.page.waitForTimeout(5000);
+    await this.page.waitForTimeout(2000);
     await this.person.clickAdfButton('Next');
-    await this.page.waitForTimeout(5000);
+    await this.page.waitForTimeout(2000);
     await this.confirmation.clickSubmit();
     await this.confirmation.expectSuccess();
   }
@@ -418,11 +418,11 @@ export class CoreHRUATFlow extends BaseFlow {
     await this.person.searchByName(personName);
     const found = await this.selectPersonAction('Change Assignment');
     if (!found) return;
-    await this.page.waitForTimeout(5000);
+    await this.page.waitForTimeout(2000);
     await this.person.clickAdfButton('Continue');
-    await this.page.waitForTimeout(5000);
+    await this.page.waitForTimeout(2000);
     await this.person.clickAdfButton('Next');
-    await this.page.waitForTimeout(5000);
+    await this.page.waitForTimeout(2000);
     await this.confirmation.clickSubmit();
     await this.confirmation.expectSuccess();
   }
@@ -459,22 +459,22 @@ export class CoreHRUATFlow extends BaseFlow {
 
     // On person employment details page (e.g. "Melburn Sanders: Person Management")
     // The "Edit ▼" dropdown is next to the Assignment section header
-    await this.page.waitForTimeout(3000);
+    await this.page.waitForTimeout(1000);
     await this.person.waitForJET();
 
     // Step 1: Click "Edit" dropdown on the Assignment section
     const editDropdown = this.page.locator('button:has-text("Edit"), a:has-text("Edit")').first();
-    if (await editDropdown.isVisible({ timeout: 10000 }).catch(() => false)) {
+    if (await editDropdown.isVisible({ timeout: 3000 }).catch(() => false)) {
       console.log('[ManagerChange] Clicking Edit dropdown');
       await editDropdown.click();
-      await this.page.waitForTimeout(2000);
+      await this.page.waitForTimeout(500);
 
       // Step 2: Select "Update" from the dropdown
       const updateOption = this.page.getByText('Update', { exact: true }).first();
-      if (await updateOption.isVisible({ timeout: 5000 }).catch(() => false)) {
+      if (await updateOption.isVisible({ timeout: 1000 }).catch(() => false)) {
         console.log('[ManagerChange] Selecting "Update" from Edit dropdown');
         await updateOption.click();
-        await this.page.waitForTimeout(5000);
+        await this.page.waitForTimeout(2000);
         await this.person.waitForJET();
       }
     }
@@ -486,7 +486,7 @@ export class CoreHRUATFlow extends BaseFlow {
     // Fill Effective Start Date if we have field data
     if (effectiveDate) {
       const dateInput = this.page.locator('input[id*="inputDate"][id*="::content"]').first();
-      if (await dateInput.isVisible({ timeout: 5000 }).catch(() => false)) {
+      if (await dateInput.isVisible({ timeout: 1000 }).catch(() => false)) {
         await dateInput.clear();
         await dateInput.fill(effectiveDate);
         await dateInput.press('Tab');
@@ -497,10 +497,10 @@ export class CoreHRUATFlow extends BaseFlow {
     // Select Action = "Manager Change" from the ADF dropdown
     // Field ID: ...AP1:actionsName1::content
     const actionField = this.page.locator('input[id*="actionsName1::content"]').first();
-    if (await actionField.isVisible({ timeout: 5000 }).catch(() => false)) {
+    if (await actionField.isVisible({ timeout: 1000 }).catch(() => false)) {
       console.log('[ManagerChange] Found Action field (actionsName1), selecting "Manager Change"');
       await this.person.fillCombobox(actionField, 'Manager Change');
-      await this.page.waitForTimeout(3000);
+      await this.page.waitForTimeout(1000);
       await this.person.waitForJET();
     } else {
       console.log('[ManagerChange] Action field (actionsName1) not found');
@@ -508,7 +508,7 @@ export class CoreHRUATFlow extends BaseFlow {
 
     // Click OK on the Update Employment dialog
     const okBtn = this.page.getByRole('button', { name: 'OK' }).first();
-    if (await okBtn.isVisible({ timeout: 5000 }).catch(() => false)) {
+    if (await okBtn.isVisible({ timeout: 1000 }).catch(() => false)) {
       console.log('[ManagerChange] Clicking OK on Update Employment dialog');
       await okBtn.click();
       await this.page.waitForTimeout(8000);
@@ -522,13 +522,13 @@ export class CoreHRUATFlow extends BaseFlow {
         'input[id*="ManagerName" i]:not([readonly]), input[id*="managerName" i]:not([readonly]), ' +
         'input[id*="r3:0:i1:0:ManagerNameId::content"]'
       ).first();
-      if (await managerField.isVisible({ timeout: 5000 }).catch(() => false)) {
+      if (await managerField.isVisible({ timeout: 1000 }).catch(() => false)) {
         console.log(`[ManagerChange] Filling manager name: ${managerName}`);
         await managerField.clear();
         await managerField.pressSequentially(managerName, { delay: 50 });
-        await this.page.waitForTimeout(3000);
+        await this.page.waitForTimeout(1000);
         await managerField.press('Tab');
-        await this.page.waitForTimeout(5000);
+        await this.page.waitForTimeout(2000);
         await this.person.waitForJET();
       }
     }
@@ -539,16 +539,16 @@ export class CoreHRUATFlow extends BaseFlow {
       const typeField = this.page.locator(
         'input[id*="ManagerType" i]:not([readonly]), select[id*="ManagerType" i]'
       ).first();
-      if (await typeField.isVisible({ timeout: 3000 }).catch(() => false)) {
+      if (await typeField.isVisible({ timeout: 1000 }).catch(() => false)) {
         await this.person.fillCombobox(typeField, managerType);
-        await this.page.waitForTimeout(2000);
+        await this.page.waitForTimeout(500);
       }
     }
 
     // Only submit if we actually entered edit mode (Submit button is present).
     // If the person wasn't found or the dialog didn't appear, bail gracefully.
     const submitVisible = await this.page.getByRole('button', { name: 'Submit' }).first()
-      .isVisible({ timeout: 5000 }).catch(() => false);
+      .isVisible({ timeout: 1000 }).catch(() => false);
     if (!submitVisible) {
       console.log(`[ManagerChange] No Submit button — person not found or dialog not opened, navigation verified`);
       return;
@@ -703,7 +703,7 @@ export class CoreHRUATFlow extends BaseFlow {
     } else {
       await this.person.searchByName(searchTerm);
     }
-    await this.page.waitForTimeout(3000);
+    await this.page.waitForTimeout(1000);
     console.log(`[PersonalInfo] ${tc.testId}: View-only — person page loaded`);
   }
 
@@ -745,7 +745,7 @@ export class CoreHRUATFlow extends BaseFlow {
     const eitLinkId = this.getEITSidebarLinkId(tc.businessProcess);
     if (eitLinkId) {
       const eitLink = this.page.locator(`[id*="${eitLinkId}"]`).first();
-      if (await eitLink.isVisible({ timeout: 5000 }).catch(() => false)) {
+      if (await eitLink.isVisible({ timeout: 1000 }).catch(() => false)) {
         await eitLink.click({ force: true });
         await this.page.waitForTimeout(8000);
         await this.person.waitForJET();
@@ -753,7 +753,7 @@ export class CoreHRUATFlow extends BaseFlow {
         // Fallback: try clicking link by text
         const eitName = this.getEITDisplayName(tc.businessProcess);
         const textLink = this.page.locator(`a:has-text("${eitName}")`).first();
-        if (await textLink.isVisible({ timeout: 5000 }).catch(() => false)) {
+        if (await textLink.isVisible({ timeout: 1000 }).catch(() => false)) {
           await textLink.click({ force: true });
           await this.page.waitForTimeout(8000);
           await this.person.waitForJET();
@@ -763,18 +763,18 @@ export class CoreHRUATFlow extends BaseFlow {
 
     // Click Edit dropdown → Update/Correct
     const editIcon = this.page.locator('[id*="editDropDown::icon"]').first();
-    if (await editIcon.isVisible({ timeout: 5000 }).catch(() => false)) {
+    if (await editIcon.isVisible({ timeout: 1000 }).catch(() => false)) {
       await editIcon.click({ force: true });
-      await this.page.waitForTimeout(3000);
+      await this.page.waitForTimeout(1000);
 
       const updateItem = this.page.locator('tr[id*="updateEFF"], td:has-text("Update")').first();
       const correctItem = this.page.locator('tr[id*="correctEFF"], td:has-text("Correct")').first();
-      if (await updateItem.isVisible({ timeout: 3000 }).catch(() => false)) {
+      if (await updateItem.isVisible({ timeout: 1000 }).catch(() => false)) {
         await updateItem.click({ force: true });
       } else if (await correctItem.isVisible({ timeout: 2000 }).catch(() => false)) {
         await correctItem.click({ force: true });
       }
-      await this.page.waitForTimeout(5000);
+      await this.page.waitForTimeout(2000);
       await this.person.waitForJET();
     }
 
@@ -784,16 +784,16 @@ export class CoreHRUATFlow extends BaseFlow {
       'input[id*="EffectiveStartDate"], input[id*="effectiveStartDate"], ' +
       'input[id*="effStartDate"], input[aria-label*="Effective"]'
     ).first();
-    if (await dateInput.isVisible({ timeout: 5000 }).catch(() => false)) {
+    if (await dateInput.isVisible({ timeout: 1000 }).catch(() => false)) {
       const today = new Date();
       const mm = String(today.getMonth() + 1).padStart(2, '0');
       const dd = String(today.getDate()).padStart(2, '0');
       const dateStr = effDate || `${mm}/${dd}/${today.getFullYear()}`;
       await this.person.fillField(dateInput, dateStr);
       const okBtn = this.page.getByRole('button', { name: 'OK' }).first();
-      if (await okBtn.isVisible({ timeout: 3000 }).catch(() => false)) {
+      if (await okBtn.isVisible({ timeout: 1000 }).catch(() => false)) {
         await okBtn.click();
-        await this.page.waitForTimeout(5000);
+        await this.page.waitForTimeout(2000);
         await this.person.waitForJET();
       }
     }
@@ -810,21 +810,21 @@ export class CoreHRUATFlow extends BaseFlow {
         const primaryPerson = getField(fd, 'Primary Person');
         if (staffAcct) {
           const acctField = this.page.locator('input[id*="staffAccountNumber" i]:not([readonly]), input[id*="StaffAccount" i]:not([readonly])').first();
-          if (await acctField.isVisible({ timeout: 3000 }).catch(() => false)) {
+          if (await acctField.isVisible({ timeout: 1000 }).catch(() => false)) {
             await this.person.fillField(acctField, staffAcct);
             filledFromFD = true;
           }
         }
         if (designation) {
           const desigField = this.page.locator('input[id*="designationNumber" i]:not([readonly]), input[id*="Designation" i]:not([readonly])').first();
-          if (await desigField.isVisible({ timeout: 3000 }).catch(() => false)) {
+          if (await desigField.isVisible({ timeout: 1000 }).catch(() => false)) {
             await this.person.fillField(desigField, designation);
             filledFromFD = true;
           }
         }
         if (primaryPerson) {
           const primaryField = this.page.locator('input[id*="primaryPerson" i]:not([readonly])').first();
-          if (await primaryField.isVisible({ timeout: 3000 }).catch(() => false)) {
+          if (await primaryField.isVisible({ timeout: 1000 }).catch(() => false)) {
             await this.person.fillField(primaryField, primaryPerson);
             filledFromFD = true;
           }
@@ -834,14 +834,14 @@ export class CoreHRUATFlow extends BaseFlow {
         const crisisTeam = getField(fd, 'Crisis Team') || getField(fd, 'Team');
         if (crisisRole) {
           const roleField = this.page.locator('input[id*="crisisRole" i]:not([readonly]), input[id*="Role" i]:not([readonly])').first();
-          if (await roleField.isVisible({ timeout: 3000 }).catch(() => false)) {
+          if (await roleField.isVisible({ timeout: 1000 }).catch(() => false)) {
             await this.person.fillField(roleField, crisisRole);
             filledFromFD = true;
           }
         }
         if (crisisTeam) {
           const teamField = this.page.locator('input[id*="crisisTeam" i]:not([readonly]), input[id*="Team" i]:not([readonly])').first();
-          if (await teamField.isVisible({ timeout: 3000 }).catch(() => false)) {
+          if (await teamField.isVisible({ timeout: 1000 }).catch(() => false)) {
             await this.person.fillField(teamField, crisisTeam);
             filledFromFD = true;
           }
@@ -851,14 +851,14 @@ export class CoreHRUATFlow extends BaseFlow {
         const teamRole = getField(fd, 'Team Role') || getField(fd, 'Role');
         if (teamName) {
           const nameField = this.page.locator('input[id*="teamName" i]:not([readonly]), input[id*="TeamName" i]:not([readonly])').first();
-          if (await nameField.isVisible({ timeout: 3000 }).catch(() => false)) {
+          if (await nameField.isVisible({ timeout: 1000 }).catch(() => false)) {
             await this.person.fillField(nameField, teamName);
             filledFromFD = true;
           }
         }
         if (teamRole) {
           const roleField = this.page.locator('input[id*="teamRole" i]:not([readonly]), input[id*="Role" i]:not([readonly])').first();
-          if (await roleField.isVisible({ timeout: 3000 }).catch(() => false)) {
+          if (await roleField.isVisible({ timeout: 1000 }).catch(() => false)) {
             await this.person.fillField(roleField, teamRole);
             filledFromFD = true;
           }
@@ -867,7 +867,7 @@ export class CoreHRUATFlow extends BaseFlow {
         const careGiverName = getField(fd, 'Care Giver') || getField(fd, 'Name');
         if (careGiverName) {
           const cgField = this.page.locator('input[id*="careGiver" i]:not([readonly]), input[id*="CareGiver" i]:not([readonly])').first();
-          if (await cgField.isVisible({ timeout: 3000 }).catch(() => false)) {
+          if (await cgField.isVisible({ timeout: 1000 }).catch(() => false)) {
             await this.person.fillField(cgField, careGiverName);
             filledFromFD = true;
           }
@@ -877,14 +877,14 @@ export class CoreHRUATFlow extends BaseFlow {
         const address = getField(fd, 'Address');
         if (location) {
           const locField = this.page.locator('input[id*="location" i]:not([readonly]), input[id*="Location" i]:not([readonly])').first();
-          if (await locField.isVisible({ timeout: 3000 }).catch(() => false)) {
+          if (await locField.isVisible({ timeout: 1000 }).catch(() => false)) {
             await this.person.fillField(locField, location);
             filledFromFD = true;
           }
         }
         if (address) {
           const addrField = this.page.locator('input[id*="address" i]:not([readonly]), input[id*="Address" i]:not([readonly])').first();
-          if (await addrField.isVisible({ timeout: 3000 }).catch(() => false)) {
+          if (await addrField.isVisible({ timeout: 1000 }).catch(() => false)) {
             await this.person.fillField(addrField, address);
             filledFromFD = true;
           }
@@ -893,7 +893,7 @@ export class CoreHRUATFlow extends BaseFlow {
         const groupName = getField(fd, 'Group') || getField(fd, 'Staff Group');
         if (groupName) {
           const groupField = this.page.locator('input[id*="group" i]:not([readonly]), input[id*="Group" i]:not([readonly])').first();
-          if (await groupField.isVisible({ timeout: 3000 }).catch(() => false)) {
+          if (await groupField.isVisible({ timeout: 1000 }).catch(() => false)) {
             await this.person.fillField(groupField, groupName);
             filledFromFD = true;
           }
@@ -902,7 +902,7 @@ export class CoreHRUATFlow extends BaseFlow {
         const mhaAmount = getField(fd, 'Amount') || getField(fd, 'MHA Amount');
         if (mhaAmount) {
           const amtField = this.page.locator('input[id*="amount" i]:not([readonly]), input[id*="Amount" i]:not([readonly])').first();
-          if (await amtField.isVisible({ timeout: 3000 }).catch(() => false)) {
+          if (await amtField.isVisible({ timeout: 1000 }).catch(() => false)) {
             await this.person.fillField(amtField, mhaAmount);
             filledFromFD = true;
           }
@@ -915,7 +915,7 @@ export class CoreHRUATFlow extends BaseFlow {
       const editableField = this.page.locator(
         'input[id*="::content"]:not([readonly]):not([disabled])'
       ).first();
-      if (await editableField.isVisible({ timeout: 5000 }).catch(() => false)) {
+      if (await editableField.isVisible({ timeout: 1000 }).catch(() => false)) {
         const current = await editableField.inputValue().catch(() => '');
         if (!current) {
           await this.person.fillField(editableField, 'UAT');
@@ -930,7 +930,7 @@ export class CoreHRUATFlow extends BaseFlow {
 
     // Save
     await this.person.clickAdfButton('Save');
-    await this.page.waitForTimeout(5000);
+    await this.page.waitForTimeout(2000);
     await this.person.waitForJET();
     console.log(`[PersonalInfo] ${tc.testId}: EIT update saved`);
   }
@@ -977,20 +977,20 @@ export class CoreHRUATFlow extends BaseFlow {
   /** Navigate from Employment detail page to Person detail page via More Information popup. */
   private async navigateToPersonDetailPage(): Promise<void> {
     const moreInfoLink = this.page.locator('a[title="More Information"], img[alt="More Information"]').first();
-    if (!await moreInfoLink.isVisible({ timeout: 5000 }).catch(() => false)) return;
+    if (!await moreInfoLink.isVisible({ timeout: 1000 }).catch(() => false)) return;
 
     await this.person.clearGlassPane();
     await moreInfoLink.click({ force: true });
-    await this.page.waitForTimeout(3000);
+    await this.page.waitForTimeout(1000);
 
     const personalEmpLink = this.page.locator('a:has-text("Personal and Employment")').first();
-    if (await personalEmpLink.isVisible({ timeout: 5000 }).catch(() => false)) {
+    if (await personalEmpLink.isVisible({ timeout: 1000 }).catch(() => false)) {
       await personalEmpLink.click({ force: true });
-      await this.page.waitForTimeout(2000);
+      await this.page.waitForTimeout(500);
     }
 
     const personAction = this.page.locator('[id$="dci12:16:cml13"]').first();
-    if (await personAction.isVisible({ timeout: 5000 }).catch(() => false)) {
+    if (await personAction.isVisible({ timeout: 1000 }).catch(() => false)) {
       await personAction.click({ force: true });
     } else {
       const personLinks = this.page.locator('a').filter({ hasText: /^Person$/ });
@@ -1017,15 +1017,15 @@ export class CoreHRUATFlow extends BaseFlow {
     await this.navigateToPersonDetailPage();
     // Click Edit on the person name section
     const editBtn = this.page.locator('a:has-text("Edit"), button:has-text("Edit")').first();
-    if (await editBtn.isVisible({ timeout: 5000 }).catch(() => false)) {
+    if (await editBtn.isVisible({ timeout: 1000 }).catch(() => false)) {
       await editBtn.click();
-      await this.page.waitForTimeout(3000);
+      await this.page.waitForTimeout(1000);
 
       // Select "Update" from dropdown if present
       const updateOption = this.page.getByText('Update', { exact: true }).first();
-      if (await updateOption.isVisible({ timeout: 3000 }).catch(() => false)) {
+      if (await updateOption.isVisible({ timeout: 1000 }).catch(() => false)) {
         await updateOption.click();
-        await this.page.waitForTimeout(5000);
+        await this.page.waitForTimeout(2000);
         await this.person.waitForJET();
       }
     }
@@ -1036,7 +1036,7 @@ export class CoreHRUATFlow extends BaseFlow {
       const lastNameField = this.page.locator(
         'input[id*="LastName" i]:not([readonly]), input[id*="it20::content"]:not([readonly])'
       ).first();
-      if (await lastNameField.isVisible({ timeout: 5000 }).catch(() => false)) {
+      if (await lastNameField.isVisible({ timeout: 1000 }).catch(() => false)) {
         await this.person.fillField(lastNameField, newLastName);
         console.log(`[PersonalInfo] ${tc.testId}: Set last name to "${newLastName}"`);
       }
@@ -1045,7 +1045,7 @@ export class CoreHRUATFlow extends BaseFlow {
       const middleName = this.page.locator(
         'input[id*="MiddleName" i]:not([readonly]), input[id*="it24::content"]:not([readonly]), input[aria-label*="Middle"]:not([readonly])'
       ).first();
-      if (await middleName.isVisible({ timeout: 5000 }).catch(() => false)) {
+      if (await middleName.isVisible({ timeout: 1000 }).catch(() => false)) {
         const current = await middleName.inputValue().catch(() => '');
         await this.person.fillField(middleName, current ? '' : 'M');
         console.log(`[PersonalInfo] ${tc.testId}: Toggled middle name (no field data)`);
@@ -1058,22 +1058,22 @@ export class CoreHRUATFlow extends BaseFlow {
       const dateField = this.page.locator(
         'input[id*="EffectiveDate" i], input[id*="effectiveDate" i], input[id*="inputDate"][id*="::content"]'
       ).first();
-      if (await dateField.isVisible({ timeout: 3000 }).catch(() => false)) {
+      if (await dateField.isVisible({ timeout: 1000 }).catch(() => false)) {
         await this.person.fillField(dateField, effDate);
       }
     }
 
     // Submit or Save
     const submitBtn = this.page.getByRole('button', { name: 'Submit' }).first();
-    if (await submitBtn.isVisible({ timeout: 5000 }).catch(() => false)) {
+    if (await submitBtn.isVisible({ timeout: 1000 }).catch(() => false)) {
       await this.confirmation.clickSubmit();
       await this.confirmation.expectSuccess();
     } else {
       // Try Save — may not be available if person was not found
       const saveBtn = this.page.getByRole('button', { name: /Save/i }).first();
-      if (await saveBtn.isVisible({ timeout: 3000 }).catch(() => false)) {
+      if (await saveBtn.isVisible({ timeout: 1000 }).catch(() => false)) {
         await saveBtn.click();
-        await this.page.waitForTimeout(3000);
+        await this.page.waitForTimeout(1000);
       } else {
         console.log(`[PersonalInfo] ${tc.testId}: Name change — no Submit/Save button (person may not exist)`);
       }
@@ -1086,14 +1086,14 @@ export class CoreHRUATFlow extends BaseFlow {
     await this.navigateToPersonDetailPage();
     // Click Edit on the person section
     const editBtn = this.page.locator('a:has-text("Edit"), button:has-text("Edit")').first();
-    if (await editBtn.isVisible({ timeout: 5000 }).catch(() => false)) {
+    if (await editBtn.isVisible({ timeout: 1000 }).catch(() => false)) {
       await editBtn.click();
-      await this.page.waitForTimeout(3000);
+      await this.page.waitForTimeout(1000);
 
       const updateOption = this.page.getByText('Update', { exact: true }).first();
-      if (await updateOption.isVisible({ timeout: 3000 }).catch(() => false)) {
+      if (await updateOption.isVisible({ timeout: 1000 }).catch(() => false)) {
         await updateOption.click();
-        await this.page.waitForTimeout(5000);
+        await this.page.waitForTimeout(2000);
         await this.person.waitForJET();
       }
     }
@@ -1102,7 +1102,7 @@ export class CoreHRUATFlow extends BaseFlow {
     const deceasedField = this.page.locator(
       'input[id*="DeceasedDate" i], input[id*="deceasedDate" i], input[id*="dateOfDeath" i]'
     ).first();
-    if (await deceasedField.isVisible({ timeout: 5000 }).catch(() => false)) {
+    if (await deceasedField.isVisible({ timeout: 1000 }).catch(() => false)) {
       const today = new Date();
       const mm = String(today.getMonth() + 1).padStart(2, '0');
       const dd = String(today.getDate()).padStart(2, '0');
@@ -1111,14 +1111,14 @@ export class CoreHRUATFlow extends BaseFlow {
     }
 
     const submitBtn = this.page.getByRole('button', { name: 'Submit' }).first();
-    if (await submitBtn.isVisible({ timeout: 5000 }).catch(() => false)) {
+    if (await submitBtn.isVisible({ timeout: 1000 }).catch(() => false)) {
       await this.confirmation.clickSubmit();
       await this.confirmation.expectSuccess();
     } else {
       const saveBtn = this.page.getByRole('button', { name: /Save/i }).first();
-      if (await saveBtn.isVisible({ timeout: 3000 }).catch(() => false)) {
+      if (await saveBtn.isVisible({ timeout: 1000 }).catch(() => false)) {
         await saveBtn.click();
-        await this.page.waitForTimeout(3000);
+        await this.page.waitForTimeout(1000);
       } else {
         console.log(`[PersonalInfo] ${tc.testId}: Deceased date — no Submit/Save button`);
       }
@@ -1134,14 +1134,14 @@ export class CoreHRUATFlow extends BaseFlow {
     // Most date changes are on the Employment page via Edit → Update
     // Navigate to the correct section based on subAction
     const editBtn = this.page.locator('a:has-text("Edit"), button:has-text("Edit")').first();
-    if (await editBtn.isVisible({ timeout: 5000 }).catch(() => false)) {
+    if (await editBtn.isVisible({ timeout: 1000 }).catch(() => false)) {
       await editBtn.click();
-      await this.page.waitForTimeout(3000);
+      await this.page.waitForTimeout(1000);
 
       const updateOption = this.page.getByText('Update', { exact: true }).first();
-      if (await updateOption.isVisible({ timeout: 3000 }).catch(() => false)) {
+      if (await updateOption.isVisible({ timeout: 1000 }).catch(() => false)) {
         await updateOption.click();
-        await this.page.waitForTimeout(5000);
+        await this.page.waitForTimeout(2000);
         await this.person.waitForJET();
       }
     }
@@ -1152,7 +1152,7 @@ export class CoreHRUATFlow extends BaseFlow {
       const dateInput = this.page.locator(
         'input[id*="inputDate"][id*="::content"], input[id*="EffectiveDate" i]'
       ).first();
-      if (await dateInput.isVisible({ timeout: 5000 }).catch(() => false)) {
+      if (await dateInput.isVisible({ timeout: 1000 }).catch(() => false)) {
         await this.person.fillField(dateInput, effDate);
         await this.page.waitForTimeout(1000);
       }
@@ -1160,9 +1160,9 @@ export class CoreHRUATFlow extends BaseFlow {
 
     // Click OK/Continue on any dialog
     const okBtn = this.page.getByRole('button', { name: 'OK' }).first();
-    if (await okBtn.isVisible({ timeout: 3000 }).catch(() => false)) {
+    if (await okBtn.isVisible({ timeout: 1000 }).catch(() => false)) {
       await okBtn.click();
-      await this.page.waitForTimeout(5000);
+      await this.page.waitForTimeout(2000);
       await this.person.waitForJET();
     }
 
@@ -1175,15 +1175,15 @@ export class CoreHRUATFlow extends BaseFlow {
 
     if (subAction === 'seniority-date') {
       const senioritySection = this.page.getByText('Seniority Dates', { exact: false }).first();
-      if (await senioritySection.isVisible({ timeout: 5000 }).catch(() => false)) {
+      if (await senioritySection.isVisible({ timeout: 1000 }).catch(() => false)) {
         await senioritySection.click().catch(() => {});
-        await this.page.waitForTimeout(2000);
+        await this.page.waitForTimeout(500);
       }
       const seniorityField = this.page.locator(
         'input[id*="SeniorityDate" i]:not([readonly]), input[id*="seniorityDate" i]:not([readonly]), ' +
         'input[id*="seniority" i][id*="::content"]:not([readonly])'
       ).first();
-      if (await seniorityField.isVisible({ timeout: 5000 }).catch(() => false)) {
+      if (await seniorityField.isVisible({ timeout: 1000 }).catch(() => false)) {
         await this.person.fillField(seniorityField, dateValue);
         console.log(`[PersonalInfo] ${tc.testId}: Set seniority date to "${dateValue}"`);
       }
@@ -1192,7 +1192,7 @@ export class CoreHRUATFlow extends BaseFlow {
         'input[id*="BenefitsServiceDate" i]:not([readonly]), input[id*="benefitsService" i]:not([readonly]), ' +
         'input[id*="benefits" i][id*="Date" i][id*="::content"]:not([readonly])'
       ).first();
-      if (await benefitsField.isVisible({ timeout: 5000 }).catch(() => false)) {
+      if (await benefitsField.isVisible({ timeout: 1000 }).catch(() => false)) {
         await this.person.fillField(benefitsField, dateValue);
         console.log(`[PersonalInfo] ${tc.testId}: Set benefits service date to "${dateValue}"`);
       }
@@ -1201,7 +1201,7 @@ export class CoreHRUATFlow extends BaseFlow {
         'input[id*="EmploymentStartDate" i]:not([readonly]), input[id*="employmentStart" i]:not([readonly]), ' +
         'input[id*="startDate" i][id*="::content"]:not([readonly])'
       ).first();
-      if (await empStartField.isVisible({ timeout: 5000 }).catch(() => false)) {
+      if (await empStartField.isVisible({ timeout: 1000 }).catch(() => false)) {
         await this.person.fillField(empStartField, dateValue);
         console.log(`[PersonalInfo] ${tc.testId}: Set employment start date to "${dateValue}"`);
       }
@@ -1210,7 +1210,7 @@ export class CoreHRUATFlow extends BaseFlow {
         'input[id*="AccrualRate" i]:not([readonly]), input[id*="accrualRate" i]:not([readonly]), ' +
         'input[id*="accrual" i][id*="::content"]:not([readonly])'
       ).first();
-      if (await accrualField.isVisible({ timeout: 5000 }).catch(() => false)) {
+      if (await accrualField.isVisible({ timeout: 1000 }).catch(() => false)) {
         await this.person.fillField(accrualField, dateValue);
         console.log(`[PersonalInfo] ${tc.testId}: Set accrual rate date to "${dateValue}"`);
       }
@@ -1218,14 +1218,14 @@ export class CoreHRUATFlow extends BaseFlow {
 
     // Submit or Save
     const submitBtn = this.page.getByRole('button', { name: 'Submit' }).first();
-    if (await submitBtn.isVisible({ timeout: 5000 }).catch(() => false)) {
+    if (await submitBtn.isVisible({ timeout: 1000 }).catch(() => false)) {
       await this.confirmation.clickSubmit();
       await this.confirmation.expectSuccess();
     } else {
       const saveBtn = this.page.getByRole('button', { name: /Save/i }).first();
-      if (await saveBtn.isVisible({ timeout: 3000 }).catch(() => false)) {
+      if (await saveBtn.isVisible({ timeout: 1000 }).catch(() => false)) {
         await saveBtn.click();
-        await this.page.waitForTimeout(3000);
+        await this.page.waitForTimeout(1000);
       } else {
         console.log(`[PersonalInfo] ${tc.testId}: Date change — no Submit/Save button`);
       }
@@ -1238,13 +1238,13 @@ export class CoreHRUATFlow extends BaseFlow {
     await this.navigateToPersonDetailPage();
     // Navigate to Legislative Information section
     await this.page.getByText('Legislative Information').first().click();
-    await this.page.waitForTimeout(2000);
+    await this.page.waitForTimeout(500);
 
     const editDropdown = this.page.locator('[aria-label*="Edit"], [id*="editBtn"]').first();
-    if (await editDropdown.isVisible({ timeout: 3000 }).catch(() => false)) {
+    if (await editDropdown.isVisible({ timeout: 1000 }).catch(() => false)) {
       await editDropdown.click();
       await this.page.getByText('Update').first().click();
-      await this.page.waitForTimeout(3000);
+      await this.page.waitForTimeout(1000);
       await this.person.waitForJET();
     }
 
@@ -1252,21 +1252,21 @@ export class CoreHRUATFlow extends BaseFlow {
     const maritalStatus = fd ? getField(fd, 'Marital Status') : null;
     if (maritalStatus) {
       const maritalField = this.page.locator('[id*="maritalStatus" i], [id*="soc2::content"]').first();
-      if (await maritalField.isVisible({ timeout: 5000 }).catch(() => false)) {
+      if (await maritalField.isVisible({ timeout: 1000 }).catch(() => false)) {
         await this.person.fillCombobox(maritalField, maritalStatus);
         console.log(`[PersonalInfo] ${tc.testId}: Set marital status to "${maritalStatus}"`);
       }
     }
 
     const submitBtn = this.page.getByRole('button', { name: 'Submit' }).first();
-    if (await submitBtn.isVisible({ timeout: 5000 }).catch(() => false)) {
+    if (await submitBtn.isVisible({ timeout: 1000 }).catch(() => false)) {
       await this.confirmation.clickSubmit();
       await this.confirmation.expectSuccess();
     } else {
       const saveBtn = this.page.getByRole('button', { name: /Save/i }).first();
-      if (await saveBtn.isVisible({ timeout: 3000 }).catch(() => false)) {
+      if (await saveBtn.isVisible({ timeout: 1000 }).catch(() => false)) {
         await saveBtn.click();
-        await this.page.waitForTimeout(3000);
+        await this.page.waitForTimeout(1000);
       } else {
         console.log(`[PersonalInfo] ${tc.testId}: Marital status — no Submit/Save button`);
       }
@@ -1279,15 +1279,15 @@ export class CoreHRUATFlow extends BaseFlow {
     await this.navigateToPersonDetailPage();
     // Click Edit on the person page
     const editBtn = this.page.locator('a:has-text("Edit"), button:has-text("Edit")').first();
-    if (await editBtn.isVisible({ timeout: 5000 }).catch(() => false)) {
+    if (await editBtn.isVisible({ timeout: 1000 }).catch(() => false)) {
       await editBtn.click();
-      await this.page.waitForTimeout(3000);
+      await this.page.waitForTimeout(1000);
 
       // Select "Update" from dropdown if present
       const updateOption = this.page.getByText('Update', { exact: true }).first();
-      if (await updateOption.isVisible({ timeout: 3000 }).catch(() => false)) {
+      if (await updateOption.isVisible({ timeout: 1000 }).catch(() => false)) {
         await updateOption.click();
-        await this.page.waitForTimeout(5000);
+        await this.page.waitForTimeout(2000);
         await this.person.waitForJET();
       }
     } else {
@@ -1297,9 +1297,9 @@ export class CoreHRUATFlow extends BaseFlow {
 
     // Handle When and Why dialog (effective date + action) if it appears
     const okBtn = this.page.getByRole('button', { name: 'OK' }).first();
-    if (await okBtn.isVisible({ timeout: 5000 }).catch(() => false)) {
+    if (await okBtn.isVisible({ timeout: 1000 }).catch(() => false)) {
       await okBtn.click();
-      await this.page.waitForTimeout(5000);
+      await this.page.waitForTimeout(2000);
       await this.person.waitForJET();
     }
 
@@ -1308,7 +1308,7 @@ export class CoreHRUATFlow extends BaseFlow {
       const gender = getField(fd, 'Gender');
       if (gender) {
         const genderField = this.page.locator('[id*="soc3::content"], [id*="Gender" i]').first();
-        if (await genderField.isVisible({ timeout: 3000 }).catch(() => false)) {
+        if (await genderField.isVisible({ timeout: 1000 }).catch(() => false)) {
           await this.person.fillCombobox(genderField, gender);
         }
       }
@@ -1316,7 +1316,7 @@ export class CoreHRUATFlow extends BaseFlow {
       const maritalStatus = getField(fd, 'Marital Status');
       if (maritalStatus) {
         const maritalField = this.page.locator('[id*="maritalStatus" i], [id*="soc2::content"]').first();
-        if (await maritalField.isVisible({ timeout: 3000 }).catch(() => false)) {
+        if (await maritalField.isVisible({ timeout: 1000 }).catch(() => false)) {
           await this.person.fillCombobox(maritalField, maritalStatus);
         }
       }
@@ -1324,14 +1324,14 @@ export class CoreHRUATFlow extends BaseFlow {
 
     // Submit or Save
     const submitBtn = this.page.getByRole('button', { name: 'Submit' }).first();
-    if (await submitBtn.isVisible({ timeout: 5000 }).catch(() => false)) {
+    if (await submitBtn.isVisible({ timeout: 1000 }).catch(() => false)) {
       await this.confirmation.clickSubmit();
       await this.confirmation.expectSuccess();
     } else {
       const saveBtn = this.page.getByRole('button', { name: /Save/i }).first();
-      if (await saveBtn.isVisible({ timeout: 3000 }).catch(() => false)) {
+      if (await saveBtn.isVisible({ timeout: 1000 }).catch(() => false)) {
         await saveBtn.click();
-        await this.page.waitForTimeout(3000);
+        await this.page.waitForTimeout(1000);
       } else {
         console.log(`[PersonalInfo] ${tc.testId}: Personal info edit — no Submit/Save button`);
       }
@@ -1382,7 +1382,7 @@ export class CoreHRUATFlow extends BaseFlow {
 
     // --- Standard Workforce Structures page (Jobs/Locations/Departments/Positions/Grades) ---
     await this.homePage.goToWorkforceStructures();
-    await this.page.waitForTimeout(3000);
+    await this.page.waitForTimeout(1000);
 
     // Determine which structure type to click — prefer field data's Structure Type
     const fd = getFieldData(tc.testId);
@@ -1392,12 +1392,12 @@ export class CoreHRUATFlow extends BaseFlow {
     // Use getByRole('link') to avoid matching invisible SVG <title> elements
     const clickStructureLink = async (name: string) => {
       const link = this.page.getByRole('link', { name });
-      if (await link.first().isVisible({ timeout: 5000 }).catch(() => false)) {
+      if (await link.first().isVisible({ timeout: 1000 }).catch(() => false)) {
         await link.first().click();
       } else {
         await this.page.locator(`text=${name}`).locator('visible=true').first().click();
       }
-      await this.page.waitForTimeout(5000);
+      await this.page.waitForTimeout(2000);
       await this.person.waitForJET();
     };
 
@@ -1434,16 +1434,16 @@ export class CoreHRUATFlow extends BaseFlow {
       'a[role="button"]:has-text("Add"), a[role="button"]:has-text("Create"), ' +
       'button:has-text("Add"), button:has-text("Create"), [title="Add"], [title="Create"]'
     ).first();
-    if (await addBtn.isVisible({ timeout: 5000 }).catch(() => false)) {
+    if (await addBtn.isVisible({ timeout: 1000 }).catch(() => false)) {
       await addBtn.click();
-      await this.page.waitForTimeout(5000);
+      await this.page.waitForTimeout(2000);
       await this.person.waitForJET();
     } else {
       // Fallback: try icon button
       const iconBtn = this.page.locator('[id*="create"], [id*="Add"]').first();
-      if (await iconBtn.isVisible({ timeout: 3000 }).catch(() => false)) {
+      if (await iconBtn.isVisible({ timeout: 1000 }).catch(() => false)) {
         await iconBtn.click();
-        await this.page.waitForTimeout(5000);
+        await this.page.waitForTimeout(2000);
       }
     }
 
@@ -1453,7 +1453,7 @@ export class CoreHRUATFlow extends BaseFlow {
     const nameField = this.page.locator(
       'input[id*="Name" i]:not([readonly]), input[id*="name" i]:not([readonly])'
     ).first();
-    if (await nameField.isVisible({ timeout: 5000 }).catch(() => false)) {
+    if (await nameField.isVisible({ timeout: 1000 }).catch(() => false)) {
       await this.person.fillField(nameField, nameValue);
     }
 
@@ -1463,7 +1463,7 @@ export class CoreHRUATFlow extends BaseFlow {
       const dateField = this.page.locator(
         'input[id*="EffectiveDate" i], input[id*="effectiveDate" i], input[id*="inputDate"][id*="::content"]'
       ).first();
-      if (await dateField.isVisible({ timeout: 3000 }).catch(() => false)) {
+      if (await dateField.isVisible({ timeout: 1000 }).catch(() => false)) {
         await this.person.fillField(dateField, fdEffDate);
       }
     }
@@ -1472,7 +1472,7 @@ export class CoreHRUATFlow extends BaseFlow {
     if (structureType === 'Jobs') {
       const fdCode = fd ? getField(fd, 'Code') : null;
       const codeField = this.page.locator('input[id*="Code" i]:not([readonly]), input[id*="code" i]:not([readonly])').first();
-      if (await codeField.isVisible({ timeout: 3000 }).catch(() => false)) {
+      if (await codeField.isVisible({ timeout: 1000 }).catch(() => false)) {
         await this.person.fillField(codeField, fdCode || `TST_${tc.testId}`);
       }
     } else if (structureType === 'Departments') {
@@ -1480,22 +1480,22 @@ export class CoreHRUATFlow extends BaseFlow {
       const ministry = fd ? getField(fd, 'Ministry') : null;
       if (ministry) {
         const ministryField = this.page.locator('input[id*="Ministry" i]:not([readonly]), input[id*="ministry" i]:not([readonly])').first();
-        if (await ministryField.isVisible({ timeout: 3000 }).catch(() => false)) {
+        if (await ministryField.isVisible({ timeout: 1000 }).catch(() => false)) {
           await this.person.fillCombobox(ministryField, ministry);
-          await this.page.waitForTimeout(2000);
+          await this.page.waitForTimeout(500);
         }
       }
       const subMinistry = fd ? getField(fd, 'Sub Ministry') : null;
       if (subMinistry) {
         const subMinistryField = this.page.locator('input[id*="SubMinistry" i]:not([readonly]), input[id*="subMinistry" i]:not([readonly])').first();
-        if (await subMinistryField.isVisible({ timeout: 3000 }).catch(() => false)) {
+        if (await subMinistryField.isVisible({ timeout: 1000 }).catch(() => false)) {
           await this.person.fillCombobox(subMinistryField, subMinistry);
-          await this.page.waitForTimeout(2000);
+          await this.page.waitForTimeout(500);
         }
       }
     } else if (structureType === 'Locations') {
       const countryField = this.page.locator('input[id*="Country" i], input[id*="country" i]').first();
-      if (await countryField.isVisible({ timeout: 3000 }).catch(() => false)) {
+      if (await countryField.isVisible({ timeout: 1000 }).catch(() => false)) {
         await this.person.fillCombobox(countryField, 'United States');
       }
     }
@@ -1506,7 +1506,7 @@ export class CoreHRUATFlow extends BaseFlow {
       const descField = this.page.locator(
         'textarea[id*="escription" i], input[id*="escription" i]'
       ).first();
-      if (await descField.isVisible({ timeout: 3000 }).catch(() => false)) {
+      if (await descField.isVisible({ timeout: 1000 }).catch(() => false)) {
         await this.person.fillField(descField, fdDesc);
       }
     }
@@ -1521,9 +1521,9 @@ export class CoreHRUATFlow extends BaseFlow {
     const firstRow = this.page.locator(
       'table tbody tr, [role="row"]:not([role="row"]:first-child)'
     ).first();
-    if (await firstRow.isVisible({ timeout: 5000 }).catch(() => false)) {
+    if (await firstRow.isVisible({ timeout: 1000 }).catch(() => false)) {
       await firstRow.click();
-      await this.page.waitForTimeout(3000);
+      await this.page.waitForTimeout(1000);
       await this.person.waitForJET();
     }
 
@@ -1531,9 +1531,9 @@ export class CoreHRUATFlow extends BaseFlow {
     const editBtn = this.page.locator(
       'a[role="button"]:has-text("Edit"), button:has-text("Edit"), [title="Edit"]'
     ).first();
-    if (await editBtn.isVisible({ timeout: 5000 }).catch(() => false)) {
+    if (await editBtn.isVisible({ timeout: 1000 }).catch(() => false)) {
       await editBtn.click();
-      await this.page.waitForTimeout(3000);
+      await this.page.waitForTimeout(1000);
       await this.person.waitForJET();
     }
 
@@ -1541,7 +1541,7 @@ export class CoreHRUATFlow extends BaseFlow {
     const descField = this.page.locator(
       'textarea[id*="escription" i], input[id*="escription" i]'
     ).first();
-    if (await descField.isVisible({ timeout: 3000 }).catch(() => false)) {
+    if (await descField.isVisible({ timeout: 1000 }).catch(() => false)) {
       await this.person.fillField(descField, `Updated by UAT automation - ${tc.testId}`);
     }
 
@@ -1554,9 +1554,9 @@ export class CoreHRUATFlow extends BaseFlow {
     const firstRow = this.page.locator(
       'table tbody tr, [role="row"]:not([role="row"]:first-child)'
     ).first();
-    if (await firstRow.isVisible({ timeout: 5000 }).catch(() => false)) {
+    if (await firstRow.isVisible({ timeout: 1000 }).catch(() => false)) {
       await firstRow.click();
-      await this.page.waitForTimeout(3000);
+      await this.page.waitForTimeout(1000);
       await this.person.waitForJET();
     }
 
@@ -1564,9 +1564,9 @@ export class CoreHRUATFlow extends BaseFlow {
     const editBtn = this.page.locator(
       'a[role="button"]:has-text("Edit"), button:has-text("Edit"), [title="Edit"]'
     ).first();
-    if (await editBtn.isVisible({ timeout: 5000 }).catch(() => false)) {
+    if (await editBtn.isVisible({ timeout: 1000 }).catch(() => false)) {
       await editBtn.click();
-      await this.page.waitForTimeout(3000);
+      await this.page.waitForTimeout(1000);
       await this.person.waitForJET();
     }
 
@@ -1574,7 +1574,7 @@ export class CoreHRUATFlow extends BaseFlow {
     const statusField = this.page.locator(
       'select[id*="tatus" i], input[id*="tatus" i]'
     ).first();
-    if (await statusField.isVisible({ timeout: 3000 }).catch(() => false)) {
+    if (await statusField.isVisible({ timeout: 1000 }).catch(() => false)) {
       await this.person.fillCombobox(statusField, 'Inactive');
     }
 
@@ -1582,7 +1582,7 @@ export class CoreHRUATFlow extends BaseFlow {
     const endDateField = this.page.locator(
       'input[id*="EndDate" i], input[id*="end_date" i], input[id*="effectiveEnd" i]'
     ).first();
-    if (await endDateField.isVisible({ timeout: 3000 }).catch(() => false)) {
+    if (await endDateField.isVisible({ timeout: 1000 }).catch(() => false)) {
       const today = new Date();
       const dateStr = `${String(today.getMonth() + 1).padStart(2, '0')}/${String(today.getDate()).padStart(2, '0')}/${today.getFullYear()}`;
       await this.person.fillField(endDateField, dateStr);
@@ -1597,9 +1597,9 @@ export class CoreHRUATFlow extends BaseFlow {
     const saveCloseBtn = this.page.locator(
       'a[role="button"]:has-text("Save and Close"), button:has-text("Save and Close")'
     ).first();
-    if (await saveCloseBtn.isVisible({ timeout: 3000 }).catch(() => false)) {
+    if (await saveCloseBtn.isVisible({ timeout: 1000 }).catch(() => false)) {
       await saveCloseBtn.click();
-      await this.page.waitForTimeout(5000);
+      await this.page.waitForTimeout(2000);
       await this.person.waitForJET();
       console.log(`[WorkforceStructure] ${tc.testId}: Clicked Save and Close`);
       return;
@@ -1607,26 +1607,26 @@ export class CoreHRUATFlow extends BaseFlow {
 
     try {
       await this.person.clickAdfButton('Save and Close');
-      await this.page.waitForTimeout(5000);
+      await this.page.waitForTimeout(2000);
       console.log(`[WorkforceStructure] ${tc.testId}: Clicked Save and Close (ADF)`);
       return;
     } catch { /* not found */ }
 
     try {
       await this.person.clickAdfButton('Save');
-      await this.page.waitForTimeout(5000);
+      await this.page.waitForTimeout(2000);
       console.log(`[WorkforceStructure] ${tc.testId}: Clicked Save (ADF)`);
       return;
     } catch { /* not found */ }
 
     try {
       await this.person.clickAdfButton('Submit');
-      await this.page.waitForTimeout(5000);
+      await this.page.waitForTimeout(2000);
       // Handle confirmation dialog
       const yesBtn = this.page.getByRole('button', { name: /yes|ok|confirm/i }).first();
-      if (await yesBtn.isVisible({ timeout: 3000 }).catch(() => false)) {
+      if (await yesBtn.isVisible({ timeout: 1000 }).catch(() => false)) {
         await yesBtn.click();
-        await this.page.waitForTimeout(3000);
+        await this.page.waitForTimeout(1000);
       }
       console.log(`[WorkforceStructure] ${tc.testId}: Clicked Submit`);
       return;
@@ -1634,9 +1634,9 @@ export class CoreHRUATFlow extends BaseFlow {
 
     // Fallback: click any save-like button
     const saveBtn = this.page.getByRole('button', { name: /save|submit|ok/i }).first();
-    if (await saveBtn.isVisible({ timeout: 3000 }).catch(() => false)) {
+    if (await saveBtn.isVisible({ timeout: 1000 }).catch(() => false)) {
       await saveBtn.click();
-      await this.page.waitForTimeout(5000);
+      await this.page.waitForTimeout(2000);
       console.log(`[WorkforceStructure] ${tc.testId}: Clicked fallback save button`);
     } else {
       console.log(`[WorkforceStructure] ${tc.testId}: No Save/Submit button found — navigation-only`);
@@ -1648,7 +1648,7 @@ export class CoreHRUATFlow extends BaseFlow {
     tc: UATTestCase, isApprove: boolean, isReject: boolean
   ): Promise<void> {
     await this.homePage.goHome();
-    await this.page.waitForTimeout(2000);
+    await this.page.waitForTimeout(500);
 
     // Click the notification bell
     const bell = this.page.locator(
@@ -1660,16 +1660,16 @@ export class CoreHRUATFlow extends BaseFlow {
       return;
     }
     await bell.click();
-    await this.page.waitForTimeout(3000);
+    await this.page.waitForTimeout(1000);
     await this.person.waitForJET();
 
     // Look for a notification item
     const notification = this.page.locator(
       '[role="listitem"] a, [class*="notification"] a, [id*="notif"] a'
     ).first();
-    if (await notification.isVisible({ timeout: 5000 }).catch(() => false)) {
+    if (await notification.isVisible({ timeout: 1000 }).catch(() => false)) {
       await notification.click();
-      await this.page.waitForTimeout(5000);
+      await this.page.waitForTimeout(2000);
       await this.person.waitForJET();
 
       // Click Approve / Reject / Request Information
@@ -1677,15 +1677,15 @@ export class CoreHRUATFlow extends BaseFlow {
       const actionBtn = this.page.locator(
         `a[role="button"]:has-text("${actionName}"), button:has-text("${actionName}")`
       ).first();
-      if (await actionBtn.isVisible({ timeout: 5000 }).catch(() => false)) {
+      if (await actionBtn.isVisible({ timeout: 1000 }).catch(() => false)) {
         await actionBtn.click();
-        await this.page.waitForTimeout(3000);
+        await this.page.waitForTimeout(1000);
 
         // Handle confirmation dialog
         const confirmBtn = this.page.getByRole('button', { name: /yes|ok|submit|confirm/i }).first();
-        if (await confirmBtn.isVisible({ timeout: 3000 }).catch(() => false)) {
+        if (await confirmBtn.isVisible({ timeout: 1000 }).catch(() => false)) {
           await confirmBtn.click();
-          await this.page.waitForTimeout(3000);
+          await this.page.waitForTimeout(1000);
         }
         console.log(`[WorkforceStructure] ${tc.testId}: Clicked ${actionName}`);
       } else {
@@ -1701,30 +1701,30 @@ export class CoreHRUATFlow extends BaseFlow {
     const process = tc.businessProcess.toLowerCase();
 
     await this.homePage.openNavigator();
-    await this.page.waitForTimeout(2000);
+    await this.page.waitForTimeout(500);
 
     const setupLink = this.page.locator(
       '[id*="nv_itemNode_setup_and_maintenance"], a[title="Setup and Maintenance"], a:has-text("Setup and Maintenance")'
     ).first();
-    const hasSetup = await setupLink.isVisible({ timeout: 5000 }).catch(() => false);
+    const hasSetup = await setupLink.isVisible({ timeout: 1000 }).catch(() => false);
 
     if (hasSetup) {
       await setupLink.click({ force: true });
       await this.page.waitForLoadState('networkidle', { timeout: 60_000 }).catch(() => {});
-      await this.page.waitForTimeout(5000);
+      await this.page.waitForTimeout(2000);
 
       // Search for "Manage Extensible Flexfields" in Setup and Maintenance
       const searchInput = this.page.locator('input[placeholder*="Search"], input[aria-label*="Search"]').first();
-      const hasSearch = await searchInput.isVisible({ timeout: 5000 }).catch(() => false);
+      const hasSearch = await searchInput.isVisible({ timeout: 1000 }).catch(() => false);
       if (hasSearch) {
         await searchInput.fill('Manage Extensible Flexfields');
         await searchInput.press('Enter');
-        await this.page.waitForTimeout(5000);
+        await this.page.waitForTimeout(2000);
 
         const taskLink = this.page.getByRole('link', { name: /Extensible Flexfield/i }).first();
-        if (await taskLink.isVisible({ timeout: 5000 }).catch(() => false)) {
+        if (await taskLink.isVisible({ timeout: 1000 }).catch(() => false)) {
           await taskLink.click();
-          await this.page.waitForTimeout(5000);
+          await this.page.waitForTimeout(2000);
         }
       }
     } else {
@@ -1738,28 +1738,28 @@ export class CoreHRUATFlow extends BaseFlow {
   /** Add Area of Responsibility (AOR). */
   private async executeAORManagement(tc: UATTestCase): Promise<void> {
     await this.homePage.openNavigator();
-    await this.page.waitForTimeout(2000);
+    await this.page.waitForTimeout(500);
 
     const setupLink = this.page.locator(
       '[id*="nv_itemNode_setup_and_maintenance"], a[title="Setup and Maintenance"], a:has-text("Setup and Maintenance")'
     ).first();
-    const hasSetup = await setupLink.isVisible({ timeout: 5000 }).catch(() => false);
+    const hasSetup = await setupLink.isVisible({ timeout: 1000 }).catch(() => false);
 
     if (hasSetup) {
       await setupLink.click({ force: true });
       await this.page.waitForLoadState('networkidle', { timeout: 60_000 }).catch(() => {});
-      await this.page.waitForTimeout(5000);
+      await this.page.waitForTimeout(2000);
 
       const searchInput = this.page.locator('input[placeholder*="Search"], input[aria-label*="Search"]').first();
-      if (await searchInput.isVisible({ timeout: 5000 }).catch(() => false)) {
+      if (await searchInput.isVisible({ timeout: 1000 }).catch(() => false)) {
         await searchInput.fill('Areas of Responsibility');
         await searchInput.press('Enter');
-        await this.page.waitForTimeout(5000);
+        await this.page.waitForTimeout(2000);
 
         const taskLink = this.page.getByRole('link', { name: /Areas of Responsibility/i }).first();
-        if (await taskLink.isVisible({ timeout: 5000 }).catch(() => false)) {
+        if (await taskLink.isVisible({ timeout: 1000 }).catch(() => false)) {
           await taskLink.click();
-          await this.page.waitForTimeout(5000);
+          await this.page.waitForTimeout(2000);
         }
       }
     } else {
@@ -1788,13 +1788,13 @@ export class CoreHRUATFlow extends BaseFlow {
       await this.person.searchByName(personName);
     }
     await this.selectPersonAction('Change Location');
-    await this.page.waitForTimeout(5000);
+    await this.page.waitForTimeout(2000);
     // "What info do you want to manage" — select boxes and Continue
     await this.person.clickAdfButton('Continue');
-    await this.page.waitForTimeout(5000);
+    await this.page.waitForTimeout(2000);
     // Location selection — choose new location
     await this.person.clickAdfButton('Continue');
-    await this.page.waitForTimeout(5000);
+    await this.page.waitForTimeout(2000);
     await this.confirmation.clickSubmit();
     await this.confirmation.expectSuccess();
   }
@@ -1823,13 +1823,13 @@ export class CoreHRUATFlow extends BaseFlow {
       console.log('[ChangeWorkingHours] Action not available — navigation verified');
       return;
     }
-    await this.page.waitForTimeout(5000);
+    await this.page.waitForTimeout(2000);
     // Try Continue, then Next (Oracle HCM form varies by configuration)
     const clicked = await this.person.clickAdfButton('Continue').then(() => true).catch(() => false);
     if (!clicked) {
       await this.person.clickAdfButton('Next').catch(() => {});
     }
-    await this.page.waitForTimeout(5000);
+    await this.page.waitForTimeout(2000);
     await this.confirmation.clickSubmit();
     await this.confirmation.expectSuccess();
   }
@@ -1840,25 +1840,25 @@ export class CoreHRUATFlow extends BaseFlow {
     // Navigate to Scheduled Processes for mass updates
     await this.homePage.openNavigator();
     const schedLink = this.page.locator('a[title="Scheduled Processes"]').first();
-    if (await schedLink.isVisible({ timeout: 5000 }).catch(() => false)) {
+    if (await schedLink.isVisible({ timeout: 1000 }).catch(() => false)) {
       await schedLink.click({ force: true });
       await this.page.waitForLoadState('networkidle', { timeout: 60_000 }).catch(() => {});
-      await this.page.waitForTimeout(5000);
+      await this.page.waitForTimeout(2000);
       await this.person.waitForJET();
 
       // Schedule a new mass update process
       const scheduleBtn = this.page.locator(
         'button:has-text("Schedule New Process"), a[role="button"]:has-text("Schedule New Process")'
       ).first();
-      if (await scheduleBtn.isVisible({ timeout: 5000 }).catch(() => false)) {
+      if (await scheduleBtn.isVisible({ timeout: 1000 }).catch(() => false)) {
         await scheduleBtn.click();
-        await this.page.waitForTimeout(3000);
+        await this.page.waitForTimeout(1000);
       }
     } else {
       // Fallback: go to Person Management and try mass updates link
       await this.homePage.goToPersonManagement();
       await this.page.getByText('Mass Updates', { exact: false }).first().click({ timeout: 10000 }).catch(() => {});
-      await this.page.waitForTimeout(5000);
+      await this.page.waitForTimeout(2000);
     }
     console.log(`[MassUpdate] ${tc.testId}: Mass update page loaded`);
   }
@@ -1895,7 +1895,7 @@ export class CoreHRUATFlow extends BaseFlow {
     }
     // Try to access Individual Compensation from person's Actions menu
     await this.selectPersonAction('Individual Compensation');
-    await this.page.waitForTimeout(5000);
+    await this.page.waitForTimeout(2000);
     await this.confirmation.clickSubmit();
     await this.confirmation.expectSuccess();
   }
@@ -1948,14 +1948,14 @@ export class CoreHRUATFlow extends BaseFlow {
     }
 
     await this.selectPersonAction('Promote');
-    await this.page.waitForTimeout(5000);
+    await this.page.waitForTimeout(2000);
 
     // Fill When and Why from field data
     if (fd) {
       const effDate = getField(fd, 'Effective Date') || getField(fd, 'When - Effective date');
       if (effDate) {
         const dateInput = this.page.locator('input[id*="inputDate"][id*="::content"]').first();
-        if (await dateInput.isVisible({ timeout: 5000 }).catch(() => false)) {
+        if (await dateInput.isVisible({ timeout: 1000 }).catch(() => false)) {
           await this.person.fillField(dateInput, effDate);
           await this.page.waitForTimeout(1000);
         }
@@ -1963,47 +1963,47 @@ export class CoreHRUATFlow extends BaseFlow {
     }
 
     await this.person.clickAdfButton('Continue');
-    await this.page.waitForTimeout(5000);
+    await this.page.waitForTimeout(2000);
 
     // Fill promotion fields from field data on the assignment page
     if (fd) {
       const job = getField(fd, 'Job');
       if (job) {
         const jobField = this.page.locator('input[id*="Job" i][id*="::content"]:not([readonly])').first();
-        if (await jobField.isVisible({ timeout: 3000 }).catch(() => false)) {
+        if (await jobField.isVisible({ timeout: 1000 }).catch(() => false)) {
           await this.person.fillCombobox(jobField, job);
-          await this.page.waitForTimeout(2000);
+          await this.page.waitForTimeout(500);
         }
       }
       const grade = getField(fd, 'Grade');
       if (grade) {
         const gradeField = this.page.locator('input[id*="Grade" i][id*="::content"]:not([readonly])').first();
-        if (await gradeField.isVisible({ timeout: 3000 }).catch(() => false)) {
+        if (await gradeField.isVisible({ timeout: 1000 }).catch(() => false)) {
           await this.person.fillCombobox(gradeField, grade);
-          await this.page.waitForTimeout(2000);
+          await this.page.waitForTimeout(500);
         }
       }
       const dept = getField(fd, 'Department');
       if (dept) {
         const deptField = this.page.locator('input[id*="Department" i][id*="::content"]:not([readonly])').first();
-        if (await deptField.isVisible({ timeout: 3000 }).catch(() => false)) {
+        if (await deptField.isVisible({ timeout: 1000 }).catch(() => false)) {
           await this.person.fillCombobox(deptField, dept);
-          await this.page.waitForTimeout(2000);
+          await this.page.waitForTimeout(500);
         }
       }
       const location = getField(fd, 'Location');
       if (location) {
         const locField = this.page.locator('input[id*="Location" i][id*="::content"]:not([readonly])').first();
-        if (await locField.isVisible({ timeout: 3000 }).catch(() => false)) {
+        if (await locField.isVisible({ timeout: 1000 }).catch(() => false)) {
           await this.person.fillCombobox(locField, location);
-          await this.page.waitForTimeout(2000);
+          await this.page.waitForTimeout(500);
         }
       }
     }
 
     // Assignment details
     await this.person.clickAdfButton('Next');
-    await this.page.waitForTimeout(5000);
+    await this.page.waitForTimeout(2000);
     await this.confirmation.clickSubmit();
     await this.confirmation.expectSuccess();
   }
@@ -2014,13 +2014,13 @@ export class CoreHRUATFlow extends BaseFlow {
     // Navigate to Tools > Approval Delegations
     await this.homePage.openNavigator();
     const delegationLink = this.page.locator('[id$="nv_itemNode_tools_approval_delegations"], a[title*="Delegation"]').first();
-    if (await delegationLink.isVisible({ timeout: 5000 }).catch(() => false)) {
+    if (await delegationLink.isVisible({ timeout: 1000 }).catch(() => false)) {
       await delegationLink.click({ force: true });
     } else {
       await this.page.getByText('Approval Delegations', { exact: false }).first().click({ force: true });
     }
     await this.page.waitForLoadState('networkidle', { timeout: 60_000 }).catch(() => {});
-    await this.page.waitForTimeout(5000);
+    await this.page.waitForTimeout(2000);
     await this.person.waitForJET();
 
     // Try to create a new delegation rule
@@ -2028,9 +2028,9 @@ export class CoreHRUATFlow extends BaseFlow {
       'button:has-text("Create"), a[role="button"]:has-text("Create"), ' +
       'button:has-text("Add"), a[role="button"]:has-text("Add")'
     ).first();
-    if (await createBtn.isVisible({ timeout: 5000 }).catch(() => false)) {
+    if (await createBtn.isVisible({ timeout: 1000 }).catch(() => false)) {
       await createBtn.click();
-      await this.page.waitForTimeout(5000);
+      await this.page.waitForTimeout(2000);
       await this.person.waitForJET();
 
       // Fill delegation fields if visible
@@ -2040,18 +2040,18 @@ export class CoreHRUATFlow extends BaseFlow {
         const delegateTo = this.page.locator(
           'input[aria-label*="Delegate"], input[id*="delegate" i]:not([readonly])'
         ).first();
-        if (await delegateTo.isVisible({ timeout: 3000 }).catch(() => false)) {
+        if (await delegateTo.isVisible({ timeout: 1000 }).catch(() => false)) {
           await delegateTo.pressSequentially(personName, { delay: 50 });
           await delegateTo.press('Tab');
-          await this.page.waitForTimeout(3000);
+          await this.page.waitForTimeout(1000);
         }
       }
 
       // Save the delegation
       const saveBtn = this.page.getByRole('button', { name: /Save|Submit|OK/i }).first();
-      if (await saveBtn.isVisible({ timeout: 3000 }).catch(() => false)) {
+      if (await saveBtn.isVisible({ timeout: 1000 }).catch(() => false)) {
         await saveBtn.click();
-        await this.page.waitForTimeout(3000);
+        await this.page.waitForTimeout(1000);
       }
     }
     console.log(`[ApprovalDelegation] ${tc.testId}: Delegation page loaded`);
@@ -2094,20 +2094,20 @@ export class CoreHRUATFlow extends BaseFlow {
     await this.homePage.goHome();
     // Click "Me" tile or Navigator > Me
     const meTile = this.page.locator('a[title="Me"], [data-id="Me"]').first();
-    if (await meTile.isVisible({ timeout: 5000 }).catch(() => false)) {
+    if (await meTile.isVisible({ timeout: 1000 }).catch(() => false)) {
       await meTile.click();
     } else {
       await this.homePage.openNavigator();
       await this.page.getByText('Me', { exact: true }).first().click({ force: true });
     }
     await this.page.waitForLoadState('networkidle', { timeout: 60_000 }).catch(() => {});
-    await this.page.waitForTimeout(5000);
+    await this.page.waitForTimeout(2000);
     await this.person.waitForJET();
 
     // Click "Document Records" link on the left sidebar
     const docRecordsLink = this.page.getByText('Document Records', { exact: false }).first();
     await docRecordsLink.click({ timeout: 10_000 });
-    await this.page.waitForTimeout(5000);
+    await this.page.waitForTimeout(2000);
     await this.person.waitForJET();
   }
 
@@ -2134,18 +2134,18 @@ export class CoreHRUATFlow extends BaseFlow {
       'a[title="More Information"], img[alt="More Information"]'
     ).first();
     await moreInfoLink.click({ timeout: 10_000 });
-    await this.page.waitForTimeout(3000);
+    await this.page.waitForTimeout(1000);
     await this.person.waitForJET();
 
     // Click "Personal and Employment" category in the popup to reveal Document Records link
     const personalAndEmp = this.page.getByText('Personal and Employment', { exact: false }).first();
     await personalAndEmp.click({ timeout: 10_000 });
-    await this.page.waitForTimeout(2000);
+    await this.page.waitForTimeout(500);
 
     // Click "Document Records" link in the Personal and Employment sub-links
     const docRecordsLink = this.page.getByText('Document Records', { exact: false }).first();
     await docRecordsLink.click({ timeout: 10_000 });
-    await this.page.waitForTimeout(5000);
+    await this.page.waitForTimeout(2000);
     await this.person.waitForJET();
   }
 
@@ -2159,50 +2159,50 @@ export class CoreHRUATFlow extends BaseFlow {
       .or(this.page.locator('[id*="addDocument"], [id*="AddDocument"], a[title="Add"], button:has-text("Add")'))
       .first();
     await addBtn.click({ timeout: 10_000 });
-    await this.page.waitForTimeout(5000);
+    await this.page.waitForTimeout(2000);
     await this.person.waitForJET();
 
     // Select Document Type from the ADF LOV combobox ("Select a value" placeholder)
     const typeInput = this.page.locator(
       'input[placeholder="Select a value"], input[id*="documentType"], input[id*="DocumentType"]'
     ).first();
-    if (await typeInput.isVisible({ timeout: 5000 }).catch(() => false)) {
+    if (await typeInput.isVisible({ timeout: 1000 }).catch(() => false)) {
       if (docType) {
         // Try to type and match the document type from field data
         await typeInput.click();
         await typeInput.pressSequentially(docType, { delay: 50 });
-        await this.page.waitForTimeout(2000);
+        await this.page.waitForTimeout(500);
         // Try to select matching option from dropdown
         const matchOption = this.page.locator('[role="option"], [role="listitem"], li.oj-listbox-result')
           .filter({ hasText: new RegExp(docType.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i') }).first();
-        if (await matchOption.isVisible({ timeout: 3000 }).catch(() => false)) {
+        if (await matchOption.isVisible({ timeout: 1000 }).catch(() => false)) {
           await matchOption.click();
           console.log(`[DocumentManagement] ${tc.testId}: Selected document type "${docType}" from FD`);
         } else {
           // Fallback: Tab to accept typed value, or select first available
           await typeInput.press('Tab');
         }
-        await this.page.waitForTimeout(2000);
+        await this.page.waitForTimeout(500);
         await this.person.waitForJET();
       } else {
         // No FD: click dropdown arrow, select first option
         const dropdownArrow = typeInput.locator('xpath=following-sibling::a | ../a | ../..//a[contains(@id,"dropdownArrow") or contains(@class,"lov")]');
-        if (await dropdownArrow.isVisible({ timeout: 3000 }).catch(() => false)) {
+        if (await dropdownArrow.isVisible({ timeout: 1000 }).catch(() => false)) {
           await dropdownArrow.click();
         } else {
           await typeInput.click();
           await this.page.keyboard.press('ArrowDown');
         }
-        await this.page.waitForTimeout(2000);
+        await this.page.waitForTimeout(500);
 
         const firstOption = this.page.locator('[role="option"], [role="listitem"], li.oj-listbox-result').first();
-        if (await firstOption.isVisible({ timeout: 5000 }).catch(() => false)) {
+        if (await firstOption.isVisible({ timeout: 1000 }).catch(() => false)) {
           await firstOption.click();
-          await this.page.waitForTimeout(2000);
+          await this.page.waitForTimeout(500);
           await this.person.waitForJET();
         } else {
           await this.page.keyboard.press('Enter');
-          await this.page.waitForTimeout(2000);
+          await this.page.waitForTimeout(500);
         }
       }
     }
@@ -2212,18 +2212,18 @@ export class CoreHRUATFlow extends BaseFlow {
     const fileInput = this.page.locator('input[type="file"]').first();
     if (await fileInput.count() > 0) {
       await fileInput.setInputFiles(testFilePath);
-      await this.page.waitForTimeout(3000);
+      await this.page.waitForTimeout(1000);
     } else {
       // Try "Browse" / "Choose File" / "Attach" button
       const browseBtn = this.page.getByRole('button', { name: /browse|choose|upload|attach/i }).first();
-      if (await browseBtn.isVisible({ timeout: 3000 }).catch(() => false)) {
+      if (await browseBtn.isVisible({ timeout: 1000 }).catch(() => false)) {
         const [fileChooser] = await Promise.all([
           this.page.waitForEvent('filechooser', { timeout: 5000 }).catch(() => null),
           browseBtn.click(),
         ]);
         if (fileChooser) {
           await fileChooser.setFiles(testFilePath);
-          await this.page.waitForTimeout(3000);
+          await this.page.waitForTimeout(1000);
         }
       }
     }
@@ -2240,14 +2240,14 @@ export class CoreHRUATFlow extends BaseFlow {
     // Click Submit
     const submitBtn = this.page.getByRole('button', { name: 'Submit' }).first();
     await submitBtn.click({ timeout: 10_000 });
-    await this.page.waitForTimeout(5000);
+    await this.page.waitForTimeout(2000);
     await this.person.waitForJET();
 
     // Handle "Do you want to continue?" confirmation dialog if shown
     const confirmBtn = this.page.getByRole('button', { name: /yes|ok|confirm/i }).first();
-    if (await confirmBtn.isVisible({ timeout: 3000 }).catch(() => false)) {
+    if (await confirmBtn.isVisible({ timeout: 1000 }).catch(() => false)) {
       await confirmBtn.click();
-      await this.page.waitForTimeout(3000);
+      await this.page.waitForTimeout(1000);
     }
 
     console.log(`[DocumentManagement] ${tc.testId}: Document added and submitted`);
@@ -2257,26 +2257,26 @@ export class CoreHRUATFlow extends BaseFlow {
   private async editExistingDocument(tc: UATTestCase): Promise<void> {
     // Select the first document row
     const firstRow = this.page.locator('table tbody tr, [role="row"]').first();
-    if (!(await firstRow.isVisible({ timeout: 5000 }).catch(() => false))) {
+    if (!(await firstRow.isVisible({ timeout: 1000 }).catch(() => false))) {
       console.log(`[DocumentManagement] ${tc.testId}: No document rows to edit`);
       return;
     }
     await firstRow.click();
-    await this.page.waitForTimeout(2000);
+    await this.page.waitForTimeout(500);
 
     // Click Edit button/link
     const editBtn = this.page.getByRole('button', { name: /edit/i })
       .or(this.page.locator('a:has-text("Edit")'))
       .first();
     await editBtn.click({ timeout: 10_000 });
-    await this.page.waitForTimeout(3000);
+    await this.page.waitForTimeout(1000);
     await this.person.waitForJET();
 
     // Modify a field (e.g., add/update description)
     const descField = this.page.locator(
       'textarea[id*="description"], textarea[id*="Description"], input[id*="description"]'
     ).first();
-    if (await descField.isVisible({ timeout: 3000 }).catch(() => false)) {
+    if (await descField.isVisible({ timeout: 1000 }).catch(() => false)) {
       await descField.fill(`Updated by UAT automation - ${tc.testId}`);
       await this.page.waitForTimeout(1000);
     }
@@ -2284,13 +2284,13 @@ export class CoreHRUATFlow extends BaseFlow {
     // Save changes
     const saveBtn = this.page.getByRole('button', { name: /save|submit|ok/i }).first();
     await saveBtn.click({ timeout: 10_000 });
-    await this.page.waitForTimeout(5000);
+    await this.page.waitForTimeout(2000);
 
     // Handle confirmation dialog
     const confirmBtn = this.page.getByRole('button', { name: /yes|ok|confirm/i }).first();
-    if (await confirmBtn.isVisible({ timeout: 3000 }).catch(() => false)) {
+    if (await confirmBtn.isVisible({ timeout: 1000 }).catch(() => false)) {
       await confirmBtn.click();
-      await this.page.waitForTimeout(3000);
+      await this.page.waitForTimeout(1000);
     }
 
     console.log(`[DocumentManagement] ${tc.testId}: Document edited and saved`);
@@ -2306,7 +2306,7 @@ export class CoreHRUATFlow extends BaseFlow {
     }
     // Navigate to Work Schedule section
     await this.page.getByText('Work Schedule', { exact: false }).first().click({ timeout: 10000 }).catch(() => {});
-    await this.page.waitForTimeout(5000);
+    await this.page.waitForTimeout(2000);
   }
 
   // --- Salary Change (HCM.CORE.2xx salary) ---
@@ -2337,14 +2337,14 @@ export class CoreHRUATFlow extends BaseFlow {
     // Navigate to Salary section → Change Salary
     const found = await this.selectPersonAction('Manage Salary');
     if (!found) return;
-    await this.page.waitForTimeout(5000);
+    await this.page.waitForTimeout(2000);
 
     // Fill the When and Why dialog with effective date and action
     if (fd) {
       const effDate = getField(fd, 'When - Effective date') || getField(fd, 'Effective Date');
       if (effDate) {
         const dateInput = this.page.locator('input[id*="inputDate"][id*="::content"]').first();
-        if (await dateInput.isVisible({ timeout: 5000 }).catch(() => false)) {
+        if (await dateInput.isVisible({ timeout: 1000 }).catch(() => false)) {
           await this.person.fillField(dateInput, effDate);
           await this.page.waitForTimeout(1000);
         }
@@ -2354,9 +2354,9 @@ export class CoreHRUATFlow extends BaseFlow {
       const action = getField(fd, "What's the way");
       if (action) {
         const actionField = this.page.locator('input[id*="actionsName"][id*="::content"]').first();
-        if (await actionField.isVisible({ timeout: 5000 }).catch(() => false)) {
+        if (await actionField.isVisible({ timeout: 1000 }).catch(() => false)) {
           await this.person.fillCombobox(actionField, action);
-          await this.page.waitForTimeout(2000);
+          await this.page.waitForTimeout(500);
         }
       }
 
@@ -2364,16 +2364,16 @@ export class CoreHRUATFlow extends BaseFlow {
       const reason = getField(fd, 'Why');
       if (reason) {
         const reasonField = this.page.locator('input[id*="actionReason"][id*="::content"]').first();
-        if (await reasonField.isVisible({ timeout: 5000 }).catch(() => false)) {
+        if (await reasonField.isVisible({ timeout: 1000 }).catch(() => false)) {
           await this.person.fillCombobox(reasonField, reason);
-          await this.page.waitForTimeout(2000);
+          await this.page.waitForTimeout(500);
         }
       }
     }
 
     // Click Continue/OK to proceed past the When and Why dialog
     await this.person.clickAdfButton('Continue');
-    await this.page.waitForTimeout(5000);
+    await this.page.waitForTimeout(2000);
     await this.person.waitForJET();
 
     // Fill salary fields on the salary page
@@ -2387,7 +2387,7 @@ export class CoreHRUATFlow extends BaseFlow {
           'input[id*="salaryAmount" i]:not([readonly]), ' +
           'input[id*="annualSalary" i]:not([readonly])'
         ).first();
-        if (await amountField.isVisible({ timeout: 5000 }).catch(() => false)) {
+        if (await amountField.isVisible({ timeout: 1000 }).catch(() => false)) {
           await this.person.fillField(amountField, salaryAmount);
           console.log(`[SalaryChange] ${tc.testId}: Salary amount = ${salaryAmount}`);
         }
@@ -2398,14 +2398,14 @@ export class CoreHRUATFlow extends BaseFlow {
           'input[id*="SalaryBasis" i]:not([readonly]), ' +
           'input[id*="salaryBasis" i]:not([readonly])'
         ).first();
-        if (await basisField.isVisible({ timeout: 5000 }).catch(() => false)) {
+        if (await basisField.isVisible({ timeout: 1000 }).catch(() => false)) {
           await this.person.fillCombobox(basisField, salaryBasis);
           console.log(`[SalaryChange] ${tc.testId}: Salary basis = ${salaryBasis}`);
         }
       }
     }
 
-    await this.page.waitForTimeout(3000);
+    await this.page.waitForTimeout(1000);
     await this.confirmation.clickSubmit();
     await this.confirmation.expectSuccess();
   }
@@ -2417,23 +2417,23 @@ export class CoreHRUATFlow extends BaseFlow {
     // Navigate to My Team
     await this.homePage.openNavigator();
     const myTeamLink = this.page.locator('[id$="nv_itemNode_my_team"], a[title*="My Team"]').first();
-    if (await myTeamLink.isVisible({ timeout: 5000 }).catch(() => false)) {
+    if (await myTeamLink.isVisible({ timeout: 1000 }).catch(() => false)) {
       await myTeamLink.click({ force: true });
     } else {
       // Fallback to Person Management
       await this.homePage.goToPersonManagement();
     }
     await this.page.waitForLoadState('networkidle', { timeout: 60_000 });
-    await this.page.waitForTimeout(5000);
+    await this.page.waitForTimeout(2000);
 
     const personName = this.extractPersonRef(tc);
     if (personName) {
       // Search for direct report
       const searchInput = this.page.locator('input[aria-label*="Search"], input[placeholder*="Search"]').first();
-      if (await searchInput.isVisible({ timeout: 5000 }).catch(() => false)) {
+      if (await searchInput.isVisible({ timeout: 1000 }).catch(() => false)) {
         await searchInput.fill(personName);
         await searchInput.press('Enter');
-        await this.page.waitForTimeout(5000);
+        await this.page.waitForTimeout(2000);
       }
     }
   }
@@ -2445,7 +2445,7 @@ export class CoreHRUATFlow extends BaseFlow {
     // Navigate to Me > Personal Information
     await this.homePage.openNavigator();
     const meLink = this.page.locator('[id$="nv_itemNode_my_information_personal_information"], a[title*="Personal Info"]').first();
-    if (await meLink.isVisible({ timeout: 5000 }).catch(() => false)) {
+    if (await meLink.isVisible({ timeout: 1000 }).catch(() => false)) {
       await meLink.click({ force: true });
     } else {
       // Fallback: use springboard Me tile
@@ -2453,7 +2453,7 @@ export class CoreHRUATFlow extends BaseFlow {
       await this.page.getByText('Me', { exact: true }).first().click({ timeout: 10000 }).catch(() => {});
     }
     await this.page.waitForLoadState('networkidle', { timeout: 60_000 });
-    await this.page.waitForTimeout(5000);
+    await this.page.waitForTimeout(2000);
   }
 
   // --- Generic HR Action ---
@@ -2470,29 +2470,29 @@ export class CoreHRUATFlow extends BaseFlow {
       if (process.includes('approval')) {
         // MHA Approvals — check notification bell
         await this.homePage.goHome();
-        await this.page.waitForTimeout(2000);
+        await this.page.waitForTimeout(500);
         const bell = this.page.locator(
           '[id$="_UIScmil3u"], a[aria-label*="Notification"], a[title*="Notifications"], button[aria-label*="Notification"]'
         ).first();
         if (await bell.isVisible({ timeout: 10_000 }).catch(() => false)) {
           await bell.click();
-          await this.page.waitForTimeout(3000);
+          await this.page.waitForTimeout(1000);
           await this.person.waitForJET();
           // Look for MHA-related notification
           const mhaNotif = this.page.locator('[role="listitem"] a, [class*="notification"] a').filter({ hasText: /MHA|housing/i }).first();
-          if (await mhaNotif.isVisible({ timeout: 5000 }).catch(() => false)) {
+          if (await mhaNotif.isVisible({ timeout: 1000 }).catch(() => false)) {
             await mhaNotif.click();
-            await this.page.waitForTimeout(5000);
+            await this.page.waitForTimeout(2000);
             await this.person.waitForJET();
             // Try to approve
             const approveBtn = this.page.locator('button:has-text("Approve"), a[role="button"]:has-text("Approve")').first();
-            if (await approveBtn.isVisible({ timeout: 5000 }).catch(() => false)) {
+            if (await approveBtn.isVisible({ timeout: 1000 }).catch(() => false)) {
               await approveBtn.click();
-              await this.page.waitForTimeout(3000);
+              await this.page.waitForTimeout(1000);
               const confirmBtn = this.page.getByRole('button', { name: /yes|ok|submit|confirm/i }).first();
-              if (await confirmBtn.isVisible({ timeout: 3000 }).catch(() => false)) {
+              if (await confirmBtn.isVisible({ timeout: 1000 }).catch(() => false)) {
                 await confirmBtn.click();
-                await this.page.waitForTimeout(3000);
+                await this.page.waitForTimeout(1000);
               }
             }
           }
@@ -2508,7 +2508,7 @@ export class CoreHRUATFlow extends BaseFlow {
       } else if (personName) {
         await this.person.searchByName(personName);
       }
-      await this.page.waitForTimeout(3000);
+      await this.page.waitForTimeout(1000);
 
       // Navigate to EIT → Ministers Housing section
       await this.navigateToPersonDetailPage();
@@ -2520,22 +2520,22 @@ export class CoreHRUATFlow extends BaseFlow {
 
         // Click "Ministers Housing Allowance" sidebar link
         const mhaLink = this.page.locator('[id*="PER_EITMinisters__Housing"], a:has-text("Ministers Housing")').first();
-        if (await mhaLink.isVisible({ timeout: 5000 }).catch(() => false)) {
+        if (await mhaLink.isVisible({ timeout: 1000 }).catch(() => false)) {
           await mhaLink.click({ force: true });
-          await this.page.waitForTimeout(5000);
+          await this.page.waitForTimeout(2000);
           await this.person.waitForJET();
         }
 
         // If this is an update test, click Edit > Update
         if (process.includes('update') || process.includes('requirement')) {
           const editIcon = this.page.locator('[id*="editDropDown::icon"]').first();
-          if (await editIcon.isVisible({ timeout: 5000 }).catch(() => false)) {
+          if (await editIcon.isVisible({ timeout: 1000 }).catch(() => false)) {
             await editIcon.click({ force: true });
-            await this.page.waitForTimeout(3000);
+            await this.page.waitForTimeout(1000);
             const updateItem = this.page.locator('tr[id*="updateEFF"], td:has-text("Update")').first();
-            if (await updateItem.isVisible({ timeout: 3000 }).catch(() => false)) {
+            if (await updateItem.isVisible({ timeout: 1000 }).catch(() => false)) {
               await updateItem.click({ force: true });
-              await this.page.waitForTimeout(5000);
+              await this.page.waitForTimeout(2000);
               await this.person.waitForJET();
             }
 
@@ -2544,14 +2544,14 @@ export class CoreHRUATFlow extends BaseFlow {
               const mhaAmount = getField(fd, 'Amount') || getField(fd, 'MHA Amount');
               if (mhaAmount) {
                 const amtField = this.page.locator('input[id*="amount" i]:not([readonly]), input[id*="Amount" i]:not([readonly])').first();
-                if (await amtField.isVisible({ timeout: 3000 }).catch(() => false)) {
+                if (await amtField.isVisible({ timeout: 1000 }).catch(() => false)) {
                   await this.person.fillField(amtField, mhaAmount);
                 }
               }
             }
 
             await this.person.clickAdfButton('Save');
-            await this.page.waitForTimeout(5000);
+            await this.page.waitForTimeout(2000);
           }
         }
       }
@@ -2566,16 +2566,16 @@ export class CoreHRUATFlow extends BaseFlow {
       const securityLink = this.page.locator(
         'a[title="Security Console"], a:has-text("Security Console")'
       ).first();
-      if (await securityLink.isVisible({ timeout: 5000 }).catch(() => false)) {
+      if (await securityLink.isVisible({ timeout: 1000 }).catch(() => false)) {
         await securityLink.click({ force: true });
       } else {
         const setupLink = this.page.locator('a[title="Setup and Maintenance"]').first();
-        if (await setupLink.isVisible({ timeout: 5000 }).catch(() => false)) {
+        if (await setupLink.isVisible({ timeout: 1000 }).catch(() => false)) {
           await setupLink.click({ force: true });
         }
       }
       await this.page.waitForLoadState('networkidle', { timeout: 60_000 }).catch(() => {});
-      await this.page.waitForTimeout(5000);
+      await this.page.waitForTimeout(2000);
       console.log(`[GenericHR] ${tc.testId}: Security Console — loaded`);
       return;
     }
@@ -2590,7 +2590,7 @@ export class CoreHRUATFlow extends BaseFlow {
       } else if (personName) {
         await this.person.searchByName(personName);
       }
-      await this.page.waitForTimeout(3000);
+      await this.page.waitForTimeout(1000);
       console.log(`[GenericHR] ${tc.testId}: Staff member role — person page loaded`);
       return;
     }
@@ -2599,16 +2599,16 @@ export class CoreHRUATFlow extends BaseFlow {
     if (process.includes('aor')) {
       await this.homePage.openNavigator();
       const setupLink = this.page.locator('a[title="Setup and Maintenance"]').first();
-      if (await setupLink.isVisible({ timeout: 5000 }).catch(() => false)) {
+      if (await setupLink.isVisible({ timeout: 1000 }).catch(() => false)) {
         await setupLink.click({ force: true });
         await this.page.waitForLoadState('networkidle', { timeout: 60_000 }).catch(() => {});
-        await this.page.waitForTimeout(5000);
+        await this.page.waitForTimeout(2000);
         // Search for Areas of Responsibility task
         const taskSearch = this.page.locator('input[aria-label*="Search"], input[placeholder*="Search"]').first();
-        if (await taskSearch.isVisible({ timeout: 5000 }).catch(() => false)) {
+        if (await taskSearch.isVisible({ timeout: 1000 }).catch(() => false)) {
           await taskSearch.fill('Areas of Responsibility');
           await taskSearch.press('Enter');
-          await this.page.waitForTimeout(5000);
+          await this.page.waitForTimeout(2000);
         }
       }
       console.log(`[GenericHR] ${tc.testId}: AOR — Setup and Maintenance loaded`);
@@ -2619,11 +2619,11 @@ export class CoreHRUATFlow extends BaseFlow {
     if (process.includes('run any process') || process.includes('update role')) {
       await this.homePage.openNavigator();
       const schedLink = this.page.locator('a[title="Scheduled Processes"]').first();
-      if (await schedLink.isVisible({ timeout: 5000 }).catch(() => false)) {
+      if (await schedLink.isVisible({ timeout: 1000 }).catch(() => false)) {
         await schedLink.click({ force: true });
       }
       await this.page.waitForLoadState('networkidle', { timeout: 60_000 }).catch(() => {});
-      await this.page.waitForTimeout(5000);
+      await this.page.waitForTimeout(2000);
       console.log(`[GenericHR] ${tc.testId}: Scheduled Processes — loaded`);
       return;
     }
@@ -2652,7 +2652,7 @@ export class CoreHRUATFlow extends BaseFlow {
     if (searchTerm) {
       await this.person.searchByName(searchTerm);
     }
-    await this.page.waitForTimeout(5000);
+    await this.page.waitForTimeout(2000);
     console.log(`[GenericHR] ${tc.testId}: Generic — person management loaded`);
   }
 
@@ -2666,14 +2666,14 @@ export class CoreHRUATFlow extends BaseFlow {
     const actionsBtn = this.page.locator(
       'button:has-text("Actions"), a[role="button"]:has-text("Actions"), [id*="Actions"]'
     ).first();
-    if (await actionsBtn.isVisible({ timeout: 5000 }).catch(() => false)) {
+    if (await actionsBtn.isVisible({ timeout: 1000 }).catch(() => false)) {
       await actionsBtn.click();
-      await this.page.waitForTimeout(2000);
+      await this.page.waitForTimeout(500);
       // Select the action from the dropdown (check visibility first)
       const actionItem = this.page.getByText(actionText, { exact: false }).first();
-      if (await actionItem.isVisible({ timeout: 3000 }).catch(() => false)) {
+      if (await actionItem.isVisible({ timeout: 1000 }).catch(() => false)) {
         await actionItem.click();
-        await this.page.waitForTimeout(5000);
+        await this.page.waitForTimeout(2000);
         await this.person.waitForJET();
         return true;
       }
@@ -2684,13 +2684,13 @@ export class CoreHRUATFlow extends BaseFlow {
     } else {
       // Fallback: try ADF menu approach
       const actionsMenuitem = this.page.locator('[role="menuitem"][aria-label="Actions"]');
-      if (await actionsMenuitem.isVisible({ timeout: 3000 }).catch(() => false)) {
+      if (await actionsMenuitem.isVisible({ timeout: 1000 }).catch(() => false)) {
         await actionsMenuitem.click();
-        await this.page.waitForTimeout(2000);
+        await this.page.waitForTimeout(500);
         const actionItem = this.page.getByText(actionText, { exact: false }).first();
-        if (await actionItem.isVisible({ timeout: 3000 }).catch(() => false)) {
+        if (await actionItem.isVisible({ timeout: 1000 }).catch(() => false)) {
           await actionItem.click();
-          await this.page.waitForTimeout(5000);
+          await this.page.waitForTimeout(2000);
           await this.person.waitForJET();
           return true;
         }
@@ -2753,18 +2753,18 @@ export class CoreHRUATFlow extends BaseFlow {
 
     // Navigate to Document Records section on person page
     const docRecordsLink = this.page.getByText('Document Records', { exact: false }).first();
-    const hasDocRecords = await docRecordsLink.isVisible({ timeout: 10000 }).catch(() => false);
+    const hasDocRecords = await docRecordsLink.isVisible({ timeout: 3000 }).catch(() => false);
     if (!hasDocRecords) {
       console.log(`[DeleteDocument] ${tc.testId}: Document Records section not found — navigation verified`);
       return;
     }
     await docRecordsLink.click();
-    await this.page.waitForTimeout(5000);
+    await this.page.waitForTimeout(2000);
     await this.person.waitForJET();
 
     // Try to select first document row for deletion
     const firstRow = this.page.locator('table tbody tr, [role="row"]').first();
-    const hasRows = await firstRow.isVisible({ timeout: 5000 }).catch(() => false);
+    const hasRows = await firstRow.isVisible({ timeout: 1000 }).catch(() => false);
     if (!hasRows) {
       console.log(`[DeleteDocument] ${tc.testId}: No document rows found — navigation verified`);
       return;
@@ -2772,23 +2772,23 @@ export class CoreHRUATFlow extends BaseFlow {
 
     // Click the row to select it
     await firstRow.click();
-    await this.page.waitForTimeout(2000);
+    await this.page.waitForTimeout(500);
 
     // Try Actions > Delete
     const actionsBtn = this.page.locator('button:has-text("Actions"), a:has-text("Actions")').first();
-    const hasActions = await actionsBtn.isVisible({ timeout: 3000 }).catch(() => false);
+    const hasActions = await actionsBtn.isVisible({ timeout: 1000 }).catch(() => false);
     if (hasActions) {
       await actionsBtn.click();
       await this.page.waitForTimeout(1000);
       const deleteItem = this.page.getByText('Delete', { exact: false }).first();
-      if (await deleteItem.isVisible({ timeout: 3000 }).catch(() => false)) {
+      if (await deleteItem.isVisible({ timeout: 1000 }).catch(() => false)) {
         await deleteItem.click();
-        await this.page.waitForTimeout(3000);
+        await this.page.waitForTimeout(1000);
         // Confirm deletion dialog if shown
         const confirmBtn = this.page.getByRole('button', { name: /Yes|Delete|Confirm|OK/i }).first();
-        if (await confirmBtn.isVisible({ timeout: 3000 }).catch(() => false)) {
+        if (await confirmBtn.isVisible({ timeout: 1000 }).catch(() => false)) {
           await confirmBtn.click();
-          await this.page.waitForTimeout(3000);
+          await this.page.waitForTimeout(1000);
         }
       }
     }
@@ -2810,31 +2810,31 @@ export class CoreHRUATFlow extends BaseFlow {
    */
   private async executeDocumentTypesAdmin(tc: UATTestCase): Promise<void> {
     await this.homePage.openNavigator();
-    await this.page.waitForTimeout(2000);
+    await this.page.waitForTimeout(500);
 
     const setupLink = this.page.locator(
       '[id*="nv_itemNode_setup_and_maintenance"], a[title="Setup and Maintenance"], a:has-text("Setup and Maintenance")'
     ).first();
-    const hasSetup = await setupLink.isVisible({ timeout: 5000 }).catch(() => false);
+    const hasSetup = await setupLink.isVisible({ timeout: 1000 }).catch(() => false);
 
     if (hasSetup) {
       await setupLink.click({ force: true });
       await this.page.waitForLoadState('networkidle', { timeout: 60_000 }).catch(() => {});
-      await this.page.waitForTimeout(5000);
+      await this.page.waitForTimeout(2000);
 
       // Search for "Document Types" in Setup and Maintenance search
       const searchInput = this.page.locator('input[placeholder*="Search"], input[aria-label*="Search"]').first();
-      const hasSearch = await searchInput.isVisible({ timeout: 5000 }).catch(() => false);
+      const hasSearch = await searchInput.isVisible({ timeout: 1000 }).catch(() => false);
       if (hasSearch) {
         await searchInput.fill('Document Types');
         await searchInput.press('Enter');
-        await this.page.waitForTimeout(5000);
+        await this.page.waitForTimeout(2000);
 
         // Click the Document Types task link
         const docTypesLink = this.page.getByRole('link', { name: /Document Types/i }).first();
-        if (await docTypesLink.isVisible({ timeout: 5000 }).catch(() => false)) {
+        if (await docTypesLink.isVisible({ timeout: 1000 }).catch(() => false)) {
           await docTypesLink.click();
-          await this.page.waitForTimeout(5000);
+          await this.page.waitForTimeout(2000);
         }
       }
     } else {
@@ -2866,56 +2866,56 @@ export class CoreHRUATFlow extends BaseFlow {
 
     // Try navigating to Learning via Navigator
     await this.homePage.openNavigator();
-    await this.page.waitForTimeout(2000);
+    await this.page.waitForTimeout(500);
 
     const learningLink = this.page.locator(
       '[id*="nv_itemNode_learning"], a[title="Learning"], a:has-text("Learning")'
     ).first();
-    const hasLearning = await learningLink.isVisible({ timeout: 5000 }).catch(() => false);
+    const hasLearning = await learningLink.isVisible({ timeout: 1000 }).catch(() => false);
 
     if (hasLearning) {
       await learningLink.click({ force: true });
       await this.page.waitForLoadState('networkidle', { timeout: 60_000 }).catch(() => {});
-      await this.page.waitForTimeout(5000);
+      await this.page.waitForTimeout(2000);
       await this.person.waitForJET();
 
       // Try to find and click course enrollment
       const enrollBtn = this.page.getByRole('button', { name: /Enroll|Add Enrollment/i }).first();
-      const hasEnroll = await enrollBtn.isVisible({ timeout: 5000 }).catch(() => false);
+      const hasEnroll = await enrollBtn.isVisible({ timeout: 1000 }).catch(() => false);
       if (hasEnroll) {
         await enrollBtn.click();
-        await this.page.waitForTimeout(3000);
+        await this.page.waitForTimeout(1000);
 
         const personRef = personName || this.extractPersonRef(tc);
         if (personRef) {
           const personInput = this.page.locator('input[aria-label*="Person"], input[placeholder*="Person"]').first();
-          if (await personInput.isVisible({ timeout: 3000 }).catch(() => false)) {
+          if (await personInput.isVisible({ timeout: 1000 }).catch(() => false)) {
             await personInput.fill(personRef);
             await personInput.press('Tab');
-            await this.page.waitForTimeout(3000);
+            await this.page.waitForTimeout(1000);
           }
         }
 
         const courseRef = courseName || 'NSO';
         const courseInput = this.page.locator('input[aria-label*="Course"], input[placeholder*="Course"]').first();
-        if (await courseInput.isVisible({ timeout: 3000 }).catch(() => false)) {
+        if (await courseInput.isVisible({ timeout: 1000 }).catch(() => false)) {
           await courseInput.fill(courseRef);
           await courseInput.press('Tab');
-          await this.page.waitForTimeout(3000);
+          await this.page.waitForTimeout(1000);
         }
 
         // Submit the enrollment
         const submitBtn = this.page.getByRole('button', { name: /Enroll|Submit|Save|OK/i }).first();
-        if (await submitBtn.isVisible({ timeout: 5000 }).catch(() => false)) {
+        if (await submitBtn.isVisible({ timeout: 1000 }).catch(() => false)) {
           await submitBtn.click();
-          await this.page.waitForTimeout(3000);
+          await this.page.waitForTimeout(1000);
           await this.person.waitForJET();
         }
         // Handle confirmation dialog
         const confirmBtn = this.page.getByRole('button', { name: /Yes|OK|Confirm|Done/i }).first();
-        if (await confirmBtn.isVisible({ timeout: 3000 }).catch(() => false)) {
+        if (await confirmBtn.isVisible({ timeout: 1000 }).catch(() => false)) {
           await confirmBtn.click();
-          await this.page.waitForTimeout(3000);
+          await this.page.waitForTimeout(1000);
         }
       }
 

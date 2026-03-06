@@ -92,9 +92,9 @@ export class SAAFlow extends BaseFlow {
     const salaryLink = this.page.locator(
       'a:has-text("Salary"), a:has-text("Compensation"), [role="tab"]:has-text("Salary")'
     ).first();
-    if (await salaryLink.isVisible({ timeout: 5000 }).catch(() => false)) {
+    if (await salaryLink.isVisible({ timeout: 1000 }).catch(() => false)) {
       await salaryLink.click();
-      await this.page.waitForTimeout(3000);
+      await this.page.waitForTimeout(1000);
       await this.saa.waitForJET();
       console.log(`[SAA] ${tc.testId}: Opened salary details in HR Specialist view`);
     } else {
@@ -125,9 +125,9 @@ export class SAAFlow extends BaseFlow {
     const actionsBtn = this.page.locator(
       'button:has-text("Actions"), a[role="button"]:has-text("Actions")'
     ).first();
-    if (await actionsBtn.isVisible({ timeout: 5000 }).catch(() => false)) {
+    if (await actionsBtn.isVisible({ timeout: 1000 }).catch(() => false)) {
       await actionsBtn.click();
-      await this.page.waitForTimeout(2000);
+      await this.page.waitForTimeout(500);
       // Log available actions
       const menuItems = await this.page.locator('[role="menuitem"]').allTextContents().catch(() => []);
       console.log(`[SAA] ${tc.testId}: HR Specialist actions available: ${menuItems.join(', ')}`);
@@ -155,7 +155,7 @@ export class SAAFlow extends BaseFlow {
     // Check if the notification bell panel has any salary items
     const hasSalaryNotif = await this.page.locator(
       'a:has-text("Salary"), [role="row"]:has-text("Salary")'
-    ).first().isVisible({ timeout: 5000 }).catch(() => false);
+    ).first().isVisible({ timeout: 1000 }).catch(() => false);
 
     if (!hasSalaryNotif) {
       console.log(`[SAA] ${tc.testId}: No pending Salary notification found — approval depends on prior MPDX submission for ${personName}`);
@@ -173,7 +173,7 @@ export class SAAFlow extends BaseFlow {
 
     const hasMHANotif = await this.page.locator(
       'a:has-text("MHA"), [role="row"]:has-text("MHA")'
-    ).first().isVisible({ timeout: 5000 }).catch(() => false);
+    ).first().isVisible({ timeout: 1000 }).catch(() => false);
 
     if (!hasMHANotif) {
       console.log(`[SAA] ${tc.testId}: No pending MHA notification found — approval depends on prior MPDX submission for ${personName}`);
@@ -191,7 +191,7 @@ export class SAAFlow extends BaseFlow {
 
     const hasNotif = await this.page.locator(
       'a:has-text("Additional Salary"), [role="row"]:has-text("Additional Salary")'
-    ).first().isVisible({ timeout: 5000 }).catch(() => false);
+    ).first().isVisible({ timeout: 1000 }).catch(() => false);
 
     if (!hasNotif) {
       console.log(`[SAA] ${tc.testId}: No pending Additional Salary notification found — approval depends on prior MPDX submission for ${personName}`);
@@ -231,21 +231,21 @@ export class SAAFlow extends BaseFlow {
     const numInput = this.page.locator(
       '[id$="q1:value10::content"], input[aria-label*="Person Number"]'
     ).first();
-    if (await numInput.isVisible({ timeout: 5000 }).catch(() => false)) {
+    if (await numInput.isVisible({ timeout: 1000 }).catch(() => false)) {
       await numInput.fill(personNumber);
       const searchBtn = this.page.locator('[id$="q1::search"], button:has-text("Search")').first();
-      if (await searchBtn.isVisible({ timeout: 3000 }).catch(() => false)) {
+      if (await searchBtn.isVisible({ timeout: 1000 }).catch(() => false)) {
         await searchBtn.click();
       } else {
         await numInput.press('Enter');
       }
-      await this.page.waitForTimeout(5000);
+      await this.page.waitForTimeout(2000);
       await this.saa.waitForJET();
 
       const firstResult = this.page.locator('[role="row"] a').first();
-      if (await firstResult.isVisible({ timeout: 5000 }).catch(() => false)) {
+      if (await firstResult.isVisible({ timeout: 1000 }).catch(() => false)) {
         await firstResult.click();
-        await this.page.waitForTimeout(3000);
+        await this.page.waitForTimeout(1000);
         await this.saa.waitForJET();
       }
     } else {
@@ -259,19 +259,19 @@ export class SAAFlow extends BaseFlow {
     const searchInput = this.page.locator(
       '[id$="q1:value00::content"], input[aria-label*="Search"], input[placeholder*="Search"]'
     ).first();
-    if (await searchInput.isVisible({ timeout: 5000 }).catch(() => false)) {
+    if (await searchInput.isVisible({ timeout: 1000 }).catch(() => false)) {
       await searchInput.fill(name);
       await searchInput.press('Enter');
-      await this.page.waitForTimeout(5000);
+      await this.page.waitForTimeout(2000);
       await this.saa.waitForJET();
 
       // Click first result
       const firstResult = this.page.locator(
         'a:has-text("' + name.split(',')[0] + '"), [role="row"] a'
       ).first();
-      if (await firstResult.isVisible({ timeout: 5000 }).catch(() => false)) {
+      if (await firstResult.isVisible({ timeout: 1000 }).catch(() => false)) {
         await firstResult.click();
-        await this.page.waitForTimeout(3000);
+        await this.page.waitForTimeout(1000);
         await this.saa.waitForJET();
       }
     }

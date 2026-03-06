@@ -268,15 +268,15 @@ export class JourneyAssignmentFlow extends BaseJourneysFlow {
     if (bp.includes('mass assignment') || bp.includes('launchpad')) {
       // Mass assignment: go to Explore tab and try to assign
       await this.journeysPage.selectTab('Explore');
-      await this.page.waitForTimeout(3000);
+      await this.page.waitForTimeout(1000);
 
       // Try to click an "Assign" button if visible
       const assignBtn = this.page.locator(
         'button:has-text("Assign"), a[role="button"]:has-text("Assign")'
       ).first();
-      if (await assignBtn.isVisible({ timeout: 5000 }).catch(() => false)) {
+      if (await assignBtn.isVisible({ timeout: 1000 }).catch(() => false)) {
         await assignBtn.click();
-        await this.page.waitForTimeout(3000);
+        await this.page.waitForTimeout(1000);
       }
       await this.journeysPage.screenshot(`journey-mass-${tc.testId}`);
 
@@ -288,21 +288,21 @@ export class JourneyAssignmentFlow extends BaseJourneysFlow {
         if (personName) await this.journeysPage.searchPerson(personName);
       }
       await this.journeysPage.clickFirstJourneyResult();
-      await this.page.waitForTimeout(3000);
+      await this.page.waitForTimeout(1000);
 
       // Try to click Cancel or Close button
       const actionBtn = this.page.locator(
         'button:has-text("Cancel"), button:has-text("Close"), ' +
         'a[role="button"]:has-text("Cancel"), a[role="button"]:has-text("Close")'
       ).first();
-      if (await actionBtn.isVisible({ timeout: 5000 }).catch(() => false)) {
+      if (await actionBtn.isVisible({ timeout: 1000 }).catch(() => false)) {
         await actionBtn.click();
-        await this.page.waitForTimeout(3000);
+        await this.page.waitForTimeout(1000);
         // Confirm dialog
         const confirmBtn = this.page.getByRole('button', { name: /Yes|OK|Confirm/i }).first();
-        if (await confirmBtn.isVisible({ timeout: 3000 }).catch(() => false)) {
+        if (await confirmBtn.isVisible({ timeout: 1000 }).catch(() => false)) {
           await confirmBtn.click();
-          await this.page.waitForTimeout(3000);
+          await this.page.waitForTimeout(1000);
         }
       }
       await this.journeysPage.screenshot(`journey-admin-${tc.testId}`);
@@ -315,16 +315,16 @@ export class JourneyAssignmentFlow extends BaseJourneysFlow {
         if (personName) await this.journeysPage.searchPerson(personName);
       }
       await this.journeysPage.clickFirstJourneyResult();
-      await this.page.waitForTimeout(3000);
+      await this.page.waitForTimeout(1000);
 
       // Try reassignment if applicable
       if (bp.includes('reassignment')) {
         const reassignBtn = this.page.locator(
           'button:has-text("Reassign"), a[role="button"]:has-text("Reassign")'
         ).first();
-        if (await reassignBtn.isVisible({ timeout: 5000 }).catch(() => false)) {
+        if (await reassignBtn.isVisible({ timeout: 1000 }).catch(() => false)) {
           await reassignBtn.click();
-          await this.page.waitForTimeout(3000);
+          await this.page.waitForTimeout(1000);
         }
       }
       await this.journeysPage.screenshot(`journey-admin-${tc.testId}`);
@@ -332,14 +332,14 @@ export class JourneyAssignmentFlow extends BaseJourneysFlow {
     } else if (bp.includes('synchronize') || bp.includes('template change')) {
       // JR-047: Synchronize Journey Template — navigate to journey templates/configuration
       await this.journeysPage.selectTab('Explore');
-      await this.page.waitForTimeout(3000);
+      await this.page.waitForTimeout(1000);
       // Look for a settings/configure link on the Explore tab
       const configLink = this.page.locator(
         'a:has-text("Configure"), a:has-text("Settings"), button:has-text("Configure")'
       ).first();
-      if (await configLink.isVisible({ timeout: 5000 }).catch(() => false)) {
+      if (await configLink.isVisible({ timeout: 1000 }).catch(() => false)) {
         await configLink.click();
-        await this.page.waitForTimeout(3000);
+        await this.page.waitForTimeout(1000);
       }
       console.log(`[Journeys] ${tc.testId}: Template sync/config — page loaded`);
       await this.journeysPage.screenshot(`journey-template-${tc.testId}`);
@@ -347,16 +347,16 @@ export class JourneyAssignmentFlow extends BaseJourneysFlow {
     } else if (bp.includes('error handling') || bp.includes('troubleshoot')) {
       // JR-048: Journey Error Handling — attempt an action that triggers error handling
       await this.journeysPage.selectTab('Explore');
-      await this.page.waitForTimeout(3000);
+      await this.page.waitForTimeout(1000);
       // Try to assign a journey without filling required fields to trigger validation
       const firstCard = this.page.locator('[class*="journey-card"], [class*="Card"], oj-sp-collection-card').first();
-      if (await firstCard.isVisible({ timeout: 5000 }).catch(() => false)) {
+      if (await firstCard.isVisible({ timeout: 1000 }).catch(() => false)) {
         await firstCard.click();
-        await this.page.waitForTimeout(3000);
+        await this.page.waitForTimeout(1000);
         await this.journeysPage.clickAssignOnDetail();
         // Submit without filling person to trigger error
         await this.journeysPage.clickAssignSubmit();
-        await this.page.waitForTimeout(2000);
+        await this.page.waitForTimeout(500);
       }
       console.log(`[Journeys] ${tc.testId}: Error handling — checking validation state`);
       await this.journeysPage.screenshot(`journey-error-${tc.testId}`);
@@ -364,17 +364,17 @@ export class JourneyAssignmentFlow extends BaseJourneysFlow {
     } else if (bp.includes('eligibility') || bp.includes('security') || bp.includes('negative')) {
       // JR-028: Eligibility & Security — attempt to assign journey to ineligible person
       await this.journeysPage.selectTab('Explore');
-      await this.page.waitForTimeout(3000);
+      await this.page.waitForTimeout(1000);
       const firstCard = this.page.locator('[class*="journey-card"], [class*="Card"], oj-sp-collection-card').first();
-      if (await firstCard.isVisible({ timeout: 5000 }).catch(() => false)) {
+      if (await firstCard.isVisible({ timeout: 1000 }).catch(() => false)) {
         await firstCard.click();
-        await this.page.waitForTimeout(3000);
+        await this.page.waitForTimeout(1000);
         await this.journeysPage.clickAssignOnDetail();
         // Fill person from field data if available
         const personName = fieldData ? getField(fieldData, 'Person Name') : this.extractPersonFromTestData(tc);
         if (personName) await this.journeysPage.fillAssigneePerson(personName);
         await this.journeysPage.clickAssignSubmit();
-        await this.page.waitForTimeout(2000);
+        await this.page.waitForTimeout(500);
       }
       console.log(`[Journeys] ${tc.testId}: Eligibility/security check — verifying response`);
       await this.journeysPage.screenshot(`journey-eligibility-${tc.testId}`);
@@ -410,24 +410,24 @@ export class JourneyAssignmentFlow extends BaseJourneysFlow {
     } else if (bp.includes('multiple concurrent')) {
       // JR-027: Multiple Concurrent Journeys — assign multiple journeys to same person
       await this.journeysPage.selectTab('Explore');
-      await this.page.waitForTimeout(3000);
+      await this.page.waitForTimeout(1000);
       // Assign first available journey
       const firstCard = this.page.locator('[class*="journey-card"], [class*="Card"], oj-sp-collection-card').first();
-      if (await firstCard.isVisible({ timeout: 5000 }).catch(() => false)) {
+      if (await firstCard.isVisible({ timeout: 1000 }).catch(() => false)) {
         await firstCard.click();
-        await this.page.waitForTimeout(3000);
+        await this.page.waitForTimeout(1000);
         await this.journeysPage.clickAssignOnDetail();
         await this.fillAssignForm(tc, fieldData);
         await this.journeysPage.clickAssignSubmit();
-        await this.page.waitForTimeout(3000);
+        await this.page.waitForTimeout(1000);
       }
       // Navigate back and assign a second journey
       await this.journeysPage.selectTab('Explore');
-      await this.page.waitForTimeout(3000);
+      await this.page.waitForTimeout(1000);
       const secondCard = this.page.locator('[class*="journey-card"], [class*="Card"], oj-sp-collection-card').nth(1);
-      if (await secondCard.isVisible({ timeout: 5000 }).catch(() => false)) {
+      if (await secondCard.isVisible({ timeout: 1000 }).catch(() => false)) {
         await secondCard.click();
-        await this.page.waitForTimeout(3000);
+        await this.page.waitForTimeout(1000);
         await this.journeysPage.clickAssignOnDetail();
         await this.fillAssignForm(tc, fieldData);
         await this.journeysPage.clickAssignSubmit();
@@ -479,12 +479,12 @@ export class JourneyAssignmentFlow extends BaseJourneysFlow {
         if (personName) await this.journeysPage.searchPerson(personName);
       }
       await this.journeysPage.clickFirstJourneyResult();
-      await this.page.waitForTimeout(3000);
+      await this.page.waitForTimeout(1000);
       // Check for contextual/triggered journey indicators
       const contextualIndicator = this.page.locator(
         ':has-text("Contextual"), :has-text("Triggered"), :has-text("Auto-assigned")'
       ).first();
-      const hasContextual = await contextualIndicator.isVisible({ timeout: 5000 }).catch(() => false);
+      const hasContextual = await contextualIndicator.isVisible({ timeout: 1000 }).catch(() => false);
       console.log(`[Journeys] ${tc.testId}: Contextual journey ${hasContextual ? 'found' : 'not found'}`);
       await this.journeysPage.screenshot(`journey-contextual-${tc.testId}`);
 
@@ -496,7 +496,7 @@ export class JourneyAssignmentFlow extends BaseJourneysFlow {
         if (personName) await this.journeysPage.searchPerson(personName);
       }
       await this.journeysPage.clickFirstJourneyResult();
-      await this.page.waitForTimeout(3000);
+      await this.page.waitForTimeout(1000);
       await this.journeysPage.screenshot(`journey-admin-${tc.testId}`);
 
     } else if (bp.includes('retro hire') || bp.includes('late start')) {
