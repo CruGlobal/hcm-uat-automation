@@ -413,10 +413,52 @@ async function fillLovField(
 
 // ── Login ────────────────────────────────────────────────────────────
 
+/** Enter TOTP code with retry logic for code reuse and rate limiting. */
+async function enterTOTP(page: Page, totp: TOTP, mfaInput: ReturnType<Page['locator']>): Promise<void> {
+  for (let attempt = 1; attempt <= 5; attempt++) {
+    const rateLimitAlert = page.getByText('Too many attempts', { exact: false });
+    const isRateLimited = await rateLimitAlert.isVisible({ timeout: 2000 }).catch(() => false);
+    if (isRateLimited) {
+      const waitSecs = 30 + attempt * 15;
+      console.log(`[Login] Okta rate limited, waiting ${waitSecs}s (attempt ${attempt})...`);
+      await page.waitForTimeout(waitSecs * 1000);
+      await page.reload({ waitUntil: 'networkidle' });
+      if (page.url().includes('fscmUI')) return;
+      const hasMfaInput = await mfaInput.isVisible({ timeout: 5000 }).catch(() => false);
+      if (!hasMfaInput) return;
+    }
+
+    const code = totp.generate();
+    await mfaInput.fill(code);
+    await page.locator('input[type="submit"]').click();
+    await page.waitForTimeout(3_000);
+
+    if (page.url().includes('fscmUI')) return;
+
+    // Check if we landed on a second-factor selection page (success for TOTP step)
+    const secondFactorPage = await page.locator('a[aria-label="Select Password."]').isVisible({ timeout: 2000 }).catch(() => false);
+    if (secondFactorPage) return;
+
+    const errorMsg = page.locator('.o-form-has-errors, [data-se="o-form-error-container"]');
+    const hasError = await errorMsg.isVisible({ timeout: 2000 }).catch(() => false);
+    if (hasError && attempt < 5) {
+      console.log(`[Login] TOTP attempt ${attempt} failed, waiting for next period...`);
+      const now = Math.floor(Date.now() / 1000);
+      const secondsUntilNext = 30 - (now % 30) + 1;
+      await page.waitForTimeout(secondsUntilNext * 1000);
+      continue;
+    }
+
+    if (attempt === 5 && !page.url().includes('fscmUI')) {
+      await page.waitForURL('**/fscmUI/**', { timeout: 30_000 }).catch(() => {});
+    }
+  }
+}
+
 async function login(page: Page): Promise<void> {
   console.log('[Login] Starting Okta SSO + TOTP MFA...');
   await page.goto(env.oracle.url);
-  await page.waitForLoadState('networkidle');
+  await page.waitForLoadState('networkidle').catch(() => {});
 
   // If already on HCM page (session still valid), skip login
   if (page.url().includes('fscmUI')) {
@@ -428,83 +470,64 @@ async function login(page: Page): Promise<void> {
 
   // Step 1: Click "Company Single Sign-On"
   await page.locator('#ssoBtn').click();
-  await page.waitForLoadState('networkidle');
+  await page.waitForLoadState('networkidle').catch(() => {});
 
   // Step 2: Okta — enter username
+  await page.locator('input[name="identifier"]').waitFor({ state: 'visible', timeout: 15_000 });
   await page.locator('input[name="identifier"]').fill(env.oracle.username);
   await page.locator('input[type="submit"]').click();
-  await page.waitForLoadState('networkidle');
+  await page.waitForLoadState('networkidle').catch(() => {});
+  await page.waitForTimeout(3_000);
 
-  // Step 3: Okta — enter password
-  const pwField = page.locator('input[name="credentials.passcode"]');
-  await pwField.waitFor({ state: 'visible', timeout: 15_000 });
-  await pwField.fill(env.oracle.password);
-  await page.locator('input[type="submit"]').click();
-  await page.waitForLoadState('networkidle');
-
-  // Step 4: Okta — select Google Authenticator for MFA
-  await page
-    .locator('a[aria-label="Select Google Authenticator."]')
-    .waitFor({ state: 'visible', timeout: 15_000 });
-  await page.locator('a[aria-label="Select Google Authenticator."]').click();
-  await page.waitForLoadState('networkidle');
-
-  // Step 5: Enter TOTP code (retry up to 5 times)
+  // Step 3: Okta — detect flow (new: MFA-first, old: password-first)
   const totp = new TOTP({ secret: env.okta.totpSecret });
   const mfaInput = page.locator('input[name="credentials.passcode"]');
-  await mfaInput.waitFor({ state: 'visible', timeout: 15_000 });
+  const gaSelect = page.locator('a[aria-label="Select Google Authenticator."]');
+  const gaSelectVisible = await gaSelect.isVisible({ timeout: 5_000 }).catch(() => false);
 
-  for (let attempt = 1; attempt <= 5; attempt++) {
-    // Check for Okta rate limiting
-    const rateLimitAlert = page.getByText('Too many attempts', { exact: false });
-    const isRateLimited = await rateLimitAlert.isVisible({ timeout: 2000 }).catch(() => false);
-    if (isRateLimited) {
-      const waitSecs = 30 + attempt * 15;
-      console.log(`[Login] Okta rate limited, waiting ${waitSecs}s (attempt ${attempt})...`);
-      await page.waitForTimeout(waitSecs * 1000);
-      await page.reload({ waitUntil: 'networkidle' });
-      if (!page.url().includes('fscmUI')) {
-        const hasMfaInput = await mfaInput.isVisible({ timeout: 5000 }).catch(() => false);
-        if (!hasMfaInput) {
-          console.log('[Login] Re-starting login after rate limit...');
-          return login(page);
-        }
+  if (gaSelectVisible) {
+    // New flow: MFA selection first (passwordless)
+    console.log('[Login] New Okta flow: MFA first');
+    await gaSelect.click();
+    await page.waitForLoadState('networkidle').catch(() => {});
+    await page.waitForTimeout(3_000);
+    await mfaInput.waitFor({ state: 'visible', timeout: 15_000 });
+    await enterTOTP(page, totp, mfaInput);
+
+    // After TOTP, Okta may ask for password as second factor
+    if (!page.url().includes('fscmUI')) {
+      const pwdSelect = page.locator('a[aria-label="Select Password."]');
+      const pwdSelectVisible = await pwdSelect.isVisible({ timeout: 5_000 }).catch(() => false);
+      if (pwdSelectVisible) {
+        await pwdSelect.click();
+        await page.waitForLoadState('networkidle').catch(() => {});
+        await page.waitForTimeout(3_000);
+        const pwField = page.locator('input[name="credentials.passcode"]');
+        await pwField.waitFor({ state: 'visible', timeout: 10_000 });
+        await pwField.fill(env.oracle.password);
+        await page.locator('input[type="submit"]').click();
       }
     }
-
-    const code = totp.generate();
-    await mfaInput.fill(code);
+  } else {
+    // Old flow: password first, then MFA
+    console.log('[Login] Old Okta flow: password first');
+    const pwField = page.locator('input[name="credentials.passcode"]');
+    await pwField.waitFor({ state: 'visible', timeout: 15_000 });
+    await pwField.fill(env.oracle.password);
     await page.locator('input[type="submit"]').click();
+    await page.waitForLoadState('networkidle').catch(() => {});
 
-    const redirected = await page
-      .waitForURL('**/fscmUI/**', { timeout: 15_000 })
-      .then(() => true)
-      .catch(() => false);
-    if (redirected) {
-      console.log('[Login] Login successful');
-      await waitForReady(page);
-      await dismissPopups(page);
-      return;
-    }
+    await gaSelect.waitFor({ state: 'visible', timeout: 15_000 });
+    await gaSelect.click();
+    await page.waitForLoadState('networkidle').catch(() => {});
 
-    // Check if TOTP was rejected
-    const errorMsg = page.locator('.o-form-has-errors, [data-se="o-form-error-container"]');
-    const hasError = await errorMsg.isVisible({ timeout: 2000 }).catch(() => false);
-    if (hasError && attempt < 5) {
-      console.log(`[Login] TOTP attempt ${attempt} failed, waiting for next code window...`);
-      const now = Math.floor(Date.now() / 1000);
-      const secondsUntilNext = 30 - (now % 30) + 1;
-      await page.waitForTimeout(secondsUntilNext * 1000);
-      continue;
-    }
-
-    if (attempt === 5) {
-      await page.waitForURL('**/fscmUI/**', { timeout: 120_000 });
-    }
+    await mfaInput.waitFor({ state: 'visible', timeout: 15_000 });
+    await enterTOTP(page, totp, mfaInput);
   }
 
+  // Ensure we're on the HCM page
   if (!page.url().includes('fscmUI')) {
-    throw new Error('Login failed after 5 TOTP attempts');
+    await page.waitForURL('**/fscmUI/**', { timeout: 120_000 });
   }
 
   await waitForReady(page);

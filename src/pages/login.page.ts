@@ -1,9 +1,8 @@
 import { type Page } from '@playwright/test';
-import { spawnSync } from 'child_process';
-import * as path from 'path';
 import { BasePage } from './base.page';
 import { env } from '../config/environment';
 import { TOTP } from 'otpauth';
+import { unlockBotAccount } from '../../scripts/lib/hcm-rest-api';
 
 export class LoginPage extends BasePage {
   // Oracle native login form (direct login, no SSO)
@@ -27,7 +26,7 @@ export class LoginPage extends BasePage {
 
   async navigate(): Promise<void> {
     await this.page.goto('/');
-    await this.page.waitForLoadState('networkidle');
+    await this.page.waitForLoadState('networkidle').catch(() => {});
   }
 
   async login(username?: string, password?: string, totpSecret?: string): Promise<void> {
@@ -37,91 +36,115 @@ export class LoginPage extends BasePage {
 
     // Step 1: Click "Company Single Sign-On" on Oracle login page
     await this.ssoButton.click();
-    await this.page.waitForLoadState('networkidle');
+    await this.page.waitForLoadState('networkidle').catch(() => {});
 
     // Step 2: Okta — enter username
+    await this.oktaUsername.waitFor({ state: 'visible', timeout: 15_000 });
     await this.oktaUsername.fill(user);
     await this.oktaNextButton.click();
-    await this.page.waitForLoadState('networkidle');
+    await this.page.waitForLoadState('networkidle').catch(() => {});
+    await this.page.waitForTimeout(3_000);
 
-    // Step 3: Okta — enter password
-    await this.oktaPassword.waitFor({ state: 'visible', timeout: 15_000 });
-    await this.oktaPassword.fill(pass);
-    await this.oktaNextButton.click();
-    await this.page.waitForLoadState('networkidle');
-
-    // Step 4: Okta — MFA with Google Authenticator TOTP
-    await this.googleAuthSelect.waitFor({ state: 'visible', timeout: 15_000 });
-    await this.googleAuthSelect.click();
-    await this.page.waitForLoadState('networkidle');
-
+    // Step 3: Okta — two-factor verification
+    // New Okta flow (2026-03): passwordless-first, then password as second factor.
+    // Old flow: username → password → MFA selection → TOTP
+    // New flow: username → MFA selection → TOTP → second factor selection → password
     const totp = new TOTP({ secret: secret });
-    await this.mfaCodeInput.waitFor({ state: 'visible', timeout: 15_000 });
 
-    // Retry TOTP up to 5 times — codes can be rejected if reused within the same
-    // 30-second window, or Okta may rate-limit ("Too many attempts").
+    // Check if we're on the MFA selection page or the password page
+    const gaSelectVisible = await this.googleAuthSelect.isVisible({ timeout: 5_000 }).catch(() => false);
+
+    if (gaSelectVisible) {
+      // New flow: MFA selection first (passwordless)
+      await this.googleAuthSelect.click();
+      await this.page.waitForLoadState('networkidle').catch(() => {});
+      await this.page.waitForTimeout(3_000);
+
+      // Enter TOTP code
+      await this.mfaCodeInput.waitFor({ state: 'visible', timeout: 15_000 });
+      await this.enterTOTP(totp);
+
+      // After TOTP, Okta may ask for a second factor (password)
+      if (!this.page.url().includes('fscmUI')) {
+        const pwdSelect = this.page.locator('a[aria-label="Select Password."]');
+        const pwdSelectVisible = await pwdSelect.isVisible({ timeout: 5_000 }).catch(() => false);
+        if (pwdSelectVisible) {
+          await pwdSelect.click();
+          await this.page.waitForLoadState('networkidle').catch(() => {});
+          await this.page.waitForTimeout(3_000);
+          await this.oktaPassword.waitFor({ state: 'visible', timeout: 10_000 });
+          await this.oktaPassword.fill(pass);
+          await this.oktaNextButton.click();
+        }
+      }
+    } else {
+      // Old flow: password first, then MFA
+      await this.oktaPassword.waitFor({ state: 'visible', timeout: 15_000 });
+      await this.oktaPassword.fill(pass);
+      await this.oktaNextButton.click();
+      await this.page.waitForLoadState('networkidle').catch(() => {});
+
+      await this.googleAuthSelect.waitFor({ state: 'visible', timeout: 15_000 });
+      await this.googleAuthSelect.click();
+      await this.page.waitForLoadState('networkidle').catch(() => {});
+
+      await this.mfaCodeInput.waitFor({ state: 'visible', timeout: 15_000 });
+      await this.enterTOTP(totp);
+    }
+
+    // Ensure we're on the HCM page
+    if (!this.page.url().includes('fscmUI')) {
+      await this.page.waitForURL('**/fscmUI/**', { timeout: 120_000 });
+    }
+    await this.waitForReady();
+    await this.dismissPopups();
+  }
+
+  /**
+   * Enter TOTP code with retry logic for code reuse and rate limiting.
+   */
+  private async enterTOTP(totp: TOTP): Promise<void> {
     for (let attempt = 1; attempt <= 5; attempt++) {
-      // Check for Okta rate limiting BEFORE entering the code
       const rateLimitAlert = this.page.getByText('Too many attempts', { exact: false });
       const isRateLimited = await rateLimitAlert.isVisible({ timeout: 2000 }).catch(() => false);
       if (isRateLimited) {
-        const waitSecs = 30 + attempt * 15; // 45s, 60s, 75s, 90s, 105s
-        console.log(`[Login] Okta rate limited, waiting ${waitSecs}s before retry (attempt ${attempt})...`);
+        const waitSecs = 30 + attempt * 15;
+        console.log(`[Login] Okta rate limited, waiting ${waitSecs}s (attempt ${attempt})...`);
         await this.page.waitForTimeout(waitSecs * 1000);
-        // Refresh the page to clear the rate limit state
         await this.page.reload({ waitUntil: 'networkidle' });
-        // Re-navigate through login if needed
-        if (!this.page.url().includes('fscmUI')) {
-          const hasMfaInput = await this.mfaCodeInput.isVisible({ timeout: 5000 }).catch(() => false);
-          if (!hasMfaInput) {
-            // Need to re-login from scratch
-            console.log('[Login] Re-starting login after rate limit...');
-            await this.navigate();
-            await this.login(user, pass, secret);
-            return;
-          }
-        }
+        if (this.page.url().includes('fscmUI')) return;
+        const hasMfaInput = await this.mfaCodeInput.isVisible({ timeout: 5000 }).catch(() => false);
+        if (!hasMfaInput) return; // Page changed, caller handles next step
       }
 
       const code = totp.generate();
       await this.mfaCodeInput.fill(code);
       await this.oktaNextButton.click();
 
-      // Check if we got redirected to HCM or if there's an error
-      const redirected = await this.page.waitForURL('**/fscmUI/**', { timeout: 10_000 }).then(() => true).catch(() => false);
-      if (redirected) break;
+      // Check for redirect or second factor page
+      await this.page.waitForTimeout(3_000);
+      if (this.page.url().includes('fscmUI')) return;
+
+      // Check if we landed on a second-factor selection page (success for TOTP step)
+      const secondFactorPage = await this.page.locator('a[aria-label="Select Password."]').isVisible({ timeout: 2000 }).catch(() => false);
+      if (secondFactorPage) return;
 
       // Check for errors
       const errorMsg = this.page.locator('.o-form-has-errors, [data-se="o-form-error-container"]');
       const hasError = await errorMsg.isVisible({ timeout: 2000 }).catch(() => false);
-      const tooManyAttempts = await rateLimitAlert.isVisible({ timeout: 1000 }).catch(() => false);
-
-      if (tooManyAttempts && attempt < 5) {
-        console.log(`[Login] Okta rate limit detected after attempt ${attempt}`);
-        continue; // Loop back to the rate limit handler at the top
-      }
 
       if (hasError && attempt < 5) {
-        console.log(`[Login] TOTP attempt ${attempt} failed (code reuse), waiting for next period...`);
-        // Wait until the next 30-second TOTP window
+        console.log(`[Login] TOTP attempt ${attempt} failed, waiting for next period...`);
         const now = Math.floor(Date.now() / 1000);
         const secondsUntilNext = 30 - (now % 30) + 1;
         await this.page.waitForTimeout(secondsUntilNext * 1000);
         continue;
       }
 
-      if (attempt === 5) {
-        // Final attempt — wait longer for redirect
-        await this.page.waitForURL('**/fscmUI/**', { timeout: 120_000 });
+      if (attempt === 5 && !this.page.url().includes('fscmUI')) {
+        await this.page.waitForURL('**/fscmUI/**', { timeout: 30_000 }).catch(() => {});
       }
     }
-
-    // Step 5: Ensure we're on the HCM page
-    if (!this.page.url().includes('fscmUI')) {
-      await this.page.waitForURL('**/fscmUI/**', { timeout: 120_000 });
-    }
-    await this.waitForReady();
-    await this.dismissPopups();
   }
 
   /**
@@ -148,10 +171,9 @@ export class LoginPage extends BasePage {
 
     // Check for Oracle OAM credential rejection (URL stays at auth_cred_submit = login failed)
     if (this.page.url().includes('auth_cred_submit')) {
-      // Auto-unlock: extract bot name from username (uat.bot_name → bot_name) and reset
-      const botName = username.startsWith('uat.') ? username.slice(4) : null;
-      if (botName) {
-        const unlocked = await this.tryUnlockBot(botName);
+      // Auto-unlock via SCIM REST API (set active=true)
+      if (username.startsWith('uat.')) {
+        const unlocked = await this.tryUnlockBot(username);
         if (unlocked) {
           // Retry login once after unlock
           console.log(`[Login] Retrying login for ${username} after unlock...`);
@@ -222,24 +244,13 @@ export class LoginPage extends BasePage {
   }
 
   /**
-   * Attempt to unlock a locked Oracle bot account by running reset-one-bot.ts as a subprocess.
-   * Uses admin SSO credentials. Returns true if unlock succeeded, false if it failed.
+   * Attempt to unlock a locked Oracle bot account via SCIM REST API.
+   * Sets active=true on the user account. Takes ~2 seconds vs ~5 minutes for the old UI approach.
    */
-  private async tryUnlockBot(botName: string): Promise<boolean> {
-    console.log(`[Login] Account locked for ${botName} — attempting auto-unlock via reset-one-bot.ts...`);
-    const scriptPath = path.resolve(process.cwd(), 'scripts/inspect/reset-one-bot.ts');
-    const result = spawnSync('npx', ['tsx', scriptPath, botName], {
-      timeout: 5 * 60 * 1000, // 5 minutes max
-      encoding: 'utf-8',
-      env: { ...process.env },
-    });
-    if (result.status === 0) {
-      console.log(`[Login] Auto-unlock succeeded for ${botName}`);
-      return true;
-    }
-    const errOutput = (result.stderr || result.stdout || '').substring(0, 300);
-    console.warn(`[Login] Auto-unlock failed for ${botName} (exit ${result.status}): ${errOutput}`);
-    return false;
+  private async tryUnlockBot(username: string): Promise<boolean> {
+    console.log(`[Login] Account locked for ${username} — attempting SCIM REST API unlock...`);
+    const baseUrl = env.oracle.url.replace(/\/$/, '');
+    return unlockBotAccount(baseUrl, username);
   }
 
   /**

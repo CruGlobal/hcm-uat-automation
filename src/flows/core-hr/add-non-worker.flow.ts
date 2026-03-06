@@ -61,7 +61,14 @@ export class AddNonWorkerFlow extends BaseCoreHRFlow {
     await this.clickNext();
 
     // Step 5: Review — Submit
-    await this.submitAndVerify();
+    const personNumber = await this.submitAndVerify();
+
+    // Post-submission: Create Staff Designation EIT via Person Management
+    const hasStaffDesignation = getField(tc, 'Staff Account Number') || getField(tc, 'Designation');
+    if (hasStaffDesignation && personNumber) {
+      console.log(`[AddNonWorker] Creating post-submission Staff Designation EIT for person ${personNumber}`);
+      await this.staffDesignation.createPostSubmissionEIT(personNumber, tc);
+    }
   }
 
   /**

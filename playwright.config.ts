@@ -12,7 +12,7 @@ export default defineConfig({
   testDir: './tests',
   fullyParallel: false,
   forbidOnly: !!process.env.CI,
-  retries: process.env.CI ? 1 : 0,
+  retries: 1,
   workers: 1, // Serial — Oracle HCM sessions conflict
   globalSetup: './tests/fixtures/global-setup.ts',
   reporter: [

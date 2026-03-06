@@ -55,7 +55,7 @@ export class AssignmentPage extends BasePage {
   private readonly workingAsManager = this.page.locator('[id$="JobDe1:0:selectOneRadio2::content"]');
   private readonly hourlyOrSalaried = this.page.locator('[id$="JobDe1:0:selectOneChoice2::content"]');
   private readonly workingHours = this.page.locator('[id$="JobDe1:0:inputText1::content"]').or(
-    this.page.locator('input[id$="inputText1::content"]')
+    this.page.getByRole('textbox', { name: 'Working Hours', exact: true })
   ).first();
   private readonly frequency = this.page.locator('[id$="JobDe1:0:selectOneChoice6::content"]');
 

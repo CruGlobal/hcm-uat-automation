@@ -125,6 +125,9 @@ export function isTestable(tc: UATTestCase): boolean {
  * Get field-level test data for a UAT Plan test ID.
  * Returns a TestCase with form field values from the migration DB,
  * or undefined if no field data exists for this testId.
+ *
+ * When RUN_COUNTER env var is set (by run-parallel.ts), hire/create tests
+ * get run-unique names and SSNs so they can be re-run without conflicts.
  */
 export function getFieldData(testId: string): TestCase | undefined {
   if (!_fieldDataCache) {
@@ -135,7 +138,55 @@ export function getFieldData(testId: string): TestCase | undefined {
       _fieldDataCache = new Map();
     }
   }
-  return _fieldDataCache.get(testId);
+  const tc = _fieldDataCache.get(testId);
+  if (!tc) return undefined;
+
+  const runCounter = parseInt(process.env.RUN_COUNTER || '0', 10);
+  if (runCounter > 0 && isCreatePersonTest(tc)) {
+    return applyRunUniqueMutations(tc, runCounter);
+  }
+  return tc;
+}
+
+/** Tabs that create new people in Oracle HCM (hire, add pending, add non-worker). */
+const CREATE_PERSON_TABS = ['core - hires', 'core - add pending', 'core - add non-worker'];
+
+function isCreatePersonTest(tc: TestCase): boolean {
+  return CREATE_PERSON_TABS.includes(tc.tab.toLowerCase());
+}
+
+/**
+ * Return a shallow copy of the TestCase with run-unique name and SSN fields.
+ * - Last name gets " R{counter}" suffix (e.g., "HR-023 R2")
+ * - SSN gets offset by counter * 5000 to avoid collisions across runs
+ */
+function applyRunUniqueMutations(tc: TestCase, counter: number): TestCase {
+  const fields = { ...tc.fields };
+
+  // Mutate last name: find the key that contains "Last Name"
+  for (const key of Object.keys(fields)) {
+    if (key.toLowerCase().includes('last name')) {
+      fields[key] = `${fields[key]} R${counter}`;
+      break;
+    }
+  }
+
+  // Mutate SSN: offset to avoid duplicate SSN conflicts
+  for (const key of Object.keys(fields)) {
+    if (key.toLowerCase().includes('national id') && !key.toLowerCase().includes('type')) {
+      const original = fields[key];
+      // SSN format: 9 digits (AAAggSSSS). Offset the serial portion.
+      if (/^\d{9}$/.test(original)) {
+        const area = parseInt(original.slice(0, 3), 10);
+        const rest = parseInt(original.slice(3), 10);
+        const newRest = (rest + counter * 5000) % 1000000;
+        fields[key] = `${area}${String(newRest).padStart(6, '0')}`;
+      }
+      break;
+    }
+  }
+
+  return { ...tc, fields };
 }
 
 /**

@@ -50,18 +50,17 @@ export class AddPendingWorkerFlow extends BaseCoreHRFlow {
     await this.fillStep3(tc);
     await this.clickNext();
 
-    // Step 5: Compensation and Other Information
-    // Fill Staff Designation if data is available
-    const hasStaffDesignation = getField(tc, 'Staff and Designation') ||
-                                getField(tc, 'Staff Account Number') ||
-                                getField(tc, 'Designation');
-    if (hasStaffDesignation) {
-      console.log('[AddPendingWorker] Filling Staff Designation section');
-      await this.staffDesignation.fillFromTestCase(tc);
-    }
+    // Step 5: Compensation and Other Information (skip — Staff Designation filled post-submission)
     await this.clickNext();
 
     // Step 6: Review → Submit
-    await this.submitAndVerify();
+    const personNumber = await this.submitAndVerify();
+
+    // Post-submission: Create Staff Designation EIT via Person Management
+    const hasStaffDesignation = getField(tc, 'Staff Account Number') || getField(tc, 'Designation');
+    if (hasStaffDesignation && personNumber) {
+      console.log(`[AddPendingWorker] Creating post-submission Staff Designation EIT for person ${personNumber}`);
+      await this.staffDesignation.createPostSubmissionEIT(personNumber, tc);
+    }
   }
 }

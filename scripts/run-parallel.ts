@@ -35,6 +35,7 @@ const maxBots = parseInt(args[args.indexOf('--bots') + 1] || '0', 10) || Infinit
 const moduleFilter = args.includes('--module') ? args[args.indexOf('--module') + 1] : null;
 const onePerBot = args.includes('--one-per-bot');
 const noClones = args.includes('--no-clones');
+const maxClonesPerBot = args.includes('--clones') ? parseInt(args[args.indexOf('--clones') + 1] || '5', 10) : Infinity;
 const statusFilter = args.includes('--status') ? args[args.indexOf('--status') + 1] : null;
 const trackingStatusFilter = args.includes('--tracking-status') ? args[args.indexOf('--tracking-status') + 1] : null;
 
@@ -247,8 +248,26 @@ function raiseFileDescriptorLimit(): void {
   console.warn('  [FD limit] Could not raise file descriptor limit — spawn failures may occur above ~87 processes');
 }
 
+const RUN_COUNTER_FILE = path.resolve('.cache', 'run-counter.json');
+
+function getAndIncrementRunCounter(): number {
+  let counter = 1;
+  if (fs.existsSync(RUN_COUNTER_FILE)) {
+    try {
+      counter = JSON.parse(fs.readFileSync(RUN_COUNTER_FILE, 'utf-8')).counter + 1;
+    } catch { /* start from 1 */ }
+  }
+  fs.mkdirSync(path.dirname(RUN_COUNTER_FILE), { recursive: true });
+  fs.writeFileSync(RUN_COUNTER_FILE, JSON.stringify({ counter }, null, 2));
+  return counter;
+}
+
 async function main() {
   raiseFileDescriptorLimit();
+
+  // Increment run counter for idempotent hire/create tests
+  const runCounter = getAndIncrementRunCounter();
+  console.log(`  [Run counter] ${runCounter} (hire tests will use unique names/SSNs)\n`);
 
   // Parse --status filter
   const statusFilterValues = statusFilter
@@ -336,8 +355,9 @@ async function main() {
       continue;
     }
 
-    // Distribute tests round-robin across base + clones
-    const accounts = [baseBotName, ...cloneNames];
+    // Distribute tests round-robin across base + clones (limited by --clones N)
+    const limitedClones = cloneNames.slice(0, maxClonesPerBot);
+    const accounts = [baseBotName, ...limitedClones];
     const buckets: TestInfo[][] = accounts.map(() => []);
     for (let i = 0; i < tests.length; i++) {
       buckets[i % accounts.length].push(tests[i]);
@@ -378,7 +398,9 @@ async function main() {
   console.log(`  Starting at ${new Date(startTime).toLocaleTimeString()}...\n`);
 
   // Build env vars for child processes
-  const childEnvExtras: Record<string, string> = {};
+  const childEnvExtras: Record<string, string> = {
+    RUN_COUNTER: String(runCounter),
+  };
   if (statusFilterValues) {
     childEnvExtras.RUN_STATUS_FILTER = statusFilterValues.join(',');
   }
@@ -389,29 +411,8 @@ async function main() {
   let completedCount = 0;
   let spawnedCount = 0;
 
-  // Sequential sheet update queue — one update at a time to avoid Google Sheets rate limiting
-  let sheetUpdateChain = Promise.resolve();
-  let sheetUpdatesQueued = 0;
-  let sheetUpdatesCompleted = 0;
-
-  function queueSheetUpdate(accountName: string): void {
-    const jsonPath = path.resolve('test-results', `results-${accountName}.json`);
-    sheetUpdatesQueued++;
-    sheetUpdateChain = sheetUpdateChain.then(() => {
-      if (!fs.existsSync(jsonPath)) return;
-      try {
-        execFileSync('npx', ['tsx', 'scripts/update-tracking-sheet.ts', '--report', jsonPath], {
-          cwd: process.cwd(),
-          stdio: 'pipe',
-          timeout: 60_000,
-        });
-        sheetUpdatesCompleted++;
-        console.log(`\n  [Sheet] Updated (${sheetUpdatesCompleted}/${sheetUpdatesQueued} queued) — ${accountName}`);
-      } catch (err: any) {
-        console.error(`\n  [Sheet] Failed for ${accountName}: ${err.message?.split('\n')[0] || err}`);
-      }
-    });
-  }
+  // Sheet updates are handled automatically by the TrackingSheetReporter in each
+  // child Playwright process (registered in playwright.parallel.config.ts).
 
   // Spawn all processes in parallel
   console.log(`  Spawning ${processes.length} processes...\n`);
@@ -501,9 +502,6 @@ async function main() {
       globalFailed += failed;
       completedCount++;
 
-      // Queue a sheet update for this bot's results (sequential — no concurrent API calls)
-      queueSheetUpdate(proc.accountName);
-
       resolve({ accountName: proc.accountName, testCount: proc.tests.length, exitCode: code || 0, output, duration, passed, failed });
     });
   }));
@@ -566,13 +564,6 @@ async function main() {
   const seqTime = results.reduce((s, r) => s + r.duration, 0);
   console.log(`\n  Total: ${totalPassed} passed, ${totalFailed} failed`);
   console.log(`  Wall-clock: ${elapsed}s  (sequential would be ~${seqTime.toFixed(0)}s, ${(seqTime / parseFloat(elapsed)).toFixed(1)}x speedup)\n`);
-
-  // ─── Wait for all queued sheet updates to finish ──────────────────────────
-  if (sheetUpdatesQueued > 0) {
-    console.log(`\n  Waiting for ${sheetUpdatesQueued} sheet updates to finish...`);
-    await sheetUpdateChain;
-    console.log(`  Sheet updates complete (${sheetUpdatesCompleted}/${sheetUpdatesQueued} succeeded)`);
-  }
 
   // ─── Merge per-bot JSON reports for progress report ───────────────────────
   let mergedReportPath: string | null = null;

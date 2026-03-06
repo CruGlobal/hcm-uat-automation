@@ -132,6 +132,17 @@ export interface TimeRecordGroupRecord {
   [key: string]: unknown;
 }
 
+export interface TimeCardRecord {
+  TimeCardId: number;
+  TimeCardVersion: number;
+  Status: string;
+  PersonId: number;
+  StartDate: string;
+  StopDate: string;
+  ReportedHours: number;
+  [key: string]: unknown;
+}
+
 export interface JourneyRecord {
   JourneyId: number;
   Name: string;
@@ -156,9 +167,9 @@ export interface BasicAuthCredentials {
 // ── Default Credentials ──────────────────────────────────────────────
 
 /**
- * REST API credentials. OWSM requires email-format username.
- * Bot users (uat.bot_*) do NOT work — only federated users with
- * email-format usernames are accepted by the OWSM Basic Auth realm.
+ * Default REST API credentials.
+ * Both email-format (josh.starcher@cru.org) and bot users (uat.bot_*) work.
+ * Bot users require plain username format (NOT email).
  */
 const DEFAULT_REST_CREDS: BasicAuthCredentials = {
   username: 'josh.starcher@cru.org',
@@ -274,6 +285,70 @@ export async function hcmDelete(
   creds: BasicAuthCredentials = DEFAULT_REST_CREDS,
 ): Promise<{ statusCode: number; data: any }> {
   return hcmRequest('DELETE', baseUrl, endpoint, creds);
+}
+
+// ── SCIM User Account Operations ─────────────────────────────────────
+
+/**
+ * Look up a SCIM user by username (e.g., "uat.bot_hr_admin").
+ * Returns the SCIM user id (GUID) or null if not found.
+ */
+export async function scimLookupUser(
+  baseUrl: string,
+  username: string,
+  creds: BasicAuthCredentials = DEFAULT_REST_CREDS,
+): Promise<{ id: string; active: boolean; userName: string } | null> {
+  const endpoint = `/hcmRestApi/scim/Users?filter=userName eq "${username}"`;
+  const result = await hcmRequest('GET', baseUrl, endpoint, creds);
+  const resources = result.data?.Resources || result.data?.resources || [];
+  if (resources.length === 0) return null;
+  const user = resources[0];
+  return { id: user.id, active: user.active, userName: user.userName };
+}
+
+/**
+ * Unlock a user account via SCIM PATCH (set active=true).
+ * Much faster than UI-based unlock (~2s vs ~5min).
+ * Returns true if successful, false on failure.
+ */
+export async function scimUnlockUser(
+  baseUrl: string,
+  scimUserId: string,
+  creds: BasicAuthCredentials = DEFAULT_REST_CREDS,
+): Promise<boolean> {
+  const endpoint = `/hcmRestApi/scim/Users/${scimUserId}`;
+  try {
+    await hcmRequest('PATCH', baseUrl, endpoint, creds, {
+      schemas: ['urn:scim:schemas:core:2.0:User'],
+      active: true,
+    });
+    return true;
+  } catch (err: any) {
+    console.warn(`[SCIM] Failed to unlock user ${scimUserId}: ${err.message?.slice(0, 200)}`);
+    return false;
+  }
+}
+
+/**
+ * Unlock a bot account by username (e.g., "uat.bot_hr_admin").
+ * Combines lookup + unlock in one call. Returns true if successful.
+ */
+export async function unlockBotAccount(
+  baseUrl: string,
+  username: string,
+  creds: BasicAuthCredentials = DEFAULT_REST_CREDS,
+): Promise<boolean> {
+  const user = await scimLookupUser(baseUrl, username, creds);
+  if (!user) {
+    console.warn(`[SCIM] User not found: ${username}`);
+    return false;
+  }
+  if (user.active) {
+    console.log(`[SCIM] User ${username} is already active — no unlock needed`);
+    return true;
+  }
+  console.log(`[SCIM] Unlocking user ${username} (id: ${user.id})...`);
+  return scimUnlockUser(baseUrl, user.id, creds);
 }
 
 // ── Domain-Specific Operations ───────────────────────────────────────
@@ -574,6 +649,56 @@ export async function lookupTimeRecords(
   }
 }
 
+/**
+ * Look up time cards for a person by PersonId using the timeCards REST resource.
+ * Returns all time cards matching the PersonId (optionally filtered by date range).
+ */
+export async function lookupTimeCards(
+  baseUrl: string,
+  personId: number,
+  creds: BasicAuthCredentials = DEFAULT_REST_CREDS,
+): Promise<TimeCardRecord[]> {
+  const endpoint = `/hcmRestApi/resources/latest/timeCards?q=PersonId=${personId}&onlyData=true&limit=100`;
+  try {
+    const data = await hcmGet(null, baseUrl, endpoint, creds);
+    return (data?.items || []) as TimeCardRecord[];
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Look up time cards for a person by PersonNumber.
+ * Convenience wrapper: resolves PersonId first, then queries timeCards.
+ */
+export async function lookupTimeCardsByNumber(
+  baseUrl: string,
+  personNumber: string,
+  creds: BasicAuthCredentials = DEFAULT_REST_CREDS,
+): Promise<TimeCardRecord[]> {
+  const worker = await lookupPersonId(null, baseUrl, personNumber, creds);
+  if (!worker) return [];
+  return lookupTimeCards(baseUrl, worker.PersonId, creds);
+}
+
+/**
+ * Delete a time card via the timeCards deleteAction.
+ * Uses the Oracle HCM action endpoint: POST /timeCards/action/deleteAction
+ * with Content-Type: application/vnd.oracle.adf.action+json.
+ * Requires TimeCardId and TimeCardVersion.
+ */
+export async function deleteTimeCard(
+  baseUrl: string,
+  timeCardId: number,
+  timeCardVersion: number,
+  creds: BasicAuthCredentials = DEFAULT_REST_CREDS,
+): Promise<void> {
+  const endpoint = `/hcmRestApi/resources/latest/timeCards/action/deleteAction`;
+  await hcmPost(baseUrl, endpoint, {
+    timeCards: [{ TimeCardId: timeCardId, TimeCardVersion: timeCardVersion }],
+  }, creds);
+}
+
 // ── Journey / Checklist Operations ───────────────────────────────────
 
 /**
@@ -643,6 +768,21 @@ export async function deleteElementEntry(
   creds: BasicAuthCredentials = DEFAULT_REST_CREDS,
 ): Promise<void> {
   const endpoint = `/hcmRestApi/resources/latest/elementEntries/${elementEntryId}`;
+  await hcmDelete(baseUrl, endpoint, creds);
+}
+
+/**
+ * Delete a benefit enrollment record.
+ * Uses DELETE on the benefitEnrollments endpoint.
+ * NOTE: Oracle HCM may not support DELETE on benefitEnrollments — if so, the
+ * caller should catch the error and proceed gracefully.
+ */
+export async function deleteBenefitEnrollment(
+  baseUrl: string,
+  enrollmentResultId: number,
+  creds: BasicAuthCredentials = DEFAULT_REST_CREDS,
+): Promise<void> {
+  const endpoint = `/hcmRestApi/resources/latest/benefitEnrollments/${enrollmentResultId}`;
   await hcmDelete(baseUrl, endpoint, creds);
 }
 

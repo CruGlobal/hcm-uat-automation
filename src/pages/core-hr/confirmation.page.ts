@@ -168,14 +168,24 @@ export class ConfirmationPage extends BasePage {
   }
 
   async getPersonNumber(): Promise<string> {
+    // Strategy 1: Extract from confirmation message element
     try {
       const text = await this.confirmationMessage.textContent({ timeout: 5000 }) || '';
-      // Extract person number (8+ digit number) from confirmation text
       const match = text.match(/\d{8,}/);
-      return match ? match[0] : '';
-    } catch {
-      return '';
-    }
+      if (match) return match[0];
+    } catch { /* not visible */ }
+
+    // Strategy 2: Extract from any 8+ digit number visible on the page
+    try {
+      const numVisible = await this.personNumberText.isVisible({ timeout: 3000 }).catch(() => false);
+      if (numVisible) {
+        const numText = await this.personNumberText.textContent().catch(() => '') || '';
+        const match = numText.match(/\d{8,}/);
+        if (match) return match[0];
+      }
+    } catch { /* not visible */ }
+
+    return '';
   }
 
   /** Full submit + verify flow. Returns person number if available. */

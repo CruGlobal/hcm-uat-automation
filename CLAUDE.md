@@ -186,6 +186,35 @@ Password with spaces must be quoted in `.env`: `ORACLE_HCM_PASSWORD="word1 word2
 - Navigator menu: `a[title="Navigator"]` → `a:has-text("Show More")` → `a[title="New Person"]`.
 - Temporary `inspect-*.ts` scripts in the project root are for UI exploration and can be deleted.
 
+## Test Idempotency (Re-runnable Tests)
+
+Some tests perform one-time operations that prevent re-execution with the same data:
+
+| Problem | Tests Affected | Solution |
+|---------|---------------|----------|
+| Can't hire person who already exists (name+SSN conflict) | Hire, Add Pending Worker, Add Non-Worker (~200 tests) | **Run-unique data**: append run counter to names, offset SSNs |
+| Can't terminate already-terminated person | Termination (~30 tests) | **Pre-flight**: reverse termination via REST API |
+| Can't rehire already-active person | Rehire (~49 tests) | **Pre-flight**: re-terminate via REST API |
+| Can't create duplicate absence | Absence entry (~40 tests) | **Pre-flight**: withdraw duplicate via REST API |
+| Can't create duplicate element entry | Payroll entry (~20 tests) | **Pre-flight**: delete duplicate via REST API |
+
+### How it works
+
+**Pre-Flight Checker** (`src/validation/pre-flight-checker.ts`): Runs before each test via REST API (no browser needed). Checks current state and resets if consumed. Already implemented for termination, rehire, absence, payroll.
+
+**Run-Unique Data** (hire/create tests): `getFieldData()` in `uat-plan-provider.ts` applies run-specific mutations when `RUN_COUNTER` env var is set (auto-set by `run-parallel.ts`):
+- Last name: `{testId}` → `{testId} R{counter}` (e.g., "HR-023 R2")
+- SSN: offset by `counter * 5000` to avoid collisions
+- Each execution creates genuinely new people in Oracle HCM
+
+**Run counter**: Stored in `.cache/run-counter.json`, incremented by `run-parallel.ts` on each invocation. For serial debugging: `RUN_COUNTER=N npx playwright test -g "HR-023"`.
+
+### Key files
+- `src/validation/pre-flight-checker.ts` — Pre-flight state checks and resets
+- `src/data/uat-plan-provider.ts` → `getFieldData()` — Applies run-unique mutations
+- `scripts/run-parallel.ts` — Increments and passes `RUN_COUNTER`
+- `.cache/run-counter.json` — Persisted run counter
+
 ## Adding a New Module
 
 1. Create page objects in `src/pages/<module>/`

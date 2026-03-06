@@ -17,8 +17,7 @@ import type { TestCase } from '../../data/types';
  *   Step 4: Compensation and Other Information
  *   Step 5: Review → Submit
  *
- * After submission, fills Staff Designation if field data is available
- * (only for tests that include "Staff and Designation" section data).
+ * Fills Staff Designation on Step 4 if field data is available.
  */
 export class HireEmployeeFlow extends BaseCoreHRFlow {
   constructor(page: Page) {
@@ -40,19 +39,30 @@ export class HireEmployeeFlow extends BaseCoreHRFlow {
       return;
     }
 
-    // Fill wizard steps and submit
-    await this.fillCommonSections(tc);
+    // Step 1: Identification (When/Why + Personal Details)
+    await this.fillStep1(tc);
+    await this.clickNext();
 
-    // Fill Staff Designation if data is available (before submit on Step 5)
+    // Step 2: Person Information (Address + Legislative)
+    await this.fillStep2(tc);
+    await this.clickNext();
+
+    // Step 3: Employment Information (Assignment, Job, Managers, Payroll, Salary)
+    await this.fillStep3(tc);
+    await this.clickNext();
+
+    // Step 4: Compensation and Other Information — fill Staff Designation here
     const hasStaffDesignation = getField(tc, 'Staff and Designation') ||
                                 getField(tc, 'Staff Account Number') ||
                                 getField(tc, 'Designation');
     if (hasStaffDesignation) {
-      console.log('[Hire] Filling Staff Designation section');
+      console.log('[Hire] Filling Staff Designation section on Step 4');
       await this.staffDesignation.fillFromTestCase(tc);
       await this.staffDesignation.fillTraining(tc);
     }
+    await this.clickNext();
 
+    // Step 5: Review → Submit
     await this.submitAndVerify();
   }
 }

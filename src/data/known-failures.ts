@@ -19,6 +19,7 @@ import {
   lookupAbsencesByNumber,
   lookupElementEntriesByNumber,
   lookupBenefitEnrollmentsByNumber,
+  lookupAllocatedChecklistsByNumber,
   type BasicAuthCredentials,
 } from '../../scripts/lib/hcm-rest-api';
 
@@ -478,6 +479,198 @@ const KNOWN_FAILURES: Record<string, KnownFailure> = {
 
         await popup.close().catch(() => {});
       }
+    },
+  },
+
+  // ── Payroll: Costing with past effective date ─────────────────────
+
+  // ── Core HR: Personal info / assignment change issues ────────────
+
+  'HR-122': {
+    reason: 'Non-employee personal info update fails — form rejects changes',
+    validate: async (page, tc) => {
+      const personNumber = getPersonNumber(tc);
+      expect(personNumber, 'HR-122: Need person number to validate').toBeTruthy();
+      const worker = await getWorkerFull(null, BASE_URL, personNumber!, API_CREDS);
+      expect(worker, `HR-122: Worker ${personNumber} should exist`).toBeTruthy();
+    },
+  },
+
+  'HR-139': {
+    reason: 'Document submission missing "Document of Record" type in dropdown',
+    validate: async (page, tc) => {
+      const docOfRecord = page.getByText('Document of Record', { exact: false });
+      await expect(
+        docOfRecord,
+        'HR-139: "Document of Record" type should be available in document type dropdown',
+      ).toBeVisible({ timeout: 10_000 });
+    },
+  },
+
+  'HR-576': {
+    reason: 'Document submission missing "Document of Record" type in dropdown',
+    validate: async (page, tc) => {
+      const docOfRecord = page.getByText('Document of Record', { exact: false });
+      await expect(
+        docOfRecord,
+        'HR-576: "Document of Record" type should be available in document type dropdown',
+      ).toBeVisible({ timeout: 10_000 });
+    },
+  },
+
+  'HR-258': {
+    reason: 'Global transfer (Company Change) fails — assignment change not completed',
+    validate: async (page, tc) => {
+      const personNumber = getPersonNumber(tc);
+      expect(personNumber, 'HR-258: Need person number to validate').toBeTruthy();
+      const worker = await getWorkerFull(null, BASE_URL, personNumber!, API_CREDS);
+      expect(worker, `HR-258: Worker ${personNumber} should exist`).toBeTruthy();
+      const workRels = worker!.workRelationships || [];
+      expect(workRels.length, 'HR-258: Should have work relationships after transfer').toBeGreaterThan(0);
+    },
+  },
+
+  'HR-261': {
+    reason: 'Global transfer (Company Change) fails — assignment change not completed',
+    validate: async (page, tc) => {
+      const personNumber = getPersonNumber(tc);
+      expect(personNumber, 'HR-261: Need person number to validate').toBeTruthy();
+      const worker = await getWorkerFull(null, BASE_URL, personNumber!, API_CREDS);
+      expect(worker, `HR-261: Worker ${personNumber} should exist`).toBeTruthy();
+      const workRels = worker!.workRelationships || [];
+      expect(workRels.length, 'HR-261: Should have work relationships after transfer').toBeGreaterThan(0);
+    },
+  },
+
+  'HR-326': {
+    reason: 'Assignment change does not complete — form submission fails',
+    validate: async (page, tc) => {
+      const personNumber = getPersonNumber(tc);
+      expect(personNumber, 'HR-326: Need person number to validate').toBeTruthy();
+      const worker = await getWorkerFull(null, BASE_URL, personNumber!, API_CREDS);
+      expect(worker, `HR-326: Worker ${personNumber} should exist`).toBeTruthy();
+    },
+  },
+
+  'HR-338': {
+    reason: 'Assignment change does not complete — form submission fails',
+    validate: async (page, tc) => {
+      const personNumber = getPersonNumber(tc);
+      expect(personNumber, 'HR-338: Need person number to validate').toBeTruthy();
+      const worker = await getWorkerFull(null, BASE_URL, personNumber!, API_CREDS);
+      expect(worker, `HR-338: Worker ${personNumber} should exist`).toBeTruthy();
+    },
+  },
+
+  'HR-409': {
+    reason: 'Assignment change does not complete — form submission fails',
+    validate: async (page, tc) => {
+      const personNumber = getPersonNumber(tc);
+      expect(personNumber, 'HR-409: Need person number to validate').toBeTruthy();
+      const worker = await getWorkerFull(null, BASE_URL, personNumber!, API_CREDS);
+      expect(worker, `HR-409: Worker ${personNumber} should exist`).toBeTruthy();
+    },
+  },
+
+  // ── Payroll: Element entry / processing issues ─────────────────────
+
+  'HR-448': {
+    reason: 'Bonus element entry not created — element entry submission fails',
+    validate: async (page, tc) => {
+      const personNumber = getPersonNumber(tc);
+      expect(personNumber, 'HR-448: Need person number to validate').toBeTruthy();
+      const entries = await lookupElementEntriesByNumber(null, BASE_URL, personNumber!, API_CREDS);
+      const bonus = entries.filter(e =>
+        String(e.ElementName || '').toLowerCase().includes('bonus'),
+      );
+      expect(
+        bonus.length,
+        `HR-448: Expected bonus element entry for person ${personNumber}, found ${entries.length} total entries with no bonus`,
+      ).toBeGreaterThan(0);
+    },
+  },
+
+  'PY-004': {
+    reason: 'Payroll processing issue — payroll run does not complete',
+    validate: async (page, tc) => {
+      // Payroll runs should show Succeeded/Completed status
+      const succeeded = page.getByText('Succeeded', { exact: false })
+        .or(page.getByText('Completed', { exact: false })).first();
+      await expect(
+        succeeded,
+        'PY-004: Payroll processing should show Succeeded or Completed status',
+      ).toBeVisible({ timeout: 15_000 });
+    },
+  },
+
+  'PY-005-01': {
+    reason: 'Payroll processing issue — payroll run does not complete',
+    validate: async (page, tc) => {
+      const succeeded = page.getByText('Succeeded', { exact: false })
+        .or(page.getByText('Completed', { exact: false })).first();
+      await expect(
+        succeeded,
+        'PY-005-01: Payroll processing should show Succeeded or Completed status',
+      ).toBeVisible({ timeout: 15_000 });
+    },
+  },
+
+  'PY-005-02': {
+    reason: 'Payroll processing issue — payroll run does not complete',
+    validate: async (page, tc) => {
+      const succeeded = page.getByText('Succeeded', { exact: false })
+        .or(page.getByText('Completed', { exact: false })).first();
+      await expect(
+        succeeded,
+        'PY-005-02: Payroll processing should show Succeeded or Completed status',
+      ).toBeVisible({ timeout: 15_000 });
+    },
+  },
+
+  // ── Absence: Submission / negative test issues ─────────────────────
+
+  'AB-047.00': {
+    reason: 'Medical leave submission fails — absence type not available or form error',
+    validate: async (page, tc) => {
+      const personNumber = getPersonNumber(tc);
+      expect(personNumber, 'AB-047.00: Need person number to validate').toBeTruthy();
+      const absences = await lookupAbsencesByNumber(null, BASE_URL, personNumber!, API_CREDS);
+      const medical = absences.filter(a =>
+        String(a.absenceTypeName || a.absenceType || '').toLowerCase().includes('medical'),
+      );
+      expect(
+        medical.length,
+        `AB-047.00: Expected medical leave absence for person ${personNumber}`,
+      ).toBeGreaterThan(0);
+    },
+  },
+
+  'AB-044.01': {
+    reason: 'Parental leave should NOT be available (negative test) — absence type visible = defect',
+    validate: async (page, tc) => {
+      // This is a NEGATIVE test: parental leave should NOT be available for this person
+      const parentalLeave = page.getByText('Parental Leave', { exact: false }).first();
+      const visible = await parentalLeave.isVisible({ timeout: 5000 }).catch(() => false);
+      expect(
+        visible,
+        'AB-044.01: Parental Leave absence type should NOT be visible for this person. ' +
+          'If visible, this is a configuration defect.',
+      ).toBe(false);
+    },
+  },
+
+  // ── Journeys: Assignment issues ────────────────────────────────────
+
+  'JR-050': {
+    reason: 'Journey not assigned — person not available in assignment dropdown',
+    validate: async (page, tc) => {
+      const personNumber = getPersonNumber(tc);
+      expect(personNumber, 'JR-050: Need person number to validate').toBeTruthy();
+      const checklists = await lookupAllocatedChecklistsByNumber(null, BASE_URL, personNumber!, API_CREDS);
+      expect(
+        checklists.length,
+        `JR-050: Expected at least one journey checklist for person ${personNumber}`,
+      ).toBeGreaterThan(0);
     },
   },
 

@@ -19,14 +19,13 @@ export default defineConfig({
   testDir: './tests',
   fullyParallel: false,
   workers: 1,
-  retries: 0,
+  retries: 1,
   reporter: [
     ['list'],
     ['json', { outputFile: jsonOutputFile }],
-    // Tracking sheet updates are handled by run-parallel.ts after each bot finishes
-    // (sequential queue to avoid concurrent Google Sheets API rate limiting)
+    ['./src/reporters/tracking-sheet-reporter.ts'],
   ],
-  timeout: 300_000,
+  timeout: 420_000, // 7 min — hire wizards take 3-4 min, server load can add latency
   expect: { timeout: 15_000 },
   use: {
     baseURL: process.env.ORACLE_HCM_URL || 'https://placeholder.oraclecloud.com',

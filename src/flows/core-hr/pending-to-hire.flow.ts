@@ -31,8 +31,8 @@ export class PendingToHireFlow extends BaseCoreHRFlow {
     await this.homePage.goToPersonManagement();
 
     // Search by person number (without clicking through to detail)
-    const personNumber = getField(tc, 'Search for Person Number');
-    if (!personNumber) {
+    const searchPersonNum = getField(tc, 'Search for Person Number');
+    if (!searchPersonNum) {
       console.log('[PendingToHire] No "Search for Person Number" field — falling back to Add Pending Worker');
       // No person number to search — this is actually an "Add Pending Worker" test
       await this.homePage.goToAddPendingWorker();
@@ -45,14 +45,19 @@ export class PendingToHireFlow extends BaseCoreHRFlow {
       await this.assignment.fillFromTestCase(tc);
       await this.clickNext();
       await this.clickNext();
-      await this.submitAndVerify();
+      const pn1 = await this.submitAndVerify();
+      // Post-submission: Create Staff Designation EIT if data available
+      const hasSD1 = getField(tc, 'Staff Account Number') || getField(tc, 'Designation');
+      if (hasSD1 && pn1) {
+        await this.staffDesignation.createPostSubmissionEIT(pn1, tc);
+      }
       return;
     }
 
-    const found = await this.person.searchByPersonNumberOnly(personNumber);
+    const found = await this.person.searchByPersonNumberOnly(searchPersonNum);
     if (!found) {
-      console.log(`[PendingToHire] Person ${personNumber} not found in search results`);
-      throw new Error(`Person ${personNumber} not found in Person Management search`);
+      console.log(`[PendingToHire] Person ${searchPersonNum} not found in search results`);
+      throw new Error(`Person ${searchPersonNum} not found in Person Management search`);
     }
 
     // Check if the person is already hired (Active status)
@@ -61,9 +66,9 @@ export class PendingToHireFlow extends BaseCoreHRFlow {
 
     if (rowText.toLowerCase().includes('active')) {
       // Person is already hired — the Pending-to-Hire conversion has already been completed
-      console.log(`[PendingToHire] Person ${personNumber} is already active (hired). Test scenario already completed.`);
+      console.log(`[PendingToHire] Person ${searchPersonNum} is already active (hired). Test scenario already completed.`);
       // Click through to verify the person's detail page loads correctly
-      await this.person.searchByPersonNumber(personNumber);
+      await this.person.searchByPersonNumber(searchPersonNum);
       // Wait for person detail page
       await this.page.waitForTimeout(3000);
       const pageTitle = await this.page.title();
@@ -72,7 +77,7 @@ export class PendingToHireFlow extends BaseCoreHRFlow {
     }
 
     // Person is pending — initiate Hire action
-    console.log(`[PendingToHire] Person ${personNumber} is pending — initiating Hire action`);
+    console.log(`[PendingToHire] Person ${searchPersonNum} is pending — initiating Hire action`);
     await this.initiateHireFromSearchResults();
 
     // Fill the hire wizard — When/Why is on Step 1
@@ -93,11 +98,18 @@ export class PendingToHireFlow extends BaseCoreHRFlow {
     await this.payrollDetails.fillFromTestCase(tc);
     await this.salary.fillFromTestCase(tc);
 
-    // Staff Designation section (specific to this tab)
+    // Staff Designation section (try in-wizard first, then post-submission fallback)
     await this.staffDesignation.fillFromTestCase(tc);
     await this.staffDesignation.fillTraining(tc);
 
-    await this.submitAndVerify();
+    const personNumber = await this.submitAndVerify();
+
+    // Post-submission: Create Staff Designation EIT via Person Management
+    const hasSD = getField(tc, 'Staff Account Number') || getField(tc, 'Designation');
+    if (hasSD && personNumber) {
+      console.log(`[PendingToHire] Creating post-submission Staff Designation EIT for person ${personNumber}`);
+      await this.staffDesignation.createPostSubmissionEIT(personNumber, tc);
+    }
   }
 
   /**

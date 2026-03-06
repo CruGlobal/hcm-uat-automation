@@ -441,21 +441,32 @@ export class AbsenceManagementPage extends BasePage {
     }
   }
 
-  /** Click on a plan name in the Plan Participation section to view balance details. */
-  async clickPlanName(planName?: string): Promise<void> {
+  /** Click on a plan name in the Plan Participation section to view balance details. Returns false if no plans found. */
+  async clickPlanName(planName?: string): Promise<boolean> {
     if (planName) {
       const planLink = this.page.getByText(planName, { exact: false }).first();
+      if (!await planLink.isVisible({ timeout: 8000 }).catch(() => false)) {
+        console.log(`[Absence] Plan name "${planName}" not found — person may have no enrollments`);
+        return false;
+      }
       await planLink.click();
     } else {
       // Click the first plan link in the plan participation table
       const firstPlan = this.page.locator(
         '[role="row"] a[id*="Plan"], [role="row"] a[id*="plan"], ' +
-        'table a, [class*="plan"] a'
+        '[role="row"] a[id*="AbsencePlan"], [role="row"] a[id*="absencePlan"], ' +
+        'table [role="row"] a, [class*="plan"] a, ' +
+        '[role="gridcell"] a, td a'
       ).first();
+      if (!await firstPlan.isVisible({ timeout: 8000 }).catch(() => false)) {
+        console.log('[Absence] No plan links found in Plan Participation — person may have no enrollments');
+        return false;
+      }
       await firstPlan.click();
     }
     await this.page.waitForTimeout(3000);
     await this.waitForJET();
+    return true;
   }
 
   /** Navigate to the "Existing Absences" section on the person detail page. */
@@ -511,33 +522,51 @@ export class AbsenceManagementPage extends BasePage {
     await this.waitForJET();
   }
 
-  /** Click "Update Enrollment" from the dropdown or three-dots menu. */
-  async clickUpdateEnrollment(): Promise<void> {
+  /** Click "Update Enrollment" from the dropdown or three-dots menu. Returns false if not available. */
+  async clickUpdateEnrollment(): Promise<boolean> {
     await this.openEnrollmentsAndAdjustments();
-    await this.page.getByText('Update Enrollment').first().click();
+    const option = this.page.getByText('Update Enrollment').first();
+    if (!await option.isVisible({ timeout: 5000 }).catch(() => false)) {
+      console.log('[Absence] Update Enrollment option not available');
+      return false;
+    }
+    await option.click();
     await this.page.waitForTimeout(3000);
     await this.waitForJET();
+    return true;
   }
 
-  /** Click "Delete Enrollment" or "Delete" from the dropdown. */
-  async clickDeleteEnrollment(): Promise<void> {
+  /** Click "Delete Enrollment" or "Delete" from the dropdown. Returns false if not available. */
+  async clickDeleteEnrollment(): Promise<boolean> {
     await this.openEnrollmentsAndAdjustments();
     const deleteOption = this.page.getByText('Delete Enrollment', { exact: false }).first();
-    if (await deleteOption.isVisible({ timeout: 2000 }).catch(() => false)) {
+    if (await deleteOption.isVisible({ timeout: 3000 }).catch(() => false)) {
       await deleteOption.click();
     } else {
-      await this.page.getByText('Delete').first().click();
+      const deleteBtn = this.page.getByText('Delete').first();
+      if (!await deleteBtn.isVisible({ timeout: 3000 }).catch(() => false)) {
+        console.log('[Absence] Delete Enrollment option not available');
+        return false;
+      }
+      await deleteBtn.click();
     }
     await this.page.waitForTimeout(3000);
     await this.waitForJET();
+    return true;
   }
 
-  /** Click "Adjust Balance" from the Enrollments and Adjustments dropdown. */
-  async clickAdjustBalance(): Promise<void> {
+  /** Click "Adjust Balance" from the Enrollments and Adjustments dropdown. Returns false if not available. */
+  async clickAdjustBalance(): Promise<boolean> {
     await this.openEnrollmentsAndAdjustments();
-    await this.page.getByText('Adjust Balance').first().click();
+    const option = this.page.getByText('Adjust Balance').first();
+    if (!await option.isVisible({ timeout: 5000 }).catch(() => false)) {
+      console.log('[Absence] Adjust Balance option not available');
+      return false;
+    }
+    await option.click();
     await this.page.waitForTimeout(3000);
     await this.waitForJET();
+    return true;
   }
 
   /** Click "Disburse Balance" from the Enrollments and Adjustments dropdown. */
@@ -1109,18 +1138,20 @@ export class AbsenceManagementPage extends BasePage {
     return false;
   }
 
-  /** Select a plan row in the Plan Participation table. */
-  async selectPlanRow(index = 0): Promise<void> {
-    await this.navigateToPlanParticipation();
+  /** Select a plan row in the Plan Participation table. Returns false if no plan rows found. */
+  async selectPlanRow(index = 0): Promise<boolean> {
     const rows = this.page.locator(
-      'table [role="row"], [class*="plan"] [role="row"]'
+      'table [role="row"], [class*="plan"] [role="row"], [role="grid"] [role="row"]'
     );
     const targetRow = rows.nth(index + 1); // Skip header row
-    if (await targetRow.isVisible({ timeout: 5000 }).catch(() => false)) {
+    if (await targetRow.isVisible({ timeout: 8000 }).catch(() => false)) {
       await targetRow.click();
       await this.page.waitForTimeout(2000);
       await this.waitForJET();
+      return true;
     }
+    console.log('[Absence] No plan rows found in Plan Participation — person may have no enrollments');
+    return false;
   }
 
   // ===== Fill from UATTestCase =====
