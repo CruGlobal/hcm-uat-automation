@@ -75,15 +75,32 @@ export class SAAFlow extends BaseFlow {
   private async executeHRSpecialistView(tc: UATTestCase, fieldData: TestCase | undefined): Promise<void> {
     await this.saa.goToHRSpecialistView();
 
-    // Search for the person using field data
+    // Search for the person using person number or name
     if (fieldData) {
+      const personNumber = getField(fieldData, 'Person Number');
       const personName = getField(fieldData, 'Person Name');
-      if (personName) {
+      if (personNumber) {
+        await this.searchPersonByNumber(personNumber);
+      } else if (personName) {
         await this.searchPerson(personName);
       }
     }
 
     await this.saa.viewOptions();
+
+    // Try to open salary/compensation details for the person
+    const salaryLink = this.page.locator(
+      'a:has-text("Salary"), a:has-text("Compensation"), [role="tab"]:has-text("Salary")'
+    ).first();
+    if (await salaryLink.isVisible({ timeout: 5000 }).catch(() => false)) {
+      await salaryLink.click();
+      await this.page.waitForTimeout(3000);
+      await this.saa.waitForJET();
+      console.log(`[SAA] ${tc.testId}: Opened salary details in HR Specialist view`);
+    } else {
+      console.log(`[SAA] ${tc.testId}: HR Specialist view — person found, salary tab not visible`);
+    }
+
     await this.saa.screenshot(`saa-hr-view-${tc.testId}`);
   }
 
@@ -91,15 +108,34 @@ export class SAAFlow extends BaseFlow {
   private async executeHRSpecialistFunctions(tc: UATTestCase, fieldData: TestCase | undefined): Promise<void> {
     await this.saa.goToHRSpecialistView();
 
-    // Search for the person using field data
+    // Search for the person using person number or name
     if (fieldData) {
+      const personNumber = getField(fieldData, 'Person Number');
       const personName = getField(fieldData, 'Person Name');
-      if (personName) {
+      if (personNumber) {
+        await this.searchPersonByNumber(personNumber);
+      } else if (personName) {
         await this.searchPerson(personName);
       }
     }
 
     await this.saa.performHRSpecialistFunctions();
+
+    // Try to open Actions menu and verify HR specialist access
+    const actionsBtn = this.page.locator(
+      'button:has-text("Actions"), a[role="button"]:has-text("Actions")'
+    ).first();
+    if (await actionsBtn.isVisible({ timeout: 5000 }).catch(() => false)) {
+      await actionsBtn.click();
+      await this.page.waitForTimeout(2000);
+      // Log available actions
+      const menuItems = await this.page.locator('[role="menuitem"]').allTextContents().catch(() => []);
+      console.log(`[SAA] ${tc.testId}: HR Specialist actions available: ${menuItems.join(', ')}`);
+      await this.page.keyboard.press('Escape');
+    } else {
+      console.log(`[SAA] ${tc.testId}: HR Specialist Functions — person found, no Actions menu visible`);
+    }
+
     await this.saa.screenshot(`saa-hr-functions-${tc.testId}`);
   }
 
@@ -112,21 +148,55 @@ export class SAAFlow extends BaseFlow {
 
   /** Execute salary approval workflow. */
   private async executeSalaryApproval(tc: UATTestCase, fieldData: TestCase | undefined): Promise<void> {
+    const personName = fieldData ? getField(fieldData, 'Person Name') : 'unknown';
+    console.log(`[SAA] ${tc.testId}: Looking for Salary approval notification for ${personName}`);
     await this.saa.goToSalaryApproval();
+
+    // Check if the notification bell panel has any salary items
+    const hasSalaryNotif = await this.page.locator(
+      'a:has-text("Salary"), [role="row"]:has-text("Salary")'
+    ).first().isVisible({ timeout: 5000 }).catch(() => false);
+
+    if (!hasSalaryNotif) {
+      console.log(`[SAA] ${tc.testId}: No pending Salary notification found — approval depends on prior MPDX submission for ${personName}`);
+    }
+
     await this.saa.approveRequest();
     await this.saa.verifyApprovalComplete();
   }
 
   /** Execute MHA approval workflow. */
   private async executeMHAApproval(tc: UATTestCase, fieldData: TestCase | undefined): Promise<void> {
+    const personName = fieldData ? getField(fieldData, 'Person Name') : 'unknown';
+    console.log(`[SAA] ${tc.testId}: Looking for MHA approval notification for ${personName}`);
     await this.saa.goToMHAApproval();
+
+    const hasMHANotif = await this.page.locator(
+      'a:has-text("MHA"), [role="row"]:has-text("MHA")'
+    ).first().isVisible({ timeout: 5000 }).catch(() => false);
+
+    if (!hasMHANotif) {
+      console.log(`[SAA] ${tc.testId}: No pending MHA notification found — approval depends on prior MPDX submission for ${personName}`);
+    }
+
     await this.saa.approveRequest();
     await this.saa.verifyApprovalComplete();
   }
 
   /** Execute additional salary approval workflow. */
   private async executeAdditionalSalaryApproval(tc: UATTestCase, fieldData: TestCase | undefined): Promise<void> {
+    const personName = fieldData ? getField(fieldData, 'Person Name') : 'unknown';
+    console.log(`[SAA] ${tc.testId}: Looking for Additional Salary approval notification for ${personName}`);
     await this.saa.goToAdditionalSalaryApproval();
+
+    const hasNotif = await this.page.locator(
+      'a:has-text("Additional Salary"), [role="row"]:has-text("Additional Salary")'
+    ).first().isVisible({ timeout: 5000 }).catch(() => false);
+
+    if (!hasNotif) {
+      console.log(`[SAA] ${tc.testId}: No pending Additional Salary notification found — approval depends on prior MPDX submission for ${personName}`);
+    }
+
     await this.saa.approveRequest();
     await this.saa.verifyApprovalComplete();
   }
@@ -154,6 +224,34 @@ export class SAAFlow extends BaseFlow {
     await this.saa.goToApproverView();
     await this.saa.viewApprovalHistory();
     await this.saa.screenshot(`saa-history-${tc.testId}`);
+  }
+
+  /** Search for a person by person number on the current page. */
+  private async searchPersonByNumber(personNumber: string): Promise<void> {
+    const numInput = this.page.locator(
+      '[id$="q1:value10::content"], input[aria-label*="Person Number"]'
+    ).first();
+    if (await numInput.isVisible({ timeout: 5000 }).catch(() => false)) {
+      await numInput.fill(personNumber);
+      const searchBtn = this.page.locator('[id$="q1::search"], button:has-text("Search")').first();
+      if (await searchBtn.isVisible({ timeout: 3000 }).catch(() => false)) {
+        await searchBtn.click();
+      } else {
+        await numInput.press('Enter');
+      }
+      await this.page.waitForTimeout(5000);
+      await this.saa.waitForJET();
+
+      const firstResult = this.page.locator('[role="row"] a').first();
+      if (await firstResult.isVisible({ timeout: 5000 }).catch(() => false)) {
+        await firstResult.click();
+        await this.page.waitForTimeout(3000);
+        await this.saa.waitForJET();
+      }
+    } else {
+      // Fall back to name search field with person number
+      await this.searchPerson(personNumber);
+    }
   }
 
   /** Search for a person on the current page (Person Management). */

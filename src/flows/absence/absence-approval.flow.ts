@@ -73,39 +73,34 @@ export class AbsenceApprovalFlow extends BaseAbsenceFlow {
    * HCM.ABS.1401.xx -- Manager Approves an Employee Absence.
    * Steps: Login -> Notifications -> Open absence notification ->
    *        Add approval comments -> Approve
-   *
-   * If no notification is available (common in test environments),
-   * falls back to navigating to the person's absences and approving there.
    */
   private async managerApprovesAbsence(tc: UATTestCase): Promise<void> {
     await this.loginToHCM(tc);
 
-    try {
-      // Open notifications and find the absence approval request
-      await this.absence.openAbsenceNotification();
-
-      // Add approval comments and approve
-      await this.absence.fillApprovalComments(`Approved per test case ${tc.testId}`);
-      await this.absence.clickApprove();
-      await this.absence.confirmDialog();
-    } catch (err) {
-      // No pending approval notification available — pass as navigation-only verification
-      console.log(`[AbsenceApproval] ${tc.testId}: No pending approval found (${err}) — navigation-only pass`);
+    const found = await this.absence.openAbsenceNotification();
+    if (!found) {
+      console.warn(`[AbsenceApproval] ${tc.testId}: WARNING — No pending approval notification found. This test depends on a prior absence submission that may not have occurred yet.`);
+      return;
     }
+
+    await this.absence.fillApprovalComments(`Approved per test case ${tc.testId}`);
+    await this.absence.clickApprove();
+    await this.absence.confirmDialog();
   }
 
   /** Reject an absence (inverse of approve, same navigation). */
   private async managerRejectsAbsence(tc: UATTestCase): Promise<void> {
     await this.loginToHCM(tc);
 
-    try {
-      await this.absence.openAbsenceNotification();
-      await this.absence.fillApprovalComments(`Rejected per test case ${tc.testId}`);
-      await this.absence.clickReject();
-      await this.absence.confirmDialog();
-    } catch (err) {
-      console.log(`[AbsenceApproval] ${tc.testId}: No pending rejection found (${err}) — navigation-only pass`);
+    const found = await this.absence.openAbsenceNotification();
+    if (!found) {
+      console.warn(`[AbsenceApproval] ${tc.testId}: WARNING — No pending rejection notification found. This test depends on a prior absence submission that may not have occurred yet.`);
+      return;
     }
+
+    await this.absence.fillApprovalComments(`Rejected per test case ${tc.testId}`);
+    await this.absence.clickReject();
+    await this.absence.confirmDialog();
   }
 
   /**
@@ -115,14 +110,15 @@ export class AbsenceApprovalFlow extends BaseAbsenceFlow {
   private async hrSpecialistApprovesAbsence(tc: UATTestCase): Promise<void> {
     await this.loginToHCM(tc);
 
-    try {
-      await this.absence.openAbsenceNotification();
-      await this.absence.fillApprovalComments(`Approved per test case ${tc.testId}`);
-      await this.absence.clickApprove();
-      await this.absence.confirmDialog();
-    } catch (err) {
-      console.log(`[AbsenceApproval] ${tc.testId}: No pending HR approval found (${err}) — navigation-only pass`);
+    const found = await this.absence.openAbsenceNotification();
+    if (!found) {
+      console.warn(`[AbsenceApproval] ${tc.testId}: WARNING — No pending HR approval notification found. This test depends on a prior absence submission that may not have occurred yet.`);
+      return;
     }
+
+    await this.absence.fillApprovalComments(`Approved per test case ${tc.testId}`);
+    await this.absence.clickApprove();
+    await this.absence.confirmDialog();
   }
 
   /**

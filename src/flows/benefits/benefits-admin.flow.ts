@@ -1,4 +1,4 @@
-import { type Page } from '@playwright/test';
+import { type Page, expect } from '@playwright/test';
 import { BaseBenefitsFlow } from './base-benefits.flow';
 import type { UATTestCase } from '../../data/types';
 
@@ -236,6 +236,16 @@ export class BenefitsAdminFlow extends BaseBenefitsFlow {
 
     // Verify the benefit status after termination
     await this.benefits.verifyPlanSummary();
+
+    // Soft assertion: page should reflect terminated status
+    try {
+      const pageText = await this.page.locator('body').innerText();
+      const hasTerminatedIndicator = /terminat|ended|inactive|cobra/i.test(pageText);
+      expect.soft(hasTerminatedIndicator, `[Benefits] ${tc.testId}: Expected terminated/ended/COBRA indicator on page`).toBeTruthy();
+    } catch {
+      console.warn(`[Benefits] ${tc.testId}: Could not verify termination status text on page`);
+    }
+
     await this.benefits.captureBenefitsState(`termination-${tc.testId}`);
   }
 
@@ -389,6 +399,16 @@ export class BenefitsAdminFlow extends BaseBenefitsFlow {
     if (await this.checkNoBenefitsRelationship(tc.testId)) return;
 
     await this.benefits.verifyPlanSummary();
+
+    // Soft assertion: page should show plan or coverage status
+    try {
+      const planText = this.page.getByText(/plan|coverage|enrolled|active|suspended/i).first();
+      expect.soft(await planText.isVisible({ timeout: 5000 }).catch(() => false),
+        `[Benefits] ${tc.testId}: Expected plan/coverage status text visible for military leave`).toBeTruthy();
+    } catch {
+      console.warn(`[Benefits] ${tc.testId}: Could not verify plan status for military leave`);
+    }
+
     await this.benefits.captureBenefitsState(`military-${tc.testId}`);
   }
 
@@ -454,6 +474,16 @@ export class BenefitsAdminFlow extends BaseBenefitsFlow {
 
     // Verify 403b enrollment details
     await this.benefits.verifyPlanSummary();
+
+    // Soft assertion: page should show 403b or retirement plan details
+    try {
+      const pageText = await this.page.locator('body').innerText();
+      const has403bIndicator = /403\(?\s*b\)?|retirement|eligib|catch.?up/i.test(pageText);
+      expect.soft(has403bIndicator, `[Benefits] ${tc.testId}: Expected 403b/retirement/eligibility text on page`).toBeTruthy();
+    } catch {
+      console.warn(`[Benefits] ${tc.testId}: Could not verify 403b details on page`);
+    }
+
     await this.benefits.captureBenefitsState(`403b-${tc.testId}`);
   }
 
@@ -729,7 +759,8 @@ export class BenefitsAdminFlow extends BaseBenefitsFlow {
 
     if (await this.checkNoBenefitsRelationship(tc.testId)) return;
 
-    // For corrections, open life events then adjust
+    // Corrections require admin life event date changes — complex flow, view-only for now
+    console.log(`[Benefits] ${tc.testId}: Correction test — viewing life events (full correction flow not yet automated)`);
     await this.benefits.openAdminLifeEvents();
     await this.benefits.verifyPlanSummary();
     await this.benefits.captureBenefitsState(`correction-${tc.testId}`);

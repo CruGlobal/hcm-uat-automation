@@ -65,6 +65,11 @@ export class JourneyAssignmentFlow extends BaseJourneysFlow {
   private resolveJourneyType(tc: UATTestCase): string {
     const bp = (tc.businessProcess + ' ' + tc.testScenario).toLowerCase();
 
+    // Task-specific checks BEFORE onboarding — tests about completing tasks within
+    // onboarding journeys should route to task-completion, not assignment.
+    if (bp.includes('task completion') || bp.includes('complete task') || bp.includes('checklist') ||
+        bp.includes('progress tracking') || bp.includes('task types') || bp.includes('due dates'))
+      return 'task-completion';
     if (bp.includes('onboarding') || bp.includes('onboard') || bp.includes('new hire') ||
         bp.includes('volunteer') || bp.includes('affiliate')) return 'onboarding';
     if (bp.includes('offboarding') || bp.includes('offboard') || bp.includes('termination journey'))
@@ -77,9 +82,6 @@ export class JourneyAssignmentFlow extends BaseJourneysFlow {
     if (bp.includes('access request') || bp.includes('provisioning') || bp.includes('oracle access') ||
         bp.includes('background check') || bp.includes('credit card policy'))
       return 'access-request';
-    if (bp.includes('task completion') || bp.includes('complete task') || bp.includes('checklist') ||
-        bp.includes('progress tracking') || bp.includes('task types') || bp.includes('due dates'))
-      return 'task-completion';
     if (bp.includes('transition') || bp.includes('intern to rmo') || bp.includes('international') ||
         bp.includes('us to int') || bp.includes('back to us') || bp.includes('status to status') ||
         bp.includes('internal hiring'))
@@ -327,12 +329,164 @@ export class JourneyAssignmentFlow extends BaseJourneysFlow {
       }
       await this.journeysPage.screenshot(`journey-admin-${tc.testId}`);
 
-    } else if (bp.includes('synchronize') || bp.includes('template')) {
-      // Synchronize journey template: go to admin settings
-      await this.journeysPage.selectTab('Organization Journeys');
+    } else if (bp.includes('synchronize') || bp.includes('template change')) {
+      // JR-047: Synchronize Journey Template — navigate to journey templates/configuration
+      await this.journeysPage.selectTab('Explore');
       await this.page.waitForTimeout(3000);
-      console.log(`[Journeys] ${tc.testId}: Template sync — admin page loaded`);
-      await this.journeysPage.screenshot(`journey-admin-${tc.testId}`);
+      // Look for a settings/configure link on the Explore tab
+      const configLink = this.page.locator(
+        'a:has-text("Configure"), a:has-text("Settings"), button:has-text("Configure")'
+      ).first();
+      if (await configLink.isVisible({ timeout: 5000 }).catch(() => false)) {
+        await configLink.click();
+        await this.page.waitForTimeout(3000);
+      }
+      console.log(`[Journeys] ${tc.testId}: Template sync/config — page loaded`);
+      await this.journeysPage.screenshot(`journey-template-${tc.testId}`);
+
+    } else if (bp.includes('error handling') || bp.includes('troubleshoot')) {
+      // JR-048: Journey Error Handling — attempt an action that triggers error handling
+      await this.journeysPage.selectTab('Explore');
+      await this.page.waitForTimeout(3000);
+      // Try to assign a journey without filling required fields to trigger validation
+      const firstCard = this.page.locator('[class*="journey-card"], [class*="Card"], oj-sp-collection-card').first();
+      if (await firstCard.isVisible({ timeout: 5000 }).catch(() => false)) {
+        await firstCard.click();
+        await this.page.waitForTimeout(3000);
+        await this.journeysPage.clickAssignOnDetail();
+        // Submit without filling person to trigger error
+        await this.journeysPage.clickAssignSubmit();
+        await this.page.waitForTimeout(2000);
+      }
+      console.log(`[Journeys] ${tc.testId}: Error handling — checking validation state`);
+      await this.journeysPage.screenshot(`journey-error-${tc.testId}`);
+
+    } else if (bp.includes('eligibility') || bp.includes('security') || bp.includes('negative')) {
+      // JR-028: Eligibility & Security — attempt to assign journey to ineligible person
+      await this.journeysPage.selectTab('Explore');
+      await this.page.waitForTimeout(3000);
+      const firstCard = this.page.locator('[class*="journey-card"], [class*="Card"], oj-sp-collection-card').first();
+      if (await firstCard.isVisible({ timeout: 5000 }).catch(() => false)) {
+        await firstCard.click();
+        await this.page.waitForTimeout(3000);
+        await this.journeysPage.clickAssignOnDetail();
+        // Fill person from field data if available
+        const personName = fieldData ? getField(fieldData, 'Person Name') : this.extractPersonFromTestData(tc);
+        if (personName) await this.journeysPage.fillAssigneePerson(personName);
+        await this.journeysPage.clickAssignSubmit();
+        await this.page.waitForTimeout(2000);
+      }
+      console.log(`[Journeys] ${tc.testId}: Eligibility/security check — verifying response`);
+      await this.journeysPage.screenshot(`journey-eligibility-${tc.testId}`);
+
+    } else if (bp.includes('dept tree') || bp.includes('job code') || bp.includes('add/change request')) {
+      // JR-024, JR-025, JR-035-038: Dept Tree / Job Code Add/Change Request
+      const searchTerm = bp.includes('dept tree') ? 'Dept Tree' :
+                         bp.includes('job code') ? 'Job Code' : 'Request';
+      await this.journeysPage.selectTab('Explore');
+      await this.journeysPage.searchJourneyByName(searchTerm);
+      const cardClicked = await this.journeysPage.clickJourneyCard(searchTerm);
+      if (cardClicked) {
+        await this.journeysPage.clickAssignOnDetail();
+        await this.fillAssignForm(tc, fieldData);
+        await this.journeysPage.clickAssignSubmit();
+      }
+      console.log(`[Journeys] ${tc.testId}: ${searchTerm} request journey`);
+      await this.journeysPage.screenshot(`journey-request-${tc.testId}`);
+
+    } else if (bp.includes('annual agreement')) {
+      // JR-022: Annual Agreement — search and assign agreement journey
+      await this.journeysPage.selectTab('Explore');
+      await this.journeysPage.searchJourneyByName('Annual Agreement');
+      const cardClicked = await this.journeysPage.clickJourneyCard('Annual Agreement');
+      if (cardClicked) {
+        await this.journeysPage.clickAssignOnDetail();
+        await this.fillAssignForm(tc, fieldData);
+        await this.journeysPage.clickAssignSubmit();
+      }
+      console.log(`[Journeys] ${tc.testId}: Annual Agreement journey`);
+      await this.journeysPage.screenshot(`journey-agreement-${tc.testId}`);
+
+    } else if (bp.includes('multiple concurrent')) {
+      // JR-027: Multiple Concurrent Journeys — assign multiple journeys to same person
+      await this.journeysPage.selectTab('Explore');
+      await this.page.waitForTimeout(3000);
+      // Assign first available journey
+      const firstCard = this.page.locator('[class*="journey-card"], [class*="Card"], oj-sp-collection-card').first();
+      if (await firstCard.isVisible({ timeout: 5000 }).catch(() => false)) {
+        await firstCard.click();
+        await this.page.waitForTimeout(3000);
+        await this.journeysPage.clickAssignOnDetail();
+        await this.fillAssignForm(tc, fieldData);
+        await this.journeysPage.clickAssignSubmit();
+        await this.page.waitForTimeout(3000);
+      }
+      // Navigate back and assign a second journey
+      await this.journeysPage.selectTab('Explore');
+      await this.page.waitForTimeout(3000);
+      const secondCard = this.page.locator('[class*="journey-card"], [class*="Card"], oj-sp-collection-card').nth(1);
+      if (await secondCard.isVisible({ timeout: 5000 }).catch(() => false)) {
+        await secondCard.click();
+        await this.page.waitForTimeout(3000);
+        await this.journeysPage.clickAssignOnDetail();
+        await this.fillAssignForm(tc, fieldData);
+        await this.journeysPage.clickAssignSubmit();
+      }
+      console.log(`[Journeys] ${tc.testId}: Multiple concurrent journeys`);
+      await this.journeysPage.screenshot(`journey-concurrent-${tc.testId}`);
+
+    } else if (bp.includes('1st') || bp.includes('90th day') || bp.includes('first day') ||
+               bp.includes('90 day')) {
+      // JR-031: 1st-90th Day Journey — search for the day-based journey
+      const searchTerm = bp.includes('90') ? '90 Day' : 'First Day';
+      await this.journeysPage.selectTab('Explore');
+      await this.journeysPage.searchJourneyByName(searchTerm);
+      const cardClicked = await this.journeysPage.clickJourneyCard(searchTerm);
+      if (cardClicked) {
+        await this.journeysPage.clickAssignOnDetail();
+        await this.fillAssignForm(tc, fieldData);
+        await this.journeysPage.clickAssignSubmit();
+      }
+      console.log(`[Journeys] ${tc.testId}: ${searchTerm} journey`);
+      await this.journeysPage.screenshot(`journey-dayjourney-${tc.testId}`);
+
+    } else if (bp.includes('annual vows') || bp.includes('reminder') || bp.includes('non-completion')) {
+      // JR-040: Annual Vows Reminder/Non-Completion — search for vows journey
+      await this.journeysPage.selectTab('Explore');
+      await this.journeysPage.searchJourneyByName('Annual Vows');
+      const cardClicked = await this.journeysPage.clickJourneyCard('Annual Vows');
+      if (cardClicked) {
+        await this.journeysPage.clickAssignOnDetail();
+        await this.fillAssignForm(tc, fieldData);
+        await this.journeysPage.clickAssignSubmit();
+      } else {
+        // Check Organization Journeys for existing vows journey status
+        await this.journeysPage.selectTab('Organization Journeys');
+        if (fieldData) {
+          const personName = getField(fieldData, 'Person Name');
+          if (personName) await this.journeysPage.searchPerson(personName);
+        }
+        await this.journeysPage.clickFirstJourneyResult();
+      }
+      console.log(`[Journeys] ${tc.testId}: Annual Vows/Reminder journey`);
+      await this.journeysPage.screenshot(`journey-vows-${tc.testId}`);
+
+    } else if (bp.includes('contextual') || bp.includes('manager transaction')) {
+      // JR-045: Contextual Journey — check if contextual journey appears after manager action
+      await this.journeysPage.selectTab('Organization Journeys');
+      if (fieldData) {
+        const personName = getField(fieldData, 'Person Name');
+        if (personName) await this.journeysPage.searchPerson(personName);
+      }
+      await this.journeysPage.clickFirstJourneyResult();
+      await this.page.waitForTimeout(3000);
+      // Check for contextual/triggered journey indicators
+      const contextualIndicator = this.page.locator(
+        ':has-text("Contextual"), :has-text("Triggered"), :has-text("Auto-assigned")'
+      ).first();
+      const hasContextual = await contextualIndicator.isVisible({ timeout: 5000 }).catch(() => false);
+      console.log(`[Journeys] ${tc.testId}: Contextual journey ${hasContextual ? 'found' : 'not found'}`);
+      await this.journeysPage.screenshot(`journey-contextual-${tc.testId}`);
 
     } else if (bp.includes('attachment') || bp.includes('document record')) {
       // Document attachments: go to journey and verify attachment area
@@ -345,8 +499,21 @@ export class JourneyAssignmentFlow extends BaseJourneysFlow {
       await this.page.waitForTimeout(3000);
       await this.journeysPage.screenshot(`journey-admin-${tc.testId}`);
 
+    } else if (bp.includes('retro hire') || bp.includes('late start')) {
+      // Retro hire / late start: assign journey with backdated effective date
+      await this.journeysPage.selectTab('Explore');
+      await this.journeysPage.searchJourneyByName('Onboarding');
+      const cardClicked = await this.journeysPage.clickJourneyCard('Onboarding');
+      if (cardClicked) {
+        await this.journeysPage.clickAssignOnDetail();
+        await this.fillAssignForm(tc, fieldData);
+        await this.journeysPage.clickAssignSubmit();
+      }
+      console.log(`[Journeys] ${tc.testId}: Retro hire/late start journey`);
+      await this.journeysPage.screenshot(`journey-retro-${tc.testId}`);
+
     } else {
-      // Default admin: go to Organization Journeys and search
+      // Default admin: go to Organization Journeys, search, and view
       await this.journeysPage.selectTab('Organization Journeys');
       if (fieldData) {
         const personName = getField(fieldData, 'Person Name');

@@ -12,7 +12,10 @@ import type { UATTestCase, TestCase } from '../../data/types';
  * Routing priority:
  * 1. If field data exists with tab="Payroll" AND has element entry fields
  *    (Search For, Element name), delegate to ElementEntryFlow for form filling.
- *    This covers 108 of 113 tests.
+ *    ~80 tests are actual element entries (Housing Allowance, Overtime, etc.).
+ *    Tests in NON_ELEMENT_ENTRY_IDS are excluded — they have element entry
+ *    field data from the migration DB but their business process is NOT about
+ *    element entries (e.g., checks, SECA, direct deposit, costing, taxes).
  * 2. If field data exists with tab="Core HR" or "Core - Hires" (5 tests),
  *    these are hire/leave scenarios — route to Scheduled Processes or
  *    Person Management based on business process.
@@ -22,7 +25,7 @@ import type { UATTestCase, TestCase } from '../../data/types';
  * - HCM.PAY.510.00 -> Semi-monthly payroll run (31 tests)
  * - HCM.PAY.106.00 -> Off-cycle payroll bonus (13 tests)
  * - HCM.PAY.520.00 -> Off-cycle additional salary (9 tests)
- * - HCM.PAY.113.00 -> MSS W-4 (7 tests)
+ * - HCM.PAY.113.00 -> MSS W-4 / SECA (7 tests)
  * - HCM.PAY.301.00 -> Costing/designation (6 tests)
  * - HCM.PAY.404.00 -> CA Meal Penalty (4 tests)
  * - Year End -> W-2 processing (3 tests)
@@ -30,9 +33,36 @@ import type { UATTestCase, TestCase } from '../../data/types';
  * - HCM.PAY.324.00 -> Reverse/reissue checks (2 tests)
  * - HCM.PAY.307.00 -> Tax adjustments (2 tests)
  * - HCM.PAY.111.00 -> Direct deposit (2 tests)
+ * - HCM.PAY.418.00 -> Create and print checks
+ * - HCM.PAY.419.00 -> Generate advice
+ * - HCM.PAY.417.00 -> Direct deposit file
+ * - HCM.PAY.422.00 -> Tax payment file
+ * - HCM.PAY.325.00 -> ACH returns
+ * - HCM.PAY.316.00 -> Multi-state taxes
  * - Various single-test scripts
  */
 export class PayrollProcessingFlow extends BaseFlow {
+  /**
+   * Test IDs that have element entry field data from the migration DB but whose
+   * business process is NOT about creating element entries. These bypass
+   * ElementEntryFlow and route via script/business-process matching (Priority 3).
+   */
+  private static readonly NON_ELEMENT_ENTRY_IDS = new Set([
+    // Scheduled Processes: checks, advice, DD files, tax files
+    'PY-012', 'PY-013', 'PY-014', 'PY-015',
+    // ESS Tax Location Update
+    'PY-016',
+    // SECA opt-in/out for various designations
+    'PY-022', 'PY-023', 'PY-024', 'PY-025', 'PY-026', 'PY-027',
+    // Multi-state taxes, ACH returns, reverse/reissue, stale dated, tax adjustments
+    'PY-031', 'PY-032', 'PY-033', 'PY-036', 'PY-037',
+    // Direct Deposit (ESS)
+    'PY-047', 'PY-073',
+    // Costing / designation
+    'PY-048', 'PY-049',
+    // Tax overrides, tax refunds, VT childcare tax
+    'PY-058', 'PY-059', 'PY-063',
+  ]);
   private payroll: PayrollProcessingPage;
 
   constructor(page: Page) {
@@ -48,15 +78,21 @@ export class PayrollProcessingFlow extends BaseFlow {
     const fieldData = getFieldData(tc.testId);
 
     // Priority 1: If field data has element entry fields, use ElementEntryFlow.
-    // 108 of 113 payroll tests have tab="Payroll" with element entry data
-    // (Search For, Element name, Effective date, etc.)
-    // Exception: Year End / W-2 tests must use script-based routing regardless of field data.
+    // ~80 payroll tests have tab="Payroll" with element entry data
+    // (Search For, Element name, Effective date, etc.).
+    // Exceptions: Year End / W-2 tests and non-element-entry tests (checks, SECA,
+    // direct deposit, costing, taxes) must use script-based routing (Priority 3).
     const isYearEnd = tc.testScript.includes('Year End') || tc.businessProcess.toLowerCase().includes('w-2') || tc.businessProcess.toLowerCase().includes('year end');
-    if (fieldData && this.hasElementEntryFields(fieldData) && !isYearEnd) {
+    const isNonElement = PayrollProcessingFlow.NON_ELEMENT_ENTRY_IDS.has(tc.testId);
+    if (fieldData && this.hasElementEntryFields(fieldData) && !isYearEnd && !isNonElement) {
       console.log(`[Payroll] ${tc.testId}: Routing to ElementEntryFlow (tab=${fieldData.tab}, element=${getField(fieldData, 'Element name')})`);
       const flow = new ElementEntryFlow(this.page);
       await flow.execute(fieldData);
       return;
+    }
+
+    if (isNonElement && fieldData) {
+      console.log(`[Payroll] ${tc.testId}: Bypassing ElementEntryFlow (non-element-entry test: "${tc.businessProcess}") — routing by script/process`);
     }
 
     // Priority 2: Field data with Core HR/Hires tab — these are leave/hire scenarios.
@@ -72,8 +108,11 @@ export class PayrollProcessingFlow extends BaseFlow {
     const script = tc.testScript;
     const process = tc.businessProcess.toLowerCase();
 
-    // Route to appropriate payroll operation
-    if (script.includes('PAY.510') || process.includes('semi-monthly') || process.includes('hourly payroll')) {
+    // Route to appropriate payroll operation.
+    // SECA check BEFORE PAY.510 — PY-022/PY-023 have PAY.510 script but are SECA tests.
+    if (process.includes('seca')) {
+      await this.executeW4(tc);
+    } else if (script.includes('PAY.510') || process.includes('semi-monthly') || process.includes('hourly payroll')) {
       await this.executePayrollRun(tc);
     } else if (script.includes('PAY.106') || script.includes('PAY.103') || process.includes('off cycle') || process.includes('off-cycle') || process.includes('bonus')) {
       await this.executeOffCyclePayroll(tc);

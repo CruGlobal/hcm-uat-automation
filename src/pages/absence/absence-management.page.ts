@@ -859,6 +859,34 @@ export class AbsenceManagementPage extends BasePage {
     }
   }
 
+  /**
+   * If the Reason field is visible and required (has validation error),
+   * select the first available option to satisfy the form.
+   */
+  async selectFirstReasonIfRequired(): Promise<void> {
+    // Look for the Redwood Reason combobox
+    const reasonCombo = this.page.getByRole('combobox', { name: /Reason/i }).first();
+    const visible = await reasonCombo.isVisible({ timeout: 3000 }).catch(() => false);
+    if (!visible) return;
+
+    // Check if it has a validation error (empty required field)
+    const errorIcon = this.page.locator('img[alt="Error"]').first();
+    const hasError = await errorIcon.isVisible({ timeout: 1000 }).catch(() => false);
+    if (!hasError) return;
+
+    console.log('[Absence] Reason field is required but no value provided — selecting first option');
+    await reasonCombo.click();
+    await this.page.waitForTimeout(1500);
+
+    // Select the first dropdown option
+    const firstOption = this.page.locator('[role="option"], [role="gridcell"]').first();
+    if (await firstOption.isVisible({ timeout: 3000 }).catch(() => false)) {
+      await firstOption.click();
+      await this.page.waitForTimeout(1000);
+      await this.waitForJET();
+    }
+  }
+
   /** Fill the comments/notes field. */
   async fillComments(text: string): Promise<void> {
     if (await this.commentsField.isVisible({ timeout: 3000 }).catch(() => false)) {
@@ -1076,8 +1104,8 @@ export class AbsenceManagementPage extends BasePage {
     await this.waitForJET();
   }
 
-  /** Find and open an absence-related notification. */
-  async openAbsenceNotification(): Promise<void> {
+  /** Find and open an absence-related notification. Returns true if found and opened. */
+  async openAbsenceNotification(): Promise<boolean> {
     await this.openNotifications();
     const absenceNotification = this.page.locator(
       '[role="listitem"] a, [class*="notification"] a'
@@ -1086,7 +1114,9 @@ export class AbsenceManagementPage extends BasePage {
       await absenceNotification.click();
       await this.page.waitForTimeout(5000);
       await this.waitForJET();
+      return true;
     }
+    return false;
   }
 
   // ===== Select Absence Row =====
@@ -1176,6 +1206,7 @@ export class AbsenceManagementPage extends BasePage {
     if (start) await this.fillStartDate(start);
     if (end) await this.fillEndDate(end);
     if (absenceReason) await this.selectAbsenceReason(absenceReason);
+    if (!absenceReason) await this.selectFirstReasonIfRequired();
     if (commentsVal) await this.fillComments(commentsVal);
     return true;
   }
@@ -1203,9 +1234,13 @@ export class AbsenceManagementPage extends BasePage {
     // Convert YYYY/MM/DD to MM/DD/YYYY for Oracle HCM date fields
     if (startDate) await this.fillStartDate(this.convertDate(startDate));
     if (endDate) await this.fillEndDate(this.convertDate(endDate));
-    // Reason is optional — not all absence types have a reason field
+    // Fill Reason if provided in field data
     if (reason) {
       try { await this.selectAbsenceReason(reason); } catch { /* reason field not present */ }
+    }
+    // If Reason field is required but not provided, select the first available option
+    if (!reason) {
+      await this.selectFirstReasonIfRequired();
     }
     return true;
   }

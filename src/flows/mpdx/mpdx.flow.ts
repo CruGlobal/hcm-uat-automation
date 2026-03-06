@@ -95,7 +95,26 @@ export class MPDXFlow extends BaseFlow {
       employeeName: personName || tc.testData || undefined,
     });
 
-    if (salaryAmount) {
+    // Fill additional parameters from field data if visible on the form
+    if (fieldData) {
+      if (salaryBasis) {
+        const basisField = this.page.locator(
+          'input[aria-label*="Salary Basis"], input[aria-label*="Basis"], select[aria-label*="Basis"]'
+        ).first();
+        if (await basisField.isVisible({ timeout: 3000 }).catch(() => false)) {
+          await this.mpdx.fillCombobox(basisField, salaryBasis);
+          console.log(`[MPDX] ${tc.testId}: Filled Salary Basis: ${salaryBasis}`);
+        }
+      }
+      if (salaryAmount) {
+        const amountField = this.page.locator(
+          'input[aria-label*="Salary Amount"], input[aria-label*="Amount"]'
+        ).first();
+        if (await amountField.isVisible({ timeout: 3000 }).catch(() => false)) {
+          await this.mpdx.fillField(amountField, String(salaryAmount));
+          console.log(`[MPDX] ${tc.testId}: Filled Salary Amount: ${salaryAmount}`);
+        }
+      }
       console.log(`[MPDX] Expected salary: ${salaryAmount} (${salaryBasis})`);
     }
 
@@ -122,6 +141,7 @@ export class MPDXFlow extends BaseFlow {
   private async executeMHACalculation(tc: UATTestCase, fieldData: TestCase | undefined): Promise<void> {
     const personName = fieldData ? getField(fieldData, 'Person Name') : undefined;
     const mhaAmount = fieldData ? getField(fieldData, 'MHA Amount') : undefined;
+    const boardApproved = fieldData ? getField(fieldData, 'Board Approved') : undefined;
 
     if (!await this.mpdx.goToMHACalculation()) {
       console.log(`[MPDX] ${tc.testId}: Skipping — bot lacks Scheduled Processes access`);
@@ -131,7 +151,30 @@ export class MPDXFlow extends BaseFlow {
       employeeName: personName || tc.testData || undefined,
     });
 
-    if (mhaAmount) {
+    // Fill additional MHA parameters from field data if visible
+    if (fieldData) {
+      if (mhaAmount) {
+        const amountField = this.page.locator(
+          'input[aria-label*="MHA"], input[aria-label*="Amount"], input[aria-label*="Housing"]'
+        ).first();
+        if (await amountField.isVisible({ timeout: 3000 }).catch(() => false)) {
+          await this.mpdx.fillField(amountField, String(mhaAmount));
+          console.log(`[MPDX] ${tc.testId}: Filled MHA Amount: ${mhaAmount}`);
+        }
+      }
+      if (boardApproved) {
+        // Board Approved is an ISO date — convert to MM/DD/YYYY
+        const dateStr = boardApproved.includes('T')
+          ? new Date(boardApproved).toLocaleDateString('en-US', { month: '2-digit', day: '2-digit', year: 'numeric' })
+          : boardApproved;
+        const dateField = this.page.locator(
+          'input[aria-label*="Board Approved"], input[aria-label*="Approved Date"], input[aria-label*="Date"]'
+        ).first();
+        if (await dateField.isVisible({ timeout: 3000 }).catch(() => false)) {
+          await this.mpdx.fillField(dateField, dateStr);
+          console.log(`[MPDX] ${tc.testId}: Filled Board Approved: ${dateStr}`);
+        }
+      }
       console.log(`[MPDX] Expected MHA amount: ${mhaAmount}`);
     }
 
@@ -142,20 +185,66 @@ export class MPDXFlow extends BaseFlow {
   /** Submit additional salary request via Person Management. */
   private async executeAdditionalSalaryRequest(tc: UATTestCase, fieldData: TestCase | undefined): Promise<void> {
     const personName = fieldData ? getField(fieldData, 'Person Name') : undefined;
+    const personNumber = fieldData ? getField(fieldData, 'Person Number') : undefined;
 
     await this.mpdx.goToAdditionalSalaryRequest();
 
-    // Search for person if name available
-    if (personName) {
-      const searchInput = this.page.locator(
-        '[id$="q1:value00::content"], input[aria-label*="Search"], input[placeholder*="Search"]'
+    // Search for person by number (more reliable) or name
+    const searchInput = this.page.locator(
+      '[id$="q1:value00::content"], input[aria-label*="Name"], input[placeholder*="Search"]'
+    ).first();
+    const numInput = this.page.locator(
+      '[id$="q1:value10::content"], input[aria-label*="Person Number"]'
+    ).first();
+
+    if (personNumber && await numInput.isVisible({ timeout: 5000 }).catch(() => false)) {
+      await numInput.fill(personNumber);
+      const searchBtn = this.page.locator('[id$="q1::search"], button:has-text("Search")').first();
+      if (await searchBtn.isVisible({ timeout: 3000 }).catch(() => false)) {
+        await searchBtn.click();
+      } else {
+        await numInput.press('Enter');
+      }
+      await this.page.waitForTimeout(5000);
+      await this.mpdx.waitForJET();
+    } else if (personName && await searchInput.isVisible({ timeout: 5000 }).catch(() => false)) {
+      await searchInput.fill(personName);
+      await searchInput.press('Enter');
+      await this.page.waitForTimeout(5000);
+      await this.mpdx.waitForJET();
+    }
+
+    // Click the first result to open person detail
+    const firstResult = this.page.locator('[role="row"] a').first();
+    if (await firstResult.isVisible({ timeout: 5000 }).catch(() => false)) {
+      await firstResult.click();
+      await this.page.waitForTimeout(3000);
+      await this.mpdx.waitForJET();
+    }
+
+    // Try to initiate an Additional Salary or Manage Salary action
+    const actionsBtn = this.page.locator(
+      'button:has-text("Actions"), a[role="button"]:has-text("Actions")'
+    ).first();
+    if (await actionsBtn.isVisible({ timeout: 5000 }).catch(() => false)) {
+      await actionsBtn.click();
+      await this.page.waitForTimeout(2000);
+
+      // Look for salary-related action
+      const salaryAction = this.page.locator(
+        '[role="menuitem"]:has-text("Manage Salary"), :text("Additional Salary"), :text("Salary")'
       ).first();
-      if (await searchInput.isVisible({ timeout: 5000 }).catch(() => false)) {
-        await searchInput.fill(personName);
-        await searchInput.press('Enter');
+      if (await salaryAction.isVisible({ timeout: 3000 }).catch(() => false)) {
+        await salaryAction.click();
         await this.page.waitForTimeout(5000);
         await this.mpdx.waitForJET();
+        console.log(`[MPDX] ${tc.testId}: Opened salary action for ${personName}`);
+      } else {
+        await this.page.keyboard.press('Escape');
+        console.log(`[MPDX] ${tc.testId}: No salary action in Actions menu — person found, navigation verified`);
       }
+    } else {
+      console.log(`[MPDX] ${tc.testId}: No Actions button — person search verified`);
     }
 
     await this.mpdx.submitRequest();
@@ -168,6 +257,21 @@ export class MPDXFlow extends BaseFlow {
       console.log(`[MPDX] ${tc.testId}: Skipping — bot lacks Scheduled Processes access`);
       return;
     }
+
+    // Fill person-specific parameters in the schedule dialog if available
+    if (fieldData) {
+      const personName = getField(fieldData, 'Person Name');
+      if (personName) {
+        const empField = this.page.locator(
+          'input[aria-label*="Person"], input[aria-label*="Employee"]'
+        ).first();
+        if (await empField.isVisible({ timeout: 5000 }).catch(() => false)) {
+          await this.mpdx.fillCombobox(empField, personName);
+          console.log(`[MPDX] ${tc.testId}: Filled person for Savings Transfer: ${personName}`);
+        }
+      }
+    }
+
     await this.mpdx.runCalculation();
     await this.mpdx.verifyCalculationResult();
   }
@@ -175,6 +279,22 @@ export class MPDXFlow extends BaseFlow {
   /** Navigate to and create a staff expense report. */
   private async executeStaffExpenseReport(tc: UATTestCase, fieldData: TestCase | undefined): Promise<void> {
     await this.mpdx.goToStaffExpenseReport();
+
+    // Fill expense report fields if the form is visible
+    if (fieldData) {
+      const personName = getField(fieldData, 'Person Name');
+      if (personName) {
+        // Try to fill person/employee name on expense form
+        const empField = this.page.locator(
+          'input[aria-label*="Person"], input[aria-label*="Employee"], input[aria-label*="Name"]'
+        ).first();
+        if (await empField.isVisible({ timeout: 5000 }).catch(() => false)) {
+          await this.mpdx.fillCombobox(empField, personName);
+          console.log(`[MPDX] ${tc.testId}: Filled person on expense report: ${personName}`);
+        }
+      }
+    }
+
     await this.mpdx.verifyCalculationResult();
   }
 

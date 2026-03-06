@@ -1624,6 +1624,34 @@ export class TimecardPage extends BasePage {
       if (assignment) await this.selectAssignment(assignment);
       if (timeType) await this.selectHoursType(timeType);
       if (group) await this.fillGroupName(group);
+
+      // Calculate and enter hours from Start Time / Stop Time
+      const startTime = getField(fieldData, 'Start Time');
+      const stopTime = getField(fieldData, 'Stop Time');
+      if (startTime && stopTime) {
+        const startDate = new Date(startTime);
+        const stopDate = new Date(stopTime);
+        const diffMs = stopDate.getTime() - startDate.getTime();
+        const totalHours = Math.round(diffMs / (1000 * 60 * 60) * 10) / 10;
+        if (totalHours > 0) {
+          // Determine which day of the week to fill from Work Date
+          const workDateStr = getField(fieldData, 'Work Date');
+          let dayIndex = 0; // default to first day column
+          if (workDateStr) {
+            const workDate = new Date(workDateStr);
+            // getDay() returns 0=Sun, 1=Mon, ..., 6=Sat
+            // Timecard grid is Mon=0, Tue=1, ..., Sun=6
+            const jsDay = workDate.getUTCDay();
+            dayIndex = jsDay === 0 ? 6 : jsDay - 1;
+          }
+          console.log(`[Timecard] Entering ${totalHours}h on day index ${dayIndex} (from ${startTime} to ${stopTime})`);
+          await this.enterDayHours(dayIndex, String(totalHours));
+        }
+      } else {
+        // No start/stop times — enter 8 hours on first weekday as default
+        console.log('[Timecard] No Start/Stop Time in field data — entering default 8h');
+        await this.enterDayHours(0, '8');
+      }
       return;
     }
 

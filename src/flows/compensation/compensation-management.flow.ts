@@ -26,7 +26,7 @@ import type { UATTestCase, TestCase } from '../../data/types';
  *
  * Test script routing:
  *   HCM.COMP.1xx -> Salary management (101=review history, 102=change salary, etc.)
- *   HCM.COMP.2xx -> Grade step progression, workforce compensation planning
+ *   HCM.COMP.2xx -> Wage structures (202/203) or Grade step progression (others)
  *   HCM.COMP.3xx -> Individual Compensation Plans (ICP), bonuses
  *   HCM.COMP.4xx -> Workforce comp planning (401-408), history (409),
  *                    statements (410,413), wage range (411,414), grade step (412)
@@ -106,8 +106,18 @@ export class CompensationManagementFlow extends BaseCompensationFlow {
   /**
    * Route by test script ID pattern.
    * Returns true if the script was matched, false if routing should fall back.
+   *
+   * When multiple COMP.xxx numbers appear in a multi-line testScript field,
+   * we use the businessProcess text to disambiguate rather than relying on
+   * which regex matches first.
    */
   private async routeByTestScript(tc: UATTestCase, script: string, fieldData: TestCase | undefined): Promise<boolean> {
+    // For multi-script fields, disambiguate using businessProcess
+    const compMatches = script.match(/COMP\.\d{3}/gi) || [];
+    if (compMatches.length > 1) {
+      return this.routeMultiScript(tc, fieldData);
+    }
+
     // HCM.COMP.1xx -> Salary management
     if (/COMP\.1[0-9]{2}/i.test(script)) {
       if (/COMP\.101/i.test(script)) {
@@ -132,9 +142,13 @@ export class CompensationManagementFlow extends BaseCompensationFlow {
       return true;
     }
 
-    // HCM.COMP.2xx -> Grade Step Progression / Workforce Compensation
+    // HCM.COMP.2xx -> Wage structures (202/203) or Grade Step Progression (201, 204+)
     if (/COMP\.2[0-9]{2}/i.test(script)) {
-      await this.handleGradeStepProgression(tc, fieldData);
+      if (/COMP\.202/i.test(script) || /COMP\.203/i.test(script)) {
+        await this.handleWageStructure(tc, fieldData);
+      } else {
+        await this.handleGradeStepProgression(tc, fieldData);
+      }
       return true;
     }
 
@@ -181,6 +195,37 @@ export class CompensationManagementFlow extends BaseCompensationFlow {
     }
 
     return false;
+  }
+
+  /**
+   * Route multi-script test cases using businessProcess to disambiguate.
+   * Called when testScript contains multiple COMP.xxx numbers (e.g., "COMP.409\nCOMP.412\nCOMP.414").
+   */
+  private async routeMultiScript(tc: UATTestCase, fieldData: TestCase | undefined): Promise<boolean> {
+    const bp = tc.businessProcess.toLowerCase();
+
+    if (bp.includes('wage range') || bp.includes('wage structure') || bp.includes('update wage')) {
+      await this.handleWageStructure(tc, fieldData);
+    } else if (bp.includes('minimum wage') || bp.includes('compliance')) {
+      await this.handleWageRange(tc, fieldData);
+    } else if (bp.includes('merit') || bp.includes('compensation planning')) {
+      await this.handleCompensationPlanning(tc, fieldData);
+    } else if (bp.includes('statement') || bp.includes('total compensation')) {
+      await this.handleTotalCompensation(tc, fieldData);
+    } else if (bp.includes('grade step') || bp.includes('progression')) {
+      await this.handleGradeStepProgression(tc, fieldData);
+    } else if (bp.includes('bonus')) {
+      await this.handleICP(tc, fieldData);
+    } else if (bp.includes('history')) {
+      await this.handleHistory(tc, fieldData);
+    } else if (bp.includes('base pay') || bp.includes('salary')) {
+      await this.handleBasePay(tc, fieldData);
+    } else {
+      // Default: use first script number for single-script routing
+      console.log(`[Compensation] ${tc.testId}: Multi-script with unrecognized BP "${tc.businessProcess}" — using generic handler`);
+      await this.handleGeneric(tc, fieldData);
+    }
+    return true;
   }
 
   /**
@@ -338,18 +383,40 @@ export class CompensationManagementFlow extends BaseCompensationFlow {
 
   /** Handle creating a job code. */
   private async handleJobCode(tc: UATTestCase, fieldData: TestCase | undefined): Promise<void> {
+    // Fill from field data first (migration DB), then fall back to testData parsing
     if (fieldData) {
       const job = getField(fieldData, 'Job');
       const dept = getField(fieldData, 'Department');
       if (job) {
-        console.log(`[Compensation] Job: ${job}`);
+        console.log(`[Compensation] Job from field data: ${job}`);
+        const jobField = this.page.locator('input[aria-label*="Job Code" i], input[aria-label*="Job Name" i], input[aria-label*="Job" i]').first();
+        if (await jobField.isVisible({ timeout: 5000 }).catch(() => false)) {
+          await this.compensation.fillField(jobField, job);
+        }
       }
       if (dept) {
-        console.log(`[Compensation] Department: ${dept}`);
+        console.log(`[Compensation] Department from field data: ${dept}`);
+        const deptField = this.page.locator('input[aria-label*="Department" i]').first();
+        if (await deptField.isVisible({ timeout: 3000 }).catch(() => false)) {
+          await this.compensation.fillCombobox(deptField, dept);
+        }
       }
     }
-    await this.compensation.fillJobCode(tc);
-    await this.compensation.clickSubmit();
+    // Also try parsing from testData text if no field data filled the form
+    if (!fieldData) {
+      await this.compensation.fillJobCode(tc);
+    }
+    const submitBtn = this.page.getByRole('button', { name: 'Submit' }).first();
+    if (await submitBtn.isVisible({ timeout: 5000 }).catch(() => false)) {
+      await this.compensation.clickSubmit();
+    } else {
+      const saveBtn = this.page.getByRole('button', { name: 'Save' }).first();
+      if (await saveBtn.isVisible({ timeout: 3000 }).catch(() => false)) {
+        await this.compensation.clickSave();
+      } else {
+        console.log(`[Compensation] ${tc.testId}: Job code — review-only (no Save/Submit)`);
+      }
+    }
     await this.compensation.screenshot(`comp-jobcode-${tc.testId}`);
   }
 

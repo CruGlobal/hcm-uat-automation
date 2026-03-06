@@ -270,17 +270,82 @@ export class OneAppFlow extends BaseFlow {
   private async executeNewHire(tc: UATTestCase, fieldData: TestCase | undefined): Promise<void> {
     await this.homePage.goToHireEmployee();
     await this.page.waitForTimeout(5000);
+    await this.person.waitForJET();
 
     if (fieldData) {
       const personType = getField(fieldData, 'Person Type');
-      console.log(`[OneApp] New Hire: personType="${personType}"`);
+      const legalEmployer = getField(fieldData, 'Legal Employer');
+      const personName = getField(fieldData, 'Person Name');
+      console.log(`[OneApp] New Hire: personType="${personType}", employer="${legalEmployer}", person="${personName}"`);
+
+      // Step 1: Identification — Legal Employer, Worker Type, Name
+      if (legalEmployer) {
+        const leField = this.page.getByRole('combobox', { name: 'Legal Employer' }).first();
+        if (await leField.isVisible({ timeout: 10000 }).catch(() => false)) {
+          await this.person.fillCombobox(leField, legalEmployer, 5000);
+        }
+      }
+
+      if (personType) {
+        const mapped = personType.toLowerCase().includes('contingent') ? 'Contingent worker' : 'Employee';
+        const wtField = this.page.getByRole('combobox', { name: /Worker Type|Proposed Worker Type/i }).first();
+        if (await wtField.isVisible({ timeout: 5000 }).catch(() => false)) {
+          await this.person.fillCombobox(wtField, mapped);
+          await this.page.waitForTimeout(2000);
+        }
+      }
+
+      if (personName) {
+        const [lastName, firstName] = personName.split(',').map(s => s.trim());
+        if (lastName) {
+          const lnField = this.page.getByRole('textbox', { name: 'Last Name' }).first();
+          if (await lnField.isVisible({ timeout: 8000 }).catch(() => false)) {
+            await this.person.fillField(lnField, lastName);
+          }
+        }
+        if (firstName) {
+          const fnField = this.page.getByRole('textbox', { name: 'First Name' }).first();
+          if (await fnField.isVisible({ timeout: 5000 }).catch(() => false)) {
+            await this.person.fillField(fnField, firstName);
+          }
+        }
+      }
+
+      // Navigate through wizard: Step 1 → Step 2
+      await this.clickWizardButton('Next');
+      await this.dismissMatchingPersonDialog();
+
+      // Step 2: Person Information → Step 3: Employment
+      await this.clickWizardButton('Next');
+      await this.page.waitForTimeout(3000);
+
+      // Step 3: Employment — try to fill Department, Job from field data
+      const dept = getField(fieldData, 'Department');
+      if (dept) {
+        const deptField = this.page.getByRole('combobox', { name: 'Department' }).first();
+        if (await deptField.isVisible({ timeout: 5000 }).catch(() => false)) {
+          await this.person.fillCombobox(deptField, dept, 5000);
+        }
+      }
+      const job = getField(fieldData, 'Job');
+      if (job) {
+        const jobField = this.page.getByRole('combobox', { name: 'Job' }).first();
+        if (await jobField.isVisible({ timeout: 5000 }).catch(() => false)) {
+          await this.person.fillCombobox(jobField, job, 5000);
+        }
+      }
+
+      // Step 3 → Step 4 (Compensation) → Step 5 (Review)
+      await this.clickWizardButton('Next');
+      await this.clickWizardButton('Next');
+    } else {
+      // No field data — advance through wizard with defaults
+      for (let i = 0; i < 5; i++) {
+        await this.clickWizardButton('Next');
+      }
     }
 
-    // Navigate through wizard steps
-    await this.clickWizardButton('Continue');
-    await this.clickWizardButton('Continue');
-    await this.clickWizardButton('Continue');
-    await this.clickWizardButton('Next');
+    // Final step: Review → Submit
     await this.confirmation.clickSubmit();
     await this.confirmation.expectSuccess();
   }
@@ -289,10 +354,13 @@ export class OneAppFlow extends BaseFlow {
   private async executeSecondYear(tc: UATTestCase, fieldData: TestCase | undefined): Promise<void> {
     await this.homePage.goToPersonManagement();
 
-    // Search for the worker using field data
+    // Search for the worker using person number (more reliable) or name
     if (fieldData) {
+      const personNumber = getField(fieldData, 'Person Number');
       const personName = getField(fieldData, 'Person Name');
-      if (personName) {
+      if (personNumber) {
+        await this.searchPersonByNumber(personNumber);
+      } else if (personName) {
         await this.searchPerson(personName);
       }
     }
@@ -303,7 +371,40 @@ export class OneAppFlow extends BaseFlow {
       console.log(`[OneApp] ${tc.testId}: Change Assignment not available — navigation verified`);
       return;
     }
+
+    // When/Why page — fill effective date if available
+    if (fieldData) {
+      const effectiveDate = getField(fieldData, 'Effective date') || getField(fieldData, 'When');
+      if (effectiveDate) {
+        const dateStr = /^\d+$/.test(effectiveDate) ? excelSerialToDate(effectiveDate) : effectiveDate;
+        const dateField = this.page.locator('input[aria-label*="Effective Date"], input[aria-label*="When"]').first();
+        if (await dateField.isVisible({ timeout: 5000 }).catch(() => false)) {
+          await this.person.fillField(dateField, dateStr);
+          console.log(`[OneApp] ${tc.testId}: Filled effective date: ${dateStr}`);
+        }
+      }
+    }
+
     await this.clickWizardButton('Continue');
+
+    // Assignment page — fill Department and Job if available
+    if (fieldData) {
+      const dept = getField(fieldData, 'Department');
+      if (dept) {
+        const deptField = this.page.getByRole('combobox', { name: 'Department' }).first();
+        if (await deptField.isVisible({ timeout: 5000 }).catch(() => false)) {
+          await this.person.fillCombobox(deptField, dept, 5000);
+        }
+      }
+      const job = getField(fieldData, 'Job');
+      if (job) {
+        const jobField = this.page.getByRole('combobox', { name: 'Job' }).first();
+        if (await jobField.isVisible({ timeout: 5000 }).catch(() => false)) {
+          await this.person.fillCombobox(jobField, job, 5000);
+        }
+      }
+    }
+
     await this.clickWizardButton('Next');
     await this.confirmation.clickSubmit();
     await this.confirmation.expectSuccess();
@@ -314,8 +415,11 @@ export class OneAppFlow extends BaseFlow {
     await this.homePage.goToPersonManagement();
 
     if (fieldData) {
+      const personNumber = getField(fieldData, 'Person Number');
       const personName = getField(fieldData, 'Person Name');
-      if (personName) {
+      if (personNumber) {
+        await this.searchPersonByNumber(personNumber);
+      } else if (personName) {
         await this.searchPerson(personName);
       }
     }
@@ -364,6 +468,18 @@ export class OneAppFlow extends BaseFlow {
       await this.clickWizardButton('Continue');
     }
 
+    // Fill Job from field data on the assignment page
+    if (fieldData) {
+      const job = getField(fieldData, 'Job');
+      if (job) {
+        const jobField = this.page.getByRole('combobox', { name: 'Job' }).first();
+        if (await jobField.isVisible({ timeout: 5000 }).catch(() => false)) {
+          console.log(`[OneApp] ${tc.testId}: Filling Job: ${job}`);
+          await this.person.fillCombobox(jobField, job, 5000);
+        }
+      }
+    }
+
     const nextBtn = this.page.getByRole('button', { name: 'Next' }).first();
     if (await nextBtn.isVisible({ timeout: 5000 }).catch(() => false)) {
       await this.clickWizardButton('Next');
@@ -384,8 +500,11 @@ export class OneAppFlow extends BaseFlow {
     await this.homePage.goToPersonManagement();
 
     if (fieldData) {
+      const personNumber = getField(fieldData, 'Person Number');
       const personName = getField(fieldData, 'Person Name');
-      if (personName) {
+      if (personNumber) {
+        await this.searchPersonByNumber(personNumber);
+      } else if (personName) {
         await this.searchPerson(personName);
       }
     }
@@ -425,6 +544,20 @@ export class OneAppFlow extends BaseFlow {
       }
     }
 
+    // Fill salary amount if field data available
+    if (fieldData) {
+      const salaryAmount = getField(fieldData, 'Salary Amount');
+      if (salaryAmount) {
+        const amountField = this.page.locator(
+          'input[aria-label*="Amount"], input[aria-label*="Salary"], input[aria-label*="Annual"]'
+        ).first();
+        if (await amountField.isVisible({ timeout: 5000 }).catch(() => false)) {
+          console.log(`[OneApp] ${tc.testId}: Filling salary amount: ${salaryAmount}`);
+          await this.person.fillField(amountField, String(salaryAmount));
+        }
+      }
+    }
+
     // Only try wizard buttons if we successfully navigated to a salary form
     const continueBtn = this.page.getByRole('button', { name: 'Continue' }).first();
     if (await continueBtn.isVisible({ timeout: 5000 }).catch(() => false)) {
@@ -445,8 +578,11 @@ export class OneAppFlow extends BaseFlow {
     await this.homePage.goToPersonManagement();
 
     if (fieldData) {
+      const personNumber = getField(fieldData, 'Person Number');
       const personName = getField(fieldData, 'Person Name');
-      if (personName) {
+      if (personNumber) {
+        await this.searchPersonByNumber(personNumber);
+      } else if (personName) {
         await this.searchPerson(personName);
       }
     }
@@ -457,6 +593,21 @@ export class OneAppFlow extends BaseFlow {
       console.log(`[OneApp] ${tc.testId}: Manage Salary not available — navigation verified`);
       return;
     }
+
+    // Fill salary amount if field data available
+    if (fieldData) {
+      const salaryAmount = getField(fieldData, 'Salary Amount');
+      if (salaryAmount) {
+        const amountField = this.page.locator(
+          'input[aria-label*="Amount"], input[aria-label*="Salary"], input[aria-label*="Annual"]'
+        ).first();
+        if (await amountField.isVisible({ timeout: 5000 }).catch(() => false)) {
+          console.log(`[OneApp] ${tc.testId}: Filling salary amount: ${salaryAmount}`);
+          await this.person.fillField(amountField, String(salaryAmount));
+        }
+      }
+    }
+
     await this.clickWizardButton('Continue').catch(() => {});
     await this.confirmation.clickSubmit().catch(() => {
       console.log(`[OneApp] ${tc.testId}: Submit not available — salary form navigation verified`);
@@ -535,6 +686,51 @@ export class OneAppFlow extends BaseFlow {
     }
 
     await this.person.screenshot(`oneapp-generic-${tc.testId}`);
+  }
+
+  /** Search for a person by person number on the Person Management page. */
+  private async searchPersonByNumber(personNumber: string): Promise<void> {
+    // Try the Person Number field first (more specific)
+    const numInput = this.page.locator(
+      '[id$="q1:value10::content"], input[aria-label*="Person Number"]'
+    ).first();
+    if (await numInput.isVisible({ timeout: 5000 }).catch(() => false)) {
+      await numInput.fill(personNumber);
+      const searchBtn = this.page.locator('[id$="q1::search"], button:has-text("Search")').first();
+      if (await searchBtn.isVisible({ timeout: 3000 }).catch(() => false)) {
+        await searchBtn.click();
+      } else {
+        await numInput.press('Enter');
+      }
+      await this.page.waitForTimeout(5000);
+      await this.person.waitForJET();
+
+      // Click first result
+      const firstResult = this.page.locator('[role="row"] a').first();
+      if (await firstResult.isVisible({ timeout: 5000 }).catch(() => false)) {
+        await firstResult.click();
+        await this.page.waitForTimeout(3000);
+        await this.person.waitForJET();
+      }
+    } else {
+      // Fall back to the name search field
+      const searchInput = this.page.locator(
+        '[id$="q1:value00::content"], input[aria-label*="Name"], input[placeholder*="Search"]'
+      ).first();
+      if (await searchInput.isVisible({ timeout: 5000 }).catch(() => false)) {
+        await searchInput.fill(personNumber);
+        await searchInput.press('Enter');
+        await this.page.waitForTimeout(5000);
+        await this.person.waitForJET();
+
+        const firstResult = this.page.locator('[role="row"] a').first();
+        if (await firstResult.isVisible({ timeout: 5000 }).catch(() => false)) {
+          await firstResult.click();
+          await this.page.waitForTimeout(3000);
+          await this.person.waitForJET();
+        }
+      }
+    }
   }
 
   /** Search for a person on the Person Management page. */

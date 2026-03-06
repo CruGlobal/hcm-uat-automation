@@ -66,12 +66,16 @@ export class CoreHRUATFlow extends BaseFlow {
 
     // Route based on business process.
     // More specific patterns are checked BEFORE broader ones to avoid false matches.
+    // "mass change" / "mass update" MUST be before ALL other BP checks — HR-553-556
+    // "Mass Changes for Dept changes" etc. falsely match "dept", "pay change", "strategy change", "training status".
     // "document/attachment" MUST be before "pending" — HR-137 "Document Submission for Pending Employee"
     // was falsely matching "pending" and being misrouted to the hire wizard.
     // "change staff" must be checked before "hire" (business process text may contain both).
     // "personal info" patterns MUST be before "hire" — "Manage Pending Worker Personal Information"
     // contains "pending" but is a personal info update, not a hire.
-    if (process.includes('document type') || process.includes('mantain document') || process.includes('maintain document')) {
+    if (process.includes('mass change') || process.includes('mass update') || process.includes('mass action')) {
+      await this.executeMassUpdate(tc);
+    } else if (process.includes('document type') || process.includes('mantain document') || process.includes('maintain document')) {
       // HR-152: "Maintain Document Types" — admin setup of document type definitions
       await this.executeDocumentTypesAdmin(tc);
     } else if (process.includes('delete') && process.includes('document')) {
@@ -180,8 +184,6 @@ export class CoreHRUATFlow extends BaseFlow {
       await this.executeSalaryChange(tc);
     } else if (process.includes('change working hours') || process.includes('hours worked change')) {
       await this.executeChangeWorkingHours(tc);
-    } else if (process.includes('mass update') || process.includes('mass action') || process.includes('mass changes')) {
-      await this.executeMassUpdate(tc);
     } else if (process.includes('course student enrollment') || process.includes('course enrollment')) {
       // HR-521: "Course Student Enrollment" — enroll employee in a learning course (NSO, etc.)
       await this.executeCourseEnrollment(tc);
@@ -796,18 +798,134 @@ export class CoreHRUATFlow extends BaseFlow {
       }
     }
 
-    // Fill the first editable input field in the EIT section
-    const editableField = this.page.locator(
-      'input[id*="::content"]:not([readonly]):not([disabled])'
-    ).first();
-    if (await editableField.isVisible({ timeout: 5000 }).catch(() => false)) {
-      const current = await editableField.inputValue().catch(() => '');
-      if (!current) {
-        await this.person.fillField(editableField, 'UAT');
-        console.log(`[PersonalInfo] ${tc.testId}: Filled EIT field with "UAT"`);
-      } else {
-        console.log(`[PersonalInfo] ${tc.testId}: EIT field already has value: "${current}"`);
+    // Fill EIT-specific fields from field data based on EIT type
+    const eitType = this.getEITSidebarLinkId(tc.businessProcess) || '';
+    let filledFromFD = false;
+
+    if (fd) {
+      if (eitType.includes('Staff__Account')) {
+        // Staff Account and Designation EIT
+        const staffAcct = getField(fd, 'Staff Account') || getField(fd, 'staffAccountNumber');
+        const designation = getField(fd, 'Designation') || getField(fd, 'designationNumber');
+        const primaryPerson = getField(fd, 'Primary Person');
+        if (staffAcct) {
+          const acctField = this.page.locator('input[id*="staffAccountNumber" i]:not([readonly]), input[id*="StaffAccount" i]:not([readonly])').first();
+          if (await acctField.isVisible({ timeout: 3000 }).catch(() => false)) {
+            await this.person.fillField(acctField, staffAcct);
+            filledFromFD = true;
+          }
+        }
+        if (designation) {
+          const desigField = this.page.locator('input[id*="designationNumber" i]:not([readonly]), input[id*="Designation" i]:not([readonly])').first();
+          if (await desigField.isVisible({ timeout: 3000 }).catch(() => false)) {
+            await this.person.fillField(desigField, designation);
+            filledFromFD = true;
+          }
+        }
+        if (primaryPerson) {
+          const primaryField = this.page.locator('input[id*="primaryPerson" i]:not([readonly])').first();
+          if (await primaryField.isVisible({ timeout: 3000 }).catch(() => false)) {
+            await this.person.fillField(primaryField, primaryPerson);
+            filledFromFD = true;
+          }
+        }
+      } else if (eitType.includes('Crisis__Management')) {
+        const crisisRole = getField(fd, 'Crisis Role') || getField(fd, 'Role');
+        const crisisTeam = getField(fd, 'Crisis Team') || getField(fd, 'Team');
+        if (crisisRole) {
+          const roleField = this.page.locator('input[id*="crisisRole" i]:not([readonly]), input[id*="Role" i]:not([readonly])').first();
+          if (await roleField.isVisible({ timeout: 3000 }).catch(() => false)) {
+            await this.person.fillField(roleField, crisisRole);
+            filledFromFD = true;
+          }
+        }
+        if (crisisTeam) {
+          const teamField = this.page.locator('input[id*="crisisTeam" i]:not([readonly]), input[id*="Team" i]:not([readonly])').first();
+          if (await teamField.isVisible({ timeout: 3000 }).catch(() => false)) {
+            await this.person.fillField(teamField, crisisTeam);
+            filledFromFD = true;
+          }
+        }
+      } else if (eitType.includes('Team__Membership')) {
+        const teamName = getField(fd, 'Team Name') || getField(fd, 'Team');
+        const teamRole = getField(fd, 'Team Role') || getField(fd, 'Role');
+        if (teamName) {
+          const nameField = this.page.locator('input[id*="teamName" i]:not([readonly]), input[id*="TeamName" i]:not([readonly])').first();
+          if (await nameField.isVisible({ timeout: 3000 }).catch(() => false)) {
+            await this.person.fillField(nameField, teamName);
+            filledFromFD = true;
+          }
+        }
+        if (teamRole) {
+          const roleField = this.page.locator('input[id*="teamRole" i]:not([readonly]), input[id*="Role" i]:not([readonly])').first();
+          if (await roleField.isVisible({ timeout: 3000 }).catch(() => false)) {
+            await this.person.fillField(roleField, teamRole);
+            filledFromFD = true;
+          }
+        }
+      } else if (eitType.includes('Care__Giver')) {
+        const careGiverName = getField(fd, 'Care Giver') || getField(fd, 'Name');
+        if (careGiverName) {
+          const cgField = this.page.locator('input[id*="careGiver" i]:not([readonly]), input[id*="CareGiver" i]:not([readonly])').first();
+          if (await cgField.isVisible({ timeout: 3000 }).catch(() => false)) {
+            await this.person.fillField(cgField, careGiverName);
+            filledFromFD = true;
+          }
+        }
+      } else if (eitType.includes('Work__Locations')) {
+        const location = getField(fd, 'Location') || getField(fd, 'Work Location');
+        const address = getField(fd, 'Address');
+        if (location) {
+          const locField = this.page.locator('input[id*="location" i]:not([readonly]), input[id*="Location" i]:not([readonly])').first();
+          if (await locField.isVisible({ timeout: 3000 }).catch(() => false)) {
+            await this.person.fillField(locField, location);
+            filledFromFD = true;
+          }
+        }
+        if (address) {
+          const addrField = this.page.locator('input[id*="address" i]:not([readonly]), input[id*="Address" i]:not([readonly])').first();
+          if (await addrField.isVisible({ timeout: 3000 }).catch(() => false)) {
+            await this.person.fillField(addrField, address);
+            filledFromFD = true;
+          }
+        }
+      } else if (eitType.includes('Staff__Groups')) {
+        const groupName = getField(fd, 'Group') || getField(fd, 'Staff Group');
+        if (groupName) {
+          const groupField = this.page.locator('input[id*="group" i]:not([readonly]), input[id*="Group" i]:not([readonly])').first();
+          if (await groupField.isVisible({ timeout: 3000 }).catch(() => false)) {
+            await this.person.fillField(groupField, groupName);
+            filledFromFD = true;
+          }
+        }
+      } else if (eitType.includes('Ministers__Housing')) {
+        const mhaAmount = getField(fd, 'Amount') || getField(fd, 'MHA Amount');
+        if (mhaAmount) {
+          const amtField = this.page.locator('input[id*="amount" i]:not([readonly]), input[id*="Amount" i]:not([readonly])').first();
+          if (await amtField.isVisible({ timeout: 3000 }).catch(() => false)) {
+            await this.person.fillField(amtField, mhaAmount);
+            filledFromFD = true;
+          }
+        }
       }
+    }
+
+    // Fallback: fill the first editable input field if no FD-specific fields were filled
+    if (!filledFromFD) {
+      const editableField = this.page.locator(
+        'input[id*="::content"]:not([readonly]):not([disabled])'
+      ).first();
+      if (await editableField.isVisible({ timeout: 5000 }).catch(() => false)) {
+        const current = await editableField.inputValue().catch(() => '');
+        if (!current) {
+          await this.person.fillField(editableField, 'UAT');
+          console.log(`[PersonalInfo] ${tc.testId}: Filled EIT field with "UAT" (no FD match)`);
+        } else {
+          console.log(`[PersonalInfo] ${tc.testId}: EIT field already has value: "${current}"`);
+        }
+      }
+    } else {
+      console.log(`[PersonalInfo] ${tc.testId}: Filled EIT fields from field data`);
     }
 
     // Save
@@ -1048,12 +1166,53 @@ export class CoreHRUATFlow extends BaseFlow {
       await this.person.waitForJET();
     }
 
-    // For seniority dates: look for "Seniority Dates" section to expand
+    // Fill the target date field based on sub-action
+    const targetDate = fd ? (getField(fd, 'Date') || getField(fd, 'New Date') || getField(fd, 'Effective Date')) : null;
+    const dateValue = targetDate || (() => {
+      const today = new Date();
+      return `${String(today.getMonth() + 1).padStart(2, '0')}/${String(today.getDate()).padStart(2, '0')}/${today.getFullYear()}`;
+    })();
+
     if (subAction === 'seniority-date') {
       const senioritySection = this.page.getByText('Seniority Dates', { exact: false }).first();
       if (await senioritySection.isVisible({ timeout: 5000 }).catch(() => false)) {
         await senioritySection.click().catch(() => {});
         await this.page.waitForTimeout(2000);
+      }
+      const seniorityField = this.page.locator(
+        'input[id*="SeniorityDate" i]:not([readonly]), input[id*="seniorityDate" i]:not([readonly]), ' +
+        'input[id*="seniority" i][id*="::content"]:not([readonly])'
+      ).first();
+      if (await seniorityField.isVisible({ timeout: 5000 }).catch(() => false)) {
+        await this.person.fillField(seniorityField, dateValue);
+        console.log(`[PersonalInfo] ${tc.testId}: Set seniority date to "${dateValue}"`);
+      }
+    } else if (subAction === 'benefits-service-date') {
+      const benefitsField = this.page.locator(
+        'input[id*="BenefitsServiceDate" i]:not([readonly]), input[id*="benefitsService" i]:not([readonly]), ' +
+        'input[id*="benefits" i][id*="Date" i][id*="::content"]:not([readonly])'
+      ).first();
+      if (await benefitsField.isVisible({ timeout: 5000 }).catch(() => false)) {
+        await this.person.fillField(benefitsField, dateValue);
+        console.log(`[PersonalInfo] ${tc.testId}: Set benefits service date to "${dateValue}"`);
+      }
+    } else if (subAction === 'employment-start-date') {
+      const empStartField = this.page.locator(
+        'input[id*="EmploymentStartDate" i]:not([readonly]), input[id*="employmentStart" i]:not([readonly]), ' +
+        'input[id*="startDate" i][id*="::content"]:not([readonly])'
+      ).first();
+      if (await empStartField.isVisible({ timeout: 5000 }).catch(() => false)) {
+        await this.person.fillField(empStartField, dateValue);
+        console.log(`[PersonalInfo] ${tc.testId}: Set employment start date to "${dateValue}"`);
+      }
+    } else if (subAction === 'accrual-rate') {
+      const accrualField = this.page.locator(
+        'input[id*="AccrualRate" i]:not([readonly]), input[id*="accrualRate" i]:not([readonly]), ' +
+        'input[id*="accrual" i][id*="::content"]:not([readonly])'
+      ).first();
+      if (await accrualField.isVisible({ timeout: 5000 }).catch(() => false)) {
+        await this.person.fillField(accrualField, dateValue);
+        console.log(`[PersonalInfo] ${tc.testId}: Set accrual rate date to "${dateValue}"`);
       }
     }
 
@@ -1225,8 +1384,10 @@ export class CoreHRUATFlow extends BaseFlow {
     await this.homePage.goToWorkforceStructures();
     await this.page.waitForTimeout(3000);
 
-    // Determine which structure type to click
-    const structureType = this.detectStructureType(process, scenario);
+    // Determine which structure type to click — prefer field data's Structure Type
+    const fd = getFieldData(tc.testId);
+    const fdStructType = fd ? getField(fd, 'Structure Type') : null;
+    const structureType = fdStructType || this.detectStructureType(process, scenario);
 
     // Use getByRole('link') to avoid matching invisible SVG <title> elements
     const clickStructureLink = async (name: string) => {
@@ -1266,6 +1427,8 @@ export class CoreHRUATFlow extends BaseFlow {
 
   /** CREATE a new workforce structure item: click Add, fill fields, Save. */
   private async createStructureItem(tc: UATTestCase, structureType: string): Promise<void> {
+    const fd = getFieldData(tc.testId);
+
     // Click the Add/Create/+ button
     const addBtn = this.page.locator(
       'a[role="button"]:has-text("Add"), a[role="button"]:has-text("Create"), ' +
@@ -1284,8 +1447,9 @@ export class CoreHRUATFlow extends BaseFlow {
       }
     }
 
-    // Fill fields based on structure type
-    const nameValue = `Test ${structureType.replace(/s$/, '')} ${tc.testId}`;
+    // Fill Name field — prefer field data, fallback to generated placeholder
+    const fdName = fd ? (getField(fd, 'Department') || getField(fd, 'Name') || getField(fd, 'Description')) : null;
+    const nameValue = fdName || `Test ${structureType.replace(/s$/, '')} ${tc.testId}`;
     const nameField = this.page.locator(
       'input[id*="Name" i]:not([readonly]), input[id*="name" i]:not([readonly])'
     ).first();
@@ -1293,17 +1457,57 @@ export class CoreHRUATFlow extends BaseFlow {
       await this.person.fillField(nameField, nameValue);
     }
 
+    // Fill Effective Date from field data
+    const fdEffDate = fd ? getField(fd, 'Effective Date') : null;
+    if (fdEffDate) {
+      const dateField = this.page.locator(
+        'input[id*="EffectiveDate" i], input[id*="effectiveDate" i], input[id*="inputDate"][id*="::content"]'
+      ).first();
+      if (await dateField.isVisible({ timeout: 3000 }).catch(() => false)) {
+        await this.person.fillField(dateField, fdEffDate);
+      }
+    }
+
     // Structure-specific additional fields
     if (structureType === 'Jobs') {
+      const fdCode = fd ? getField(fd, 'Code') : null;
       const codeField = this.page.locator('input[id*="Code" i]:not([readonly]), input[id*="code" i]:not([readonly])').first();
       if (await codeField.isVisible({ timeout: 3000 }).catch(() => false)) {
-        await this.person.fillField(codeField, `TST_${tc.testId}`);
+        await this.person.fillField(codeField, fdCode || `TST_${tc.testId}`);
+      }
+    } else if (structureType === 'Departments') {
+      // Fill Ministry / Sub Ministry from field data
+      const ministry = fd ? getField(fd, 'Ministry') : null;
+      if (ministry) {
+        const ministryField = this.page.locator('input[id*="Ministry" i]:not([readonly]), input[id*="ministry" i]:not([readonly])').first();
+        if (await ministryField.isVisible({ timeout: 3000 }).catch(() => false)) {
+          await this.person.fillCombobox(ministryField, ministry);
+          await this.page.waitForTimeout(2000);
+        }
+      }
+      const subMinistry = fd ? getField(fd, 'Sub Ministry') : null;
+      if (subMinistry) {
+        const subMinistryField = this.page.locator('input[id*="SubMinistry" i]:not([readonly]), input[id*="subMinistry" i]:not([readonly])').first();
+        if (await subMinistryField.isVisible({ timeout: 3000 }).catch(() => false)) {
+          await this.person.fillCombobox(subMinistryField, subMinistry);
+          await this.page.waitForTimeout(2000);
+        }
       }
     } else if (structureType === 'Locations') {
-      // Try to fill Country
       const countryField = this.page.locator('input[id*="Country" i], input[id*="country" i]').first();
       if (await countryField.isVisible({ timeout: 3000 }).catch(() => false)) {
         await this.person.fillCombobox(countryField, 'United States');
+      }
+    }
+
+    // Fill Description from field data
+    const fdDesc = fd ? getField(fd, 'Description') : null;
+    if (fdDesc) {
+      const descField = this.page.locator(
+        'textarea[id*="escription" i], input[id*="escription" i]'
+      ).first();
+      if (await descField.isVisible({ timeout: 3000 }).catch(() => false)) {
+        await this.person.fillField(descField, fdDesc);
       }
     }
 
@@ -1719,16 +1923,84 @@ export class CoreHRUATFlow extends BaseFlow {
   // --- Promotion (HCM.CORE.2xx promote) ---
 
   private async executePromotion(tc: UATTestCase): Promise<void> {
-    await this.homePage.goToPersonManagement();
-    const personName = this.extractPersonRef(tc);
-    if (personName) {
-      await this.person.searchByName(personName);
+    const fd = getFieldData(tc.testId);
+
+    // If field data has Assignment Change structure, delegate to AssignmentChangeFlow
+    if (fd && (getField(fd, "What's the way") || getField(fd, 'Action'))) {
+      console.log(`[Promotion] ${tc.testId}: Field data found, routing to AssignmentChangeFlow`);
+      const flow = new AssignmentChangeFlow(this.page);
+      await flow.execute(fd);
+      return;
     }
+
+    await this.homePage.goToPersonManagement();
+
+    // Find person: prefer field data Person Number/Name over test text parsing
+    const personNumber = fd ? getField(fd, 'Person Number') : null;
+    const personName = fd ? getField(fd, 'Person Name') : null;
+    if (personNumber) {
+      await this.person.searchByPersonNumber(personNumber);
+    } else if (personName) {
+      await this.person.searchByName(personName);
+    } else {
+      const extracted = this.extractPersonRef(tc);
+      if (extracted) await this.person.searchByName(extracted);
+    }
+
     await this.selectPersonAction('Promote');
     await this.page.waitForTimeout(5000);
-    // "When and Why"
+
+    // Fill When and Why from field data
+    if (fd) {
+      const effDate = getField(fd, 'Effective Date') || getField(fd, 'When - Effective date');
+      if (effDate) {
+        const dateInput = this.page.locator('input[id*="inputDate"][id*="::content"]').first();
+        if (await dateInput.isVisible({ timeout: 5000 }).catch(() => false)) {
+          await this.person.fillField(dateInput, effDate);
+          await this.page.waitForTimeout(1000);
+        }
+      }
+    }
+
     await this.person.clickAdfButton('Continue');
     await this.page.waitForTimeout(5000);
+
+    // Fill promotion fields from field data on the assignment page
+    if (fd) {
+      const job = getField(fd, 'Job');
+      if (job) {
+        const jobField = this.page.locator('input[id*="Job" i][id*="::content"]:not([readonly])').first();
+        if (await jobField.isVisible({ timeout: 3000 }).catch(() => false)) {
+          await this.person.fillCombobox(jobField, job);
+          await this.page.waitForTimeout(2000);
+        }
+      }
+      const grade = getField(fd, 'Grade');
+      if (grade) {
+        const gradeField = this.page.locator('input[id*="Grade" i][id*="::content"]:not([readonly])').first();
+        if (await gradeField.isVisible({ timeout: 3000 }).catch(() => false)) {
+          await this.person.fillCombobox(gradeField, grade);
+          await this.page.waitForTimeout(2000);
+        }
+      }
+      const dept = getField(fd, 'Department');
+      if (dept) {
+        const deptField = this.page.locator('input[id*="Department" i][id*="::content"]:not([readonly])').first();
+        if (await deptField.isVisible({ timeout: 3000 }).catch(() => false)) {
+          await this.person.fillCombobox(deptField, dept);
+          await this.page.waitForTimeout(2000);
+        }
+      }
+      const location = getField(fd, 'Location');
+      if (location) {
+        const locField = this.page.locator('input[id*="Location" i][id*="::content"]:not([readonly])').first();
+        if (await locField.isVisible({ timeout: 3000 }).catch(() => false)) {
+          await this.person.fillCombobox(locField, location);
+          await this.page.waitForTimeout(2000);
+        }
+      }
+    }
+
     // Assignment details
     await this.person.clickAdfButton('Next');
     await this.page.waitForTimeout(5000);
@@ -1879,6 +2151,9 @@ export class CoreHRUATFlow extends BaseFlow {
 
   /** Add a new document: Click Add → select type → upload file → Submit. */
   private async addNewDocument(tc: UATTestCase): Promise<void> {
+    const fd = getFieldData(tc.testId);
+    const docType = fd ? getField(fd, 'Document Type') : null;
+
     // Click the "+Add" or "Add" button on the Document Records page
     const addBtn = this.page.getByRole('button', { name: /add/i })
       .or(this.page.locator('[id*="addDocument"], [id*="AddDocument"], a[title="Add"], button:has-text("Add")'))
@@ -1888,32 +2163,47 @@ export class CoreHRUATFlow extends BaseFlow {
     await this.person.waitForJET();
 
     // Select Document Type from the ADF LOV combobox ("Select a value" placeholder)
-    // The Document Type field is a required ADF combobox — click the dropdown arrow, then select first option
     const typeInput = this.page.locator(
       'input[placeholder="Select a value"], input[id*="documentType"], input[id*="DocumentType"]'
     ).first();
     if (await typeInput.isVisible({ timeout: 5000 }).catch(() => false)) {
-      // Click the dropdown arrow icon next to the input
-      const dropdownArrow = typeInput.locator('xpath=following-sibling::a | ../a | ../..//a[contains(@id,"dropdownArrow") or contains(@class,"lov")]');
-      if (await dropdownArrow.isVisible({ timeout: 3000 }).catch(() => false)) {
-        await dropdownArrow.click();
-      } else {
-        // Click the input and use keyboard to open dropdown
+      if (docType) {
+        // Try to type and match the document type from field data
         await typeInput.click();
-        await this.page.keyboard.press('ArrowDown');
-      }
-      await this.page.waitForTimeout(2000);
-
-      // Select the first option in the dropdown list
-      const firstOption = this.page.locator('[role="option"], [role="listitem"], li.oj-listbox-result').first();
-      if (await firstOption.isVisible({ timeout: 5000 }).catch(() => false)) {
-        await firstOption.click();
+        await typeInput.pressSequentially(docType, { delay: 50 });
+        await this.page.waitForTimeout(2000);
+        // Try to select matching option from dropdown
+        const matchOption = this.page.locator('[role="option"], [role="listitem"], li.oj-listbox-result')
+          .filter({ hasText: new RegExp(docType.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i') }).first();
+        if (await matchOption.isVisible({ timeout: 3000 }).catch(() => false)) {
+          await matchOption.click();
+          console.log(`[DocumentManagement] ${tc.testId}: Selected document type "${docType}" from FD`);
+        } else {
+          // Fallback: Tab to accept typed value, or select first available
+          await typeInput.press('Tab');
+        }
         await this.page.waitForTimeout(2000);
         await this.person.waitForJET();
       } else {
-        // Fallback: press Enter to select whatever is highlighted
-        await this.page.keyboard.press('Enter');
+        // No FD: click dropdown arrow, select first option
+        const dropdownArrow = typeInput.locator('xpath=following-sibling::a | ../a | ../..//a[contains(@id,"dropdownArrow") or contains(@class,"lov")]');
+        if (await dropdownArrow.isVisible({ timeout: 3000 }).catch(() => false)) {
+          await dropdownArrow.click();
+        } else {
+          await typeInput.click();
+          await this.page.keyboard.press('ArrowDown');
+        }
         await this.page.waitForTimeout(2000);
+
+        const firstOption = this.page.locator('[role="option"], [role="listitem"], li.oj-listbox-result').first();
+        if (await firstOption.isVisible({ timeout: 5000 }).catch(() => false)) {
+          await firstOption.click();
+          await this.page.waitForTimeout(2000);
+          await this.person.waitForJET();
+        } else {
+          await this.page.keyboard.press('Enter');
+          await this.page.waitForTimeout(2000);
+        }
       }
     }
 
@@ -2172,10 +2462,46 @@ export class CoreHRUATFlow extends BaseFlow {
     const fd = getFieldData(tc.testId);
     const process = tc.businessProcess.toLowerCase();
 
-    // MHA tests (HR-461-465): navigate to Person Management → search person → view MHA EIT
+    // MHA tests (HR-461-465): navigate based on MHA action type
     if (process.includes('mha')) {
       const personNumber = fd ? getField(fd, 'Person Number') : null;
       const personName = fd ? getField(fd, 'Person Name') : null;
+
+      if (process.includes('approval')) {
+        // MHA Approvals — check notification bell
+        await this.homePage.goHome();
+        await this.page.waitForTimeout(2000);
+        const bell = this.page.locator(
+          '[id$="_UIScmil3u"], a[aria-label*="Notification"], a[title*="Notifications"], button[aria-label*="Notification"]'
+        ).first();
+        if (await bell.isVisible({ timeout: 10_000 }).catch(() => false)) {
+          await bell.click();
+          await this.page.waitForTimeout(3000);
+          await this.person.waitForJET();
+          // Look for MHA-related notification
+          const mhaNotif = this.page.locator('[role="listitem"] a, [class*="notification"] a').filter({ hasText: /MHA|housing/i }).first();
+          if (await mhaNotif.isVisible({ timeout: 5000 }).catch(() => false)) {
+            await mhaNotif.click();
+            await this.page.waitForTimeout(5000);
+            await this.person.waitForJET();
+            // Try to approve
+            const approveBtn = this.page.locator('button:has-text("Approve"), a[role="button"]:has-text("Approve")').first();
+            if (await approveBtn.isVisible({ timeout: 5000 }).catch(() => false)) {
+              await approveBtn.click();
+              await this.page.waitForTimeout(3000);
+              const confirmBtn = this.page.getByRole('button', { name: /yes|ok|submit|confirm/i }).first();
+              if (await confirmBtn.isVisible({ timeout: 3000 }).catch(() => false)) {
+                await confirmBtn.click();
+                await this.page.waitForTimeout(3000);
+              }
+            }
+          }
+        }
+        console.log(`[GenericHR] ${tc.testId}: MHA Approval — notification checked`);
+        return;
+      }
+
+      // MHA query/updates — navigate to person → EIT (Ministers Housing Allowance)
       await this.homePage.goToPersonManagement();
       if (personNumber) {
         await this.person.searchByPersonNumber(personNumber);
@@ -2183,7 +2509,53 @@ export class CoreHRUATFlow extends BaseFlow {
         await this.person.searchByName(personName);
       }
       await this.page.waitForTimeout(3000);
-      console.log(`[GenericHR] ${tc.testId}: MHA — person page loaded`);
+
+      // Navigate to EIT → Ministers Housing section
+      await this.navigateToPersonDetailPage();
+      const extraInfoTab = this.page.locator('a, [role="tab"]').filter({ hasText: /^Extra Information$/ }).first();
+      if (await extraInfoTab.isVisible({ timeout: 8000 }).catch(() => false)) {
+        await extraInfoTab.click({ force: true });
+        await this.page.waitForTimeout(8000);
+        await this.person.waitForJET();
+
+        // Click "Ministers Housing Allowance" sidebar link
+        const mhaLink = this.page.locator('[id*="PER_EITMinisters__Housing"], a:has-text("Ministers Housing")').first();
+        if (await mhaLink.isVisible({ timeout: 5000 }).catch(() => false)) {
+          await mhaLink.click({ force: true });
+          await this.page.waitForTimeout(5000);
+          await this.person.waitForJET();
+        }
+
+        // If this is an update test, click Edit > Update
+        if (process.includes('update') || process.includes('requirement')) {
+          const editIcon = this.page.locator('[id*="editDropDown::icon"]').first();
+          if (await editIcon.isVisible({ timeout: 5000 }).catch(() => false)) {
+            await editIcon.click({ force: true });
+            await this.page.waitForTimeout(3000);
+            const updateItem = this.page.locator('tr[id*="updateEFF"], td:has-text("Update")').first();
+            if (await updateItem.isVisible({ timeout: 3000 }).catch(() => false)) {
+              await updateItem.click({ force: true });
+              await this.page.waitForTimeout(5000);
+              await this.person.waitForJET();
+            }
+
+            // Fill MHA fields from field data
+            if (fd) {
+              const mhaAmount = getField(fd, 'Amount') || getField(fd, 'MHA Amount');
+              if (mhaAmount) {
+                const amtField = this.page.locator('input[id*="amount" i]:not([readonly]), input[id*="Amount" i]:not([readonly])').first();
+                if (await amtField.isVisible({ timeout: 3000 }).catch(() => false)) {
+                  await this.person.fillField(amtField, mhaAmount);
+                }
+              }
+            }
+
+            await this.person.clickAdfButton('Save');
+            await this.page.waitForTimeout(5000);
+          }
+        }
+      }
+      console.log(`[GenericHR] ${tc.testId}: MHA — EIT section accessed`);
       return;
     }
 
