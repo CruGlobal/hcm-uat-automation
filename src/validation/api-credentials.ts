@@ -1,10 +1,8 @@
 /**
  * Resolve REST API credentials for pre-flight checks and outcome validation.
  *
- * Priority:
- * 1. ORACLE_API_USERNAME + ORACLE_API_PASSWORD env vars (dedicated API user)
- * 2. Current bot account (PARALLEL_BOT_ACCOUNT from bot-credentials.json)
- * 3. Fallback: bot_hr_admin
+ * Requires ORACLE_API_USERNAME + ORACLE_API_PASSWORD env vars in .env.
+ * Falls back to current bot account or bot_hr_admin from credentials file.
  */
 import { getBotCredentials } from '../config/bot-users';
 import type { BasicAuthCredentials } from '../../scripts/lib/hcm-rest-api';
@@ -26,12 +24,11 @@ export function resolveApiCredentials(): BasicAuthCredentials {
     }
   }
 
-  // 3. Fallback to bot_hr_admin
+  // 3. Fallback to bot_hr_admin from credentials file
   const fallback = getBotCredentials('bot_hr_admin');
   if (fallback) {
     return { username: fallback.username, password: fallback.password };
   }
 
-  // Last resort — will likely 401 but lets the caller handle it
-  return { username: 'uat.bot_hr_admin', password: 'WinBuildSend!1951@cru' };
+  throw new Error('No REST API credentials available. Set ORACLE_API_USERNAME and ORACLE_API_PASSWORD in .env');
 }

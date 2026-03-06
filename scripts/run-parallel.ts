@@ -16,6 +16,7 @@
  *   npx tsx scripts/run-parallel.ts --module "Core HR"      # One module only
  *   npx tsx scripts/run-parallel.ts --one-per-bot           # One test per bot (smoke test)
  *   npx tsx scripts/run-parallel.ts --no-clones             # Ignore clones, use base bots only
+ *   npx tsx scripts/run-parallel.ts --skip-reset            # Skip SCIM password reset for clones
  *   npx tsx scripts/run-parallel.ts --status "Not Started"  # Only tests with specific status
  *   npx tsx scripts/run-parallel.ts --status "Not Started,Failed"  # Multiple statuses
  *   RUN_PASSED_ONLY=true npx tsx scripts/run-parallel.ts   # Only "Passed" tests
@@ -28,6 +29,7 @@ import { loadUATPlan, isTestable } from '../src/data/uat-plan-provider';
 import { getBotForTester, getBotCredentials, getClonesForBot } from '../src/config/bot-users';
 import { getAccessToken, getSheetTabs, readSheetTab, getTrackingSheetId } from './lib/google-sheets';
 import { parsePlaywrightReport, mapStatus } from './update-tracking-sheet';
+import { scimLookupUser, scimResetPassword } from './lib/hcm-rest-api';
 
 // Parse args
 const args = process.argv.slice(2);
@@ -36,6 +38,7 @@ const moduleFilter = args.includes('--module') ? args[args.indexOf('--module') +
 const onePerBot = args.includes('--one-per-bot');
 const noClones = args.includes('--no-clones');
 const maxClonesPerBot = args.includes('--clones') ? parseInt(args[args.indexOf('--clones') + 1] || '5', 10) : Infinity;
+const skipReset = args.includes('--skip-reset');
 const statusFilter = args.includes('--status') ? args[args.indexOf('--status') + 1] : null;
 const trackingStatusFilter = args.includes('--tracking-status') ? args[args.indexOf('--tracking-status') + 1] : null;
 
@@ -262,12 +265,110 @@ function getAndIncrementRunCounter(): number {
   return counter;
 }
 
+// ─── Pre-run SCIM password reset for clone bots ──────────────────────────────
+
+const SCIM_ADMIN_CREDS = {
+  username: process.env.ORACLE_API_USERNAME || '',
+  password: process.env.ORACLE_API_PASSWORD || '',
+};
+const BOT_PASSWORD = process.env.BOT_PASSWORD || process.env.ORACLE_API_PASSWORD || '';
+const TEMP_PASSWORD = 'TempReset!!2026XY@cru';
+
+async function resetClonePasswords(): Promise<void> {
+  const baseUrl = process.env.ORACLE_HCM_URL;
+  if (!baseUrl) {
+    console.warn('  [Password Reset] ORACLE_HCM_URL not set — skipping');
+    return;
+  }
+
+  const credsPath = path.resolve('.config', 'bot-credentials.json');
+  if (!fs.existsSync(credsPath)) {
+    console.warn('  [Password Reset] .config/bot-credentials.json not found — skipping');
+    return;
+  }
+
+  const allCreds: Record<string, { username: string; password: string }> = JSON.parse(
+    fs.readFileSync(credsPath, 'utf-8'),
+  );
+
+  // Filter to clone accounts only (names ending in _\d+)
+  const cloneNames = Object.keys(allCreds).filter(name => /_\d+$/.test(name));
+  if (cloneNames.length === 0) {
+    console.log('  [Password Reset] No clone accounts found — skipping');
+    return;
+  }
+
+  console.log(`  [Password Reset] Resetting passwords for ${cloneNames.length} clone accounts...`);
+  const t0 = Date.now();
+
+  let direct = 0, twoPhase = 0, failed = 0;
+  const errors: string[] = [];
+
+  // Process in batches of 10
+  const BATCH_SIZE = 10;
+  for (let i = 0; i < cloneNames.length; i += BATCH_SIZE) {
+    const batch = cloneNames.slice(i, i + BATCH_SIZE);
+    const results = await Promise.all(batch.map(async (name) => {
+      const username = allCreds[name].username; // e.g. "uat.bot_hr_admin_1"
+      try {
+        // Look up SCIM user
+        const user = await scimLookupUser(baseUrl, username, SCIM_ADMIN_CREDS);
+        if (!user) {
+          errors.push(`${name}: user not found`);
+          return 'failed';
+        }
+
+        // Try direct password reset first
+        const ok = await scimResetPassword(baseUrl, user.id, BOT_PASSWORD, SCIM_ADMIN_CREDS);
+        if (ok) return 'direct';
+
+        // Two-phase: set temp password, then set final password
+        const tempOk = await scimResetPassword(baseUrl, user.id, TEMP_PASSWORD, SCIM_ADMIN_CREDS);
+        if (!tempOk) {
+          errors.push(`${name}: temp password failed`);
+          return 'failed';
+        }
+        const finalOk = await scimResetPassword(baseUrl, user.id, BOT_PASSWORD, SCIM_ADMIN_CREDS);
+        if (!finalOk) {
+          errors.push(`${name}: final password failed`);
+          return 'failed';
+        }
+        return 'two-phase';
+      } catch (err: any) {
+        errors.push(`${name}: ${err.message?.slice(0, 80)}`);
+        return 'failed';
+      }
+    }));
+
+    for (const r of results) {
+      if (r === 'direct') direct++;
+      else if (r === 'two-phase') twoPhase++;
+      else failed++;
+    }
+  }
+
+  const elapsed = ((Date.now() - t0) / 1000).toFixed(1);
+  console.log(`  [Password Reset] ${cloneNames.length} clones reset (${direct} direct, ${twoPhase} two-phase, ${failed} failed) in ${elapsed}s`);
+  if (errors.length > 0) {
+    for (const e of errors.slice(0, 5)) console.warn(`    - ${e}`);
+    if (errors.length > 5) console.warn(`    ... and ${errors.length - 5} more`);
+  }
+}
+
 async function main() {
   raiseFileDescriptorLimit();
 
   // Increment run counter for idempotent hire/create tests
   const runCounter = getAndIncrementRunCounter();
   console.log(`  [Run counter] ${runCounter} (hire tests will use unique names/SSNs)\n`);
+
+  // Reset clone bot passwords via SCIM before spawning test processes
+  if (skipReset) {
+    console.log('  [Password Reset] Skipped (--skip-reset)\n');
+  } else {
+    await resetClonePasswords();
+    console.log('');
+  }
 
   // Parse --status filter
   const statusFilterValues = statusFilter
@@ -414,12 +515,18 @@ async function main() {
   // Sheet updates are handled automatically by the TrackingSheetReporter in each
   // child Playwright process (registered in playwright.parallel.config.ts).
 
-  // Spawn all processes in parallel
-  console.log(`  Spawning ${processes.length} processes...\n`);
-  const promises = processes.map((proc, idx) => new Promise<{
-    accountName: string; testCount: number; exitCode: number; output: string; duration: number;
-    passed: number; failed: number;
-  }>((resolve) => {
+  // Stagger process spawning to avoid overwhelming Oracle OAM login server.
+  // Each process gets a small delay so logins don't all hit simultaneously.
+  const STAGGER_MS = processes.length > 20 ? 2000 : 500;
+  console.log(`  Spawning ${processes.length} processes (${STAGGER_MS}ms stagger)...\n`);
+
+  type ProcResult = { accountName: string; testCount: number; exitCode: number; output: string; duration: number; passed: number; failed: number };
+  const promises: Promise<ProcResult>[] = [];
+
+  for (let idx = 0; idx < processes.length; idx++) {
+    if (idx > 0) await new Promise(r => setTimeout(r, STAGGER_MS));
+    const proc = processes[idx];
+    promises.push(new Promise<ProcResult>((resolve) => {
     const t0 = Date.now();
 
     // For clone accounts, PARALLEL_BOT is still the BASE bot name so isTestable()
@@ -505,6 +612,7 @@ async function main() {
       resolve({ accountName: proc.accountName, testCount: proc.tests.length, exitCode: code || 0, output, duration, passed, failed });
     });
   }));
+  }
 
   // Live progress ticker
   const progressInterval = setInterval(() => {

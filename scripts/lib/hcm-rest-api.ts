@@ -2,10 +2,7 @@
  * Shared REST API helpers for Oracle HCM.
  *
  * Uses Basic Auth via Node.js https (NOT Playwright page.request).
- * OWSM (Oracle Web Services Manager) requires email-format username
- * for Basic Auth. Bot users (uat.bot_*) do NOT work for REST API.
- *
- * Working credentials: josh.starcher@cru.org / WinBuildSend!1951@cru
+ * Credentials come from ORACLE_API_USERNAME + ORACLE_API_PASSWORD env vars.
  *
  * All major endpoints confirmed accessible (200 OK):
  *   - workers, absences, elementEntries, benefitEnrollments,
@@ -167,14 +164,20 @@ export interface BasicAuthCredentials {
 // ── Default Credentials ──────────────────────────────────────────────
 
 /**
- * Default REST API credentials.
- * Both email-format (josh.starcher@cru.org) and bot users (uat.bot_*) work.
- * Bot users require plain username format (NOT email).
+ * Default REST API credentials from environment variables.
+ * Set ORACLE_API_USERNAME + ORACLE_API_PASSWORD in .env.
  */
-const DEFAULT_REST_CREDS: BasicAuthCredentials = {
-  username: 'josh.starcher@cru.org',
-  password: 'WinBuildSend!1951@cru',
-};
+let _defaultCreds: BasicAuthCredentials | null = null;
+function getDefaultRestCreds(): BasicAuthCredentials {
+  if (_defaultCreds) return _defaultCreds;
+  const username = process.env.ORACLE_API_USERNAME;
+  const password = process.env.ORACLE_API_PASSWORD;
+  if (!username || !password) {
+    throw new Error('REST API credentials not configured. Set ORACLE_API_USERNAME and ORACLE_API_PASSWORD in .env');
+  }
+  _defaultCreds = { username, password };
+  return _defaultCreds;
+}
 
 // ── Core REST Helpers ────────────────────────────────────────────────
 
@@ -186,7 +189,7 @@ function hcmRequest(
   method: string,
   baseUrl: string,
   endpoint: string,
-  creds: BasicAuthCredentials = DEFAULT_REST_CREDS,
+  creds: BasicAuthCredentials = getDefaultRestCreds(),
   body?: any,
 ): Promise<{ statusCode: number; data: any; raw: string }> {
   const url = `${baseUrl}${endpoint}`;
@@ -243,7 +246,7 @@ export async function hcmGet(
   page: Page | null,
   baseUrl: string,
   endpoint: string,
-  creds: BasicAuthCredentials = DEFAULT_REST_CREDS,
+  creds: BasicAuthCredentials = getDefaultRestCreds(),
 ): Promise<any> {
   const result = await hcmRequest('GET', baseUrl, endpoint, creds);
   return result.data;
@@ -257,7 +260,7 @@ export async function hcmPost(
   baseUrl: string,
   endpoint: string,
   body: any,
-  creds: BasicAuthCredentials = DEFAULT_REST_CREDS,
+  creds: BasicAuthCredentials = getDefaultRestCreds(),
 ): Promise<{ statusCode: number; data: any }> {
   return hcmRequest('POST', baseUrl, endpoint, creds, body);
 }
@@ -270,7 +273,7 @@ export async function hcmPatch(
   baseUrl: string,
   endpoint: string,
   body: any,
-  creds: BasicAuthCredentials = DEFAULT_REST_CREDS,
+  creds: BasicAuthCredentials = getDefaultRestCreds(),
 ): Promise<{ statusCode: number; data: any }> {
   return hcmRequest('PATCH', baseUrl, endpoint, creds, body);
 }
@@ -282,7 +285,7 @@ export async function hcmPatch(
 export async function hcmDelete(
   baseUrl: string,
   endpoint: string,
-  creds: BasicAuthCredentials = DEFAULT_REST_CREDS,
+  creds: BasicAuthCredentials = getDefaultRestCreds(),
 ): Promise<{ statusCode: number; data: any }> {
   return hcmRequest('DELETE', baseUrl, endpoint, creds);
 }
@@ -296,7 +299,7 @@ export async function hcmDelete(
 export async function scimLookupUser(
   baseUrl: string,
   username: string,
-  creds: BasicAuthCredentials = DEFAULT_REST_CREDS,
+  creds: BasicAuthCredentials = getDefaultRestCreds(),
 ): Promise<{ id: string; active: boolean; userName: string } | null> {
   const endpoint = `/hcmRestApi/scim/Users?filter=userName eq "${username}"`;
   const result = await hcmRequest('GET', baseUrl, endpoint, creds);
@@ -314,7 +317,7 @@ export async function scimLookupUser(
 export async function scimUnlockUser(
   baseUrl: string,
   scimUserId: string,
-  creds: BasicAuthCredentials = DEFAULT_REST_CREDS,
+  creds: BasicAuthCredentials = getDefaultRestCreds(),
 ): Promise<boolean> {
   const endpoint = `/hcmRestApi/scim/Users/${scimUserId}`;
   try {
@@ -330,13 +333,35 @@ export async function scimUnlockUser(
 }
 
 /**
+ * Reset a SCIM user's password by their SCIM user ID.
+ * Returns true if successful, false on failure.
+ */
+export async function scimResetPassword(
+  baseUrl: string,
+  scimUserId: string,
+  newPassword: string,
+  creds: BasicAuthCredentials = getDefaultRestCreds(),
+): Promise<boolean> {
+  const endpoint = `/hcmRestApi/scim/Users/${scimUserId}`;
+  try {
+    await hcmRequest('PATCH', baseUrl, endpoint, creds, {
+      schemas: ['urn:scim:schemas:core:2.0:User'],
+      password: newPassword,
+    });
+    return true;
+  } catch (err: any) {
+    return false;
+  }
+}
+
+/**
  * Unlock a bot account by username (e.g., "uat.bot_hr_admin").
  * Combines lookup + unlock in one call. Returns true if successful.
  */
 export async function unlockBotAccount(
   baseUrl: string,
   username: string,
-  creds: BasicAuthCredentials = DEFAULT_REST_CREDS,
+  creds: BasicAuthCredentials = getDefaultRestCreds(),
 ): Promise<boolean> {
   const user = await scimLookupUser(baseUrl, username, creds);
   if (!user) {
@@ -656,7 +681,7 @@ export async function lookupTimeRecords(
 export async function lookupTimeCards(
   baseUrl: string,
   personId: number,
-  creds: BasicAuthCredentials = DEFAULT_REST_CREDS,
+  creds: BasicAuthCredentials = getDefaultRestCreds(),
 ): Promise<TimeCardRecord[]> {
   const endpoint = `/hcmRestApi/resources/latest/timeCards?q=PersonId=${personId}&onlyData=true&limit=100`;
   try {
@@ -674,7 +699,7 @@ export async function lookupTimeCards(
 export async function lookupTimeCardsByNumber(
   baseUrl: string,
   personNumber: string,
-  creds: BasicAuthCredentials = DEFAULT_REST_CREDS,
+  creds: BasicAuthCredentials = getDefaultRestCreds(),
 ): Promise<TimeCardRecord[]> {
   const worker = await lookupPersonId(null, baseUrl, personNumber, creds);
   if (!worker) return [];
@@ -691,7 +716,7 @@ export async function deleteTimeCard(
   baseUrl: string,
   timeCardId: number,
   timeCardVersion: number,
-  creds: BasicAuthCredentials = DEFAULT_REST_CREDS,
+  creds: BasicAuthCredentials = getDefaultRestCreds(),
 ): Promise<void> {
   const endpoint = `/hcmRestApi/resources/latest/timeCards/action/deleteAction`;
   await hcmPost(baseUrl, endpoint, {
@@ -740,7 +765,7 @@ export async function reverseTermination(
   baseUrl: string,
   personId: number,
   workRelationshipId: number,
-  creds: BasicAuthCredentials = DEFAULT_REST_CREDS,
+  creds: BasicAuthCredentials = getDefaultRestCreds(),
 ): Promise<void> {
   const endpoint = `/hcmRestApi/resources/latest/workers/${personId}/child/workRelationships/${workRelationshipId}/action/reverseTermination`;
   await hcmPost(baseUrl, endpoint, {}, creds);
@@ -753,7 +778,7 @@ export async function reverseTermination(
 export async function withdrawAbsence(
   baseUrl: string,
   absenceId: number,
-  creds: BasicAuthCredentials = DEFAULT_REST_CREDS,
+  creds: BasicAuthCredentials = getDefaultRestCreds(),
 ): Promise<void> {
   const endpoint = `/hcmRestApi/resources/latest/absences/${absenceId}`;
   await hcmPatch(baseUrl, endpoint, { absenceStatusCd: 'WITHDRAWN' }, creds);
@@ -765,7 +790,7 @@ export async function withdrawAbsence(
 export async function deleteElementEntry(
   baseUrl: string,
   elementEntryId: number,
-  creds: BasicAuthCredentials = DEFAULT_REST_CREDS,
+  creds: BasicAuthCredentials = getDefaultRestCreds(),
 ): Promise<void> {
   const endpoint = `/hcmRestApi/resources/latest/elementEntries/${elementEntryId}`;
   await hcmDelete(baseUrl, endpoint, creds);
@@ -780,7 +805,7 @@ export async function deleteElementEntry(
 export async function deleteBenefitEnrollment(
   baseUrl: string,
   enrollmentResultId: number,
-  creds: BasicAuthCredentials = DEFAULT_REST_CREDS,
+  creds: BasicAuthCredentials = getDefaultRestCreds(),
 ): Promise<void> {
   const endpoint = `/hcmRestApi/resources/latest/benefitEnrollments/${enrollmentResultId}`;
   await hcmDelete(baseUrl, endpoint, creds);
@@ -796,7 +821,7 @@ export async function terminateWorker(
   personId: number,
   workRelationshipId: number,
   terminationDate: string,
-  creds: BasicAuthCredentials = DEFAULT_REST_CREDS,
+  creds: BasicAuthCredentials = getDefaultRestCreds(),
 ): Promise<void> {
   const endpoint = `/hcmRestApi/resources/latest/workers/${personId}/child/workRelationships/${workRelationshipId}/action/terminateWorkRelationship`;
   await hcmPost(baseUrl, endpoint, {

@@ -61,6 +61,21 @@ const BOT_ROLE_MAP: Record<string, string[]> = {
   // Capacity — employee role only (auto-provisioned)
   bot_local_us_capacity: [],
 
+  // Dedicated API service user — needs comprehensive REST API access to all endpoints
+  api_service: [
+    'Human Resource Specialist',
+    'CRU Human Resource Specialist View All',
+    'CRU Human Resource Analyst View All',
+    'Payroll Administrator',
+    'Benefits Administrator',
+    'Compensation Specialist',
+    'Line Manager',
+    'IT Security Manager',
+    'Human Capital Management Application Administrator',
+    'CRU HCM Application Administrator View All',
+    'Application Implementation Consultant',
+  ],
+
   // Payroll bots
   bot_payroll_admin: [...HR_SPECIALIST_ROLES, 'Payroll Administrator'],
   bot_payroll_spec: [...HR_SPECIALIST_ROLES, 'Payroll Administrator'],
@@ -118,10 +133,49 @@ async function clickSidebarUsers(page: Page): Promise<void> {
 
 // ── Login ────────────────────────────────────────────────────────────
 
+/** Enter TOTP code with retry logic. */
+async function enterTOTPCode(page: Page, totp: TOTP, mfaInput: ReturnType<Page['locator']>): Promise<void> {
+  for (let attempt = 1; attempt <= 5; attempt++) {
+    const rateLimitAlert = page.getByText('Too many attempts', { exact: false });
+    const isRateLimited = await rateLimitAlert.isVisible({ timeout: 2000 }).catch(() => false);
+    if (isRateLimited) {
+      const waitSecs = 30 + attempt * 15;
+      console.log(`[Login] Okta rate limited, waiting ${waitSecs}s...`);
+      await page.waitForTimeout(waitSecs * 1000);
+      await page.reload({ waitUntil: 'networkidle' });
+      if (page.url().includes('fscmUI')) return;
+      const hasMfaInput = await mfaInput.isVisible({ timeout: 5000 }).catch(() => false);
+      if (!hasMfaInput) return;
+    }
+
+    const code = totp.generate();
+    await mfaInput.fill(code);
+    await page.locator('input[type="submit"]').click();
+    await page.waitForTimeout(3_000);
+
+    if (page.url().includes('fscmUI')) return;
+    const secondFactorPage = await page.locator('a[aria-label="Select Password."]').isVisible({ timeout: 2000 }).catch(() => false);
+    if (secondFactorPage) return;
+
+    const errorMsg = page.locator('.o-form-has-errors, [data-se="o-form-error-container"]');
+    const hasError = await errorMsg.isVisible({ timeout: 2000 }).catch(() => false);
+    if (hasError && attempt < 5) {
+      console.log(`[Login] TOTP attempt ${attempt} failed, waiting for next period...`);
+      const now = Math.floor(Date.now() / 1000);
+      const wait = 30 - (now % 30) + 1;
+      await page.waitForTimeout(wait * 1000);
+      continue;
+    }
+    if (attempt === 5 && !page.url().includes('fscmUI')) {
+      await page.waitForURL('**/fscmUI/**', { timeout: 30_000 }).catch(() => {});
+    }
+  }
+}
+
 async function loginAsAdmin(page: Page): Promise<void> {
   console.log('[Login] Starting Okta SSO + TOTP MFA...');
   await page.goto(env.oracle.url);
-  await page.waitForLoadState('networkidle');
+  await page.waitForLoadState('networkidle').catch(() => {});
 
   if (page.url().includes('fscmUI')) {
     console.log('[Login] Already authenticated');
@@ -129,45 +183,59 @@ async function loginAsAdmin(page: Page): Promise<void> {
   }
 
   await page.locator('#ssoBtn').click();
-  await page.waitForLoadState('networkidle');
+  await page.waitForLoadState('networkidle').catch(() => {});
+  await page.locator('input[name="identifier"]').waitFor({ state: 'visible', timeout: 15_000 });
   await page.locator('input[name="identifier"]').fill(env.oracle.username);
   await page.locator('input[type="submit"]').click();
-  await page.waitForLoadState('networkidle');
-
-  const pwField = page.locator('input[name="credentials.passcode"]');
-  await pwField.waitFor({ state: 'visible', timeout: 15_000 });
-  await pwField.fill(env.oracle.password);
-  await page.locator('input[type="submit"]').click();
-  await page.waitForLoadState('networkidle');
-
-  await page.locator('a[aria-label="Select Google Authenticator."]').waitFor({ state: 'visible', timeout: 15_000 });
-  await page.locator('a[aria-label="Select Google Authenticator."]').click();
-  await page.waitForLoadState('networkidle');
+  await page.waitForLoadState('networkidle').catch(() => {});
+  await page.waitForTimeout(3_000);
 
   const totp = new TOTP({ secret: env.okta.totpSecret });
   const mfaInput = page.locator('input[name="credentials.passcode"]');
-  await mfaInput.waitFor({ state: 'visible', timeout: 15_000 });
+  const gaSelect = page.locator('a[aria-label="Select Google Authenticator."]');
+  const gaSelectVisible = await gaSelect.isVisible({ timeout: 5_000 }).catch(() => false);
 
-  for (let attempt = 1; attempt <= 5; attempt++) {
-    const code = totp.generate();
-    await mfaInput.fill(code);
+  if (gaSelectVisible) {
+    // New flow: MFA first (passwordless)
+    console.log('[Login] New Okta flow: MFA first');
+    await gaSelect.click();
+    await page.waitForLoadState('networkidle').catch(() => {});
+    await page.waitForTimeout(3_000);
+    await mfaInput.waitFor({ state: 'visible', timeout: 15_000 });
+    await enterTOTPCode(page, totp, mfaInput);
+
+    if (!page.url().includes('fscmUI')) {
+      const pwdSelect = page.locator('a[aria-label="Select Password."]');
+      const pwdSelectVisible = await pwdSelect.isVisible({ timeout: 5_000 }).catch(() => false);
+      if (pwdSelectVisible) {
+        await pwdSelect.click();
+        await page.waitForLoadState('networkidle').catch(() => {});
+        await page.waitForTimeout(3_000);
+        const pwField = page.locator('input[name="credentials.passcode"]');
+        await pwField.waitFor({ state: 'visible', timeout: 10_000 });
+        await pwField.fill(env.oracle.password);
+        await page.locator('input[type="submit"]').click();
+      }
+    }
+  } else {
+    // Old flow: password first
+    console.log('[Login] Old Okta flow: password first');
+    const pwField = page.locator('input[name="credentials.passcode"]');
+    await pwField.waitFor({ state: 'visible', timeout: 15_000 });
+    await pwField.fill(env.oracle.password);
     await page.locator('input[type="submit"]').click();
+    await page.waitForLoadState('networkidle').catch(() => {});
 
-    const redirected = await page.waitForURL('**/fscmUI/**', { timeout: 15_000 }).then(() => true).catch(() => false);
-    if (redirected) {
-      console.log('[Login] Login successful');
-      return;
-    }
-
-    if (attempt < 5) {
-      console.log(`[Login] TOTP attempt ${attempt} failed, waiting for next window...`);
-      const now = Math.floor(Date.now() / 1000);
-      const wait = 30 - (now % 30) + 1;
-      await page.waitForTimeout(wait * 1000);
-    }
+    await gaSelect.waitFor({ state: 'visible', timeout: 15_000 });
+    await gaSelect.click();
+    await page.waitForLoadState('networkidle').catch(() => {});
+    await mfaInput.waitFor({ state: 'visible', timeout: 15_000 });
+    await enterTOTPCode(page, totp, mfaInput);
   }
 
-  await page.waitForURL('**/fscmUI/**', { timeout: 120_000 });
+  if (!page.url().includes('fscmUI')) {
+    await page.waitForURL('**/fscmUI/**', { timeout: 120_000 });
+  }
   console.log('[Login] Login successful');
 }
 
@@ -786,9 +854,11 @@ async function provisionBot(
   bot: BotUserIdentity,
 ): Promise<ProvisionResult> {
   const rolesToAssign = getRolesForBot(bot.botName);
-  const username = `uat.${bot.botName}`;
+  // Use username from credentials file if available, otherwise default to uat.botName
+  const credFile = JSON.parse(fs.readFileSync(CREDENTIALS_FILE, 'utf-8'));
+  const username = credFile[bot.botName]?.username || `uat.${bot.botName}`;
 
-  console.log(`\n[${bot.botName}] Provisioning (PersonNumber: ${bot.personNumber})...`);
+  console.log(`\n[${bot.botName}] Provisioning (PersonNumber: ${bot.personNumber}, username: ${username})...`);
 
   try {
     // Search for existing account
@@ -870,18 +940,36 @@ async function provisionBot(
       };
     }
 
-    // Click into the account
-    const accountLink = page.locator(`a:has-text("${bot.botName}")`).first();
+    // Click into the account — try username first, then botName
+    let accountLink = page.locator(`a:has-text("${username}")`).first();
+    if (!await accountLink.isVisible({ timeout: 3000 }).catch(() => false)) {
+      accountLink = page.locator(`a:has-text("${bot.botName}")`).first();
+    }
+    if (!await accountLink.isVisible({ timeout: 3000 }).catch(() => false)) {
+      // Try clicking the first result link
+      accountLink = page.locator('.x1ib a, [class*="UserName"] a, td a').first();
+    }
     if (!await accountLink.isVisible({ timeout: 3000 }).catch(() => false)) {
       return {
         botName: bot.botName,
         status: 'failed',
         rolesAdded: 0, rolesSkipped: 0, roleErrors: [],
-        error: 'Account link not visible after search',
+        error: `Account link not visible after search for ${username}`,
       };
     }
     await accountLink.click();
     await page.waitForTimeout(5000);
+
+    // Reset password if needed (auto-created accounts don't have known passwords)
+    const resetBtn = page.getByRole('button', { name: 'Reset Password' });
+    if (await resetBtn.isVisible({ timeout: 3000 }).catch(() => false)) {
+      await resetPasswordViaUI(page, bot.botName);
+      // Clear leftover ADF modal glass pane that blocks subsequent clicks
+      await page.evaluate(() => {
+        document.querySelectorAll('.AFModalGlassPane').forEach(el => el.remove());
+      });
+      await page.waitForTimeout(2000);
+    }
 
     // Assign roles
     let rolesResult = { added: [] as string[], skipped: [] as string[], errors: [] as string[] };

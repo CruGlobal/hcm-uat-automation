@@ -164,7 +164,8 @@ export class LoginPage extends BasePage {
     await this.nativeUserId.waitFor({ state: 'visible', timeout: 15_000 });
     await this.nativeUserId.fill(username);
     await this.nativePassword.fill(password);
-    await this.nativeSignIn.click();
+    // Use longer timeout for Sign In click — Oracle OAM stalls under concurrent load
+    await this.nativeSignIn.click({ timeout: 90_000 });
 
     // Wait for any navigation after login (may land on intermediate pages)
     await this.page.waitForLoadState('networkidle', { timeout: 60_000 }).catch(() => {});

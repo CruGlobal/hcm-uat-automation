@@ -23,11 +23,8 @@ import {
   type BasicAuthCredentials,
 } from '../../scripts/lib/hcm-rest-api';
 
-// OWSM requires email-format username for REST API Basic Auth
-const API_CREDS: BasicAuthCredentials = {
-  username: 'josh.starcher@cru.org',
-  password: 'WinBuildSend!1951@cru',
-};
+import { resolveApiCredentials } from '../validation/api-credentials';
+const API_CREDS: BasicAuthCredentials = resolveApiCredentials();
 const BASE_URL =
   process.env.ORACLE_HCM_URL ||
   'https://stafflife-icahjb-test.fa.ocs.oraclecloud.com';

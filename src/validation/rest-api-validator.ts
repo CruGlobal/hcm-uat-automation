@@ -32,6 +32,7 @@ import {
   type TimeRecordGroupRecord,
   type AllocatedChecklistRecord,
 } from '../../scripts/lib/hcm-rest-api';
+import { resolveApiCredentials } from './api-credentials';
 
 // ── Types ────────────────────────────────────────────────────────────
 
@@ -73,7 +74,7 @@ export class RestApiValidator {
     creds?: BasicAuthCredentials,
   ) {
     this.baseUrl = baseUrl || process.env.ORACLE_HCM_URL || 'https://stafflife-icahjb-test.fa.ocs.oraclecloud.com';
-    this.creds = creds || { username: 'josh.starcher@cru.org', password: 'WinBuildSend!1951@cru' };
+    this.creds = creds || resolveApiCredentials();
   }
 
   /** Clear the worker cache (useful between test runs). */
