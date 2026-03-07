@@ -30,6 +30,16 @@ export class BaseTimeLaborFlow extends BaseFlow {
    */
   async navigateToTimeESS(): Promise<void> {
     await this.homePage.goToTimeESS();
+    // Close Navigator if it's still open (it overlays the page and blocks clicks)
+    await this.homePage.closeNavigator();
+    // Remove any lingering ADF overlay that blocks pointer events
+    await this.page.evaluate(() => {
+      document.querySelectorAll('.AFZOrderLayerContainer').forEach(el => {
+        if ((el as HTMLElement).style.display !== 'none') {
+          (el as HTMLElement).style.pointerEvents = 'none';
+        }
+      });
+    }).catch(() => {});
     await this.page.waitForTimeout(5000);
   }
 

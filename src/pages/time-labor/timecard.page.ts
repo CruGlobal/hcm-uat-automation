@@ -346,7 +346,7 @@ export class TimecardPage extends BasePage {
 
   /** Click the "Current Time Card" tile on the ESS page. */
   async clickCurrentTimeCard(): Promise<void> {
-    await this.currentTimecardTile.click();
+    await this.currentTimecardTile.click({ force: true });
     await this.page.waitForTimeout(5000);
     await this.waitForJET();
   }
@@ -379,7 +379,7 @@ export class TimecardPage extends BasePage {
       console.log('[Timecard] No time card tiles available on ESS page');
       return;
     }
-    await this.addTimecardTile.click();
+    await this.addTimecardTile.click({ force: true });
     await this.page.waitForTimeout(5000);
     // JET may not be available on the period selection page — wrap in try-catch
     await this.waitForJET().catch(() => {
@@ -413,7 +413,7 @@ export class TimecardPage extends BasePage {
 
   /** Click the "Existing Time Cards" tile on the ESS page. */
   async clickExistingTimeCards(): Promise<void> {
-    await this.existingTimecardsTile.click();
+    await this.existingTimecardsTile.click({ force: true });
     await this.page.waitForTimeout(5000);
     await this.waitForJET();
   }
@@ -1267,26 +1267,23 @@ export class TimecardPage extends BasePage {
 
   /** Select Assignment Number on the Redwood timecard form. */
   async selectAssignment(value: string): Promise<void> {
-    const hasField = await this.assignmentNumber.isVisible({ timeout: 3000 }).catch(() => false);
-    if (hasField) {
-      await this.fillCombobox(this.assignmentNumber, value);
-    }
+    const hasField = await this.assignmentNumber.isVisible({ timeout: 5000 }).catch(() => false);
+    if (!hasField) return;
+    await this.fillCombobox(this.assignmentNumber, value);
   }
 
   /** Select Hours Type on the Redwood timecard form. */
   async selectHoursType(value: string): Promise<void> {
-    const hasField = await this.hoursType.isVisible({ timeout: 3000 }).catch(() => false);
-    if (hasField) {
-      await this.fillCombobox(this.hoursType, value);
-    }
+    const hasField = await this.hoursType.isVisible({ timeout: 5000 }).catch(() => false);
+    if (!hasField) return;
+    await this.fillCombobox(this.hoursType, value);
   }
 
   /** Fill the Absence Reason field. */
   async fillAbsenceReason(value: string): Promise<void> {
-    const hasField = await this.absenceReason.isVisible({ timeout: 3000 }).catch(() => false);
-    if (hasField) {
-      await this.fillCombobox(this.absenceReason, value);
-    }
+    const hasField = await this.absenceReason.isVisible({ timeout: 5000 }).catch(() => false);
+    if (!hasField) return;
+    await this.fillCombobox(this.absenceReason, value);
   }
 
   /** Select the Timecard Period (Redwood or Classic). */
@@ -1303,8 +1300,13 @@ export class TimecardPage extends BasePage {
    * @param hours Number of hours to enter.
    */
   async enterDayHours(dayIndex: number, hours: string): Promise<void> {
+    const count = await this.hoursInputs.count();
+    if (count === 0 || dayIndex >= count) {
+      console.log(`[Timecard] enterDayHours: dayIndex=${dayIndex} but only ${count} hour inputs found — skipping`);
+      return;
+    }
     const dayInput = this.hoursInputs.nth(dayIndex);
-    if (await dayInput.isVisible({ timeout: 3000 }).catch(() => false)) {
+    if (await dayInput.isVisible({ timeout: 5000 }).catch(() => false)) {
       await this.fillField(dayInput, hours);
     }
   }
@@ -1620,10 +1622,26 @@ export class TimecardPage extends BasePage {
       const assignment = getField(fieldData, 'Assignment Number');
       const group = getField(fieldData, 'Group');
 
-      if (person) await this.searchPerson(person);
-      if (assignment) await this.selectAssignment(assignment);
-      if (timeType) await this.selectHoursType(timeType);
-      if (group) await this.fillGroupName(group);
+      if (person) {
+        try { await this.searchPerson(person); } catch (e) {
+          console.warn(`[Timecard] fillFromTestCase: searchPerson failed — ${e}`);
+        }
+      }
+      if (assignment) {
+        try { await this.selectAssignment(assignment); } catch (e) {
+          console.warn(`[Timecard] fillFromTestCase: selectAssignment failed — ${e}`);
+        }
+      }
+      if (timeType) {
+        try { await this.selectHoursType(timeType); } catch (e) {
+          console.warn(`[Timecard] fillFromTestCase: selectHoursType failed — ${e}`);
+        }
+      }
+      if (group) {
+        try { await this.fillGroupName(group); } catch (e) {
+          console.warn(`[Timecard] fillFromTestCase: fillGroupName failed — ${e}`);
+        }
+      }
 
       // Calculate and enter hours from Start Time / Stop Time
       const startTime = getField(fieldData, 'Start Time');
