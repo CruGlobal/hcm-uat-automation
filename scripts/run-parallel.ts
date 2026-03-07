@@ -41,6 +41,20 @@ const maxClonesPerBot = args.includes('--clones') ? parseInt(args[args.indexOf('
 const skipReset = args.includes('--skip-reset');
 const statusFilter = args.includes('--status') ? args[args.indexOf('--status') + 1] : null;
 const trackingStatusFilter = args.includes('--tracking-status') ? args[args.indexOf('--tracking-status') + 1] : null;
+const maxProcessesArg = args.includes('--max-processes') ? parseInt(args[args.indexOf('--max-processes') + 1] || '70', 10) : null;
+
+// ─── Hard cap on concurrent Playwright processes (system-wide) ───────────────
+const HARD_CAP = maxProcessesArg ?? 70;
+
+function countExistingPlaywrightProcesses(): number {
+  try {
+    const result = execFileSync('pgrep', ['-c', '-f', 'playwright test'], { encoding: 'utf-8', timeout: 5000 });
+    return parseInt(result.trim(), 10) || 0;
+  } catch {
+    // pgrep returns exit code 1 when no processes match — that means 0
+    return 0;
+  }
+}
 
 function escapeRegex(s: string): string {
   return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -527,6 +541,25 @@ async function main() {
     console.log('No testable tests found for any bot user.');
     console.log('Ensure .cache/uat-plan.json exists and .config/bot-credentials.json has credentials.');
     process.exit(1);
+  }
+
+  // ─── Enforce hard cap on system-wide Playwright processes ──────────────────
+  const existingProcesses = countExistingPlaywrightProcesses();
+  const availableSlots = HARD_CAP - existingProcesses;
+  if (availableSlots <= 0) {
+    console.error(`\n  ❌ HARD CAP EXCEEDED: ${existingProcesses} Playwright processes already running (cap: ${HARD_CAP}).`);
+    console.error('  Wait for existing runs to finish or stop them before starting a new run.');
+    process.exit(1);
+  }
+  if (processes.length > availableSlots) {
+    console.log(`\n  ⚠️  Capping processes: ${processes.length} planned but only ${availableSlots} slots available (${existingProcesses} already running, cap: ${HARD_CAP})`);
+    // Sort by test count descending so we keep the most impactful processes
+    processes.sort((a, b) => b.tests.length - a.tests.length);
+    const dropped = processes.splice(availableSlots);
+    const droppedTests = dropped.reduce((sum, p) => sum + p.tests.length, 0);
+    console.log(`  Dropped ${dropped.length} processes (${droppedTests} tests) to stay within cap.\n`);
+  } else if (existingProcesses > 0) {
+    console.log(`  [Process cap] ${existingProcesses} existing + ${processes.length} new = ${existingProcesses + processes.length} / ${HARD_CAP} max`);
   }
 
   const totalTests = processes.reduce((sum, p) => sum + p.tests.length, 0);

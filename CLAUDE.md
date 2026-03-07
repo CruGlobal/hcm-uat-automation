@@ -12,7 +12,16 @@ This project lives at `/home/ai/htdocs/hcm-uat-automation/` (not the parent `uat
 
 ## Running Tests
 
-**All tests should run in parallel using bot users.** The system has 19 bot user accounts, each with dedicated Oracle HCM credentials (direct login, no SSO). Each bot runs its tests in its own Playwright process with an independent Oracle HCM session. The host system can handle 30+ concurrent agents/processes.
+**All tests should run in parallel using bot users.** The system has 19 bot user accounts, each with dedicated Oracle HCM credentials (direct login, no SSO). Each bot runs its tests in its own Playwright process with an independent Oracle HCM session.
+
+### Hard cap: 70 concurrent Playwright processes (system-wide)
+
+**Before launching any parallel test run**, you MUST check how many Playwright processes are already running on the system and ensure your run will not exceed the **hard cap of 70 total Playwright processes** across all sessions. The `run-parallel.ts` script enforces this automatically:
+- On startup, it counts existing `playwright` processes via `pgrep -c -f "playwright test"`.
+- It calculates `availableSlots = 70 - existingProcesses`.
+- If `availableSlots <= 0`, it exits with an error.
+- Otherwise, it limits spawned processes to `availableSlots` (dropping lowest-priority bot accounts if necessary).
+- **Never bypass this cap.** If you need more slots, wait for existing runs to finish or ask the user to stop other runs.
 
 ### Parallel execution (preferred — 19 bots, ~12x speedup):
 ```bash
@@ -20,6 +29,7 @@ npx tsx scripts/run-parallel.ts                        # All bots, all their tes
 npx tsx scripts/run-parallel.ts --one-per-bot           # Smoke test: 1 test per bot (fast)
 npx tsx scripts/run-parallel.ts --module "Core HR"      # One module, parallel across bots
 npx tsx scripts/run-parallel.ts --bots 5               # Limit to 5 bots
+npx tsx scripts/run-parallel.ts --max-processes 40     # Override hard cap (default: 70)
 RUN_PASSED_ONLY=true npx tsx scripts/run-parallel.ts   # Only previously-passed tests
 ```
 
