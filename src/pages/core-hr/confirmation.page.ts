@@ -39,6 +39,34 @@ export class ConfirmationPage extends BasePage {
   // Track pre-submit URL to detect page navigation
   private preSubmitUrl = '';
 
+  /**
+   * Check if we're on the Review step (Step 5) where Submit is available.
+   * Returns true if Submit button is visible, false otherwise.
+   */
+  async isOnReviewStep(): Promise<boolean> {
+    const submitBtn = this.page.locator('a[role="button"]:has-text("Submit"), button:has-text("Submit")').first();
+    return await submitBtn.isVisible({ timeout: 5000 }).catch(() => false);
+  }
+
+  /**
+   * Verify we're on the review step before submitting.
+   * Takes a screenshot and throws a descriptive error if not on Step 5.
+   */
+  async verifyOnReviewStep(): Promise<void> {
+    const onReview = await this.isOnReviewStep();
+    if (!onReview) {
+      // Try to detect which step we're on
+      const trainStops = await this.page.locator('[class*="trainStop"], [class*="train-stop"], [id*="train"]').allTextContents().catch(() => []);
+      const activeStep = await this.page.locator('[class*="trainStop"][class*="selected"], [class*="train-stop"][class*="active"], [aria-selected="true"]').first()
+        .textContent({ timeout: 3000 }).catch(() => 'unknown');
+      await this.page.screenshot({ path: 'test-results/not-on-review-step.png', fullPage: true }).catch(() => {});
+      throw new Error(
+        `Not on Review step (Step 5) — Submit button not found. ` +
+        `Current step: ${activeStep}. Train stops: ${trainStops.join(', ')}`
+      );
+    }
+  }
+
   async clickSubmit(): Promise<void> {
     // Record URL before submit for navigation-based success detection
     this.preSubmitUrl = this.page.url();

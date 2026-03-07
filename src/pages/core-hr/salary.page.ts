@@ -19,6 +19,21 @@ export class SalaryPage extends BasePage {
     const basis = getField(tc, 'Salary Basis');
     const amount = this.getSalaryAmount(tc);
 
+    // Check if salary section is visible; if not, scroll to trigger lazy rendering
+    const anySalaryField = this.page.locator('[id*="SalaryBasis"], [id*="salaryBasis"], [id*="SalaryAmount"], [id*="salaryAmount"], input[aria-label*="Salary"]').first();
+    let sectionVisible = await anySalaryField.isVisible({ timeout: 10000 }).catch(() => false);
+    if (!sectionVisible) {
+      console.log('[Salary] Section not visible, scrolling to trigger lazy rendering...');
+      await this.page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
+      await this.page.waitForTimeout(3000);
+      await this.waitForJET();
+      sectionVisible = await anySalaryField.isVisible({ timeout: 5000 }).catch(() => false);
+      if (!sectionVisible) {
+        console.log('[Salary] Section still not visible after scroll — skipping salary fill');
+        return;
+      }
+    }
+
     if (basis) {
       const basisVisible = await this.salaryBasis.isVisible({ timeout: 5000 }).catch(() => false);
       if (basisVisible) {

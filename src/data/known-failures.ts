@@ -201,6 +201,36 @@ const KNOWN_FAILURES: Record<string, KnownFailure> = {
     },
   },
 
+  // ── Core HR: Document management (unimplemented flows) ──────────
+
+  'HR-149': {
+    reason: 'Document management flow not yet implemented — requires document type admin UI',
+    validate: async () => {
+      throw new Error('HR-149: Document type management flow is not yet implemented');
+    },
+  },
+
+  'HR-150': {
+    reason: 'Document management flow not yet implemented — requires document type admin UI',
+    validate: async () => {
+      throw new Error('HR-150: Document type management flow is not yet implemented');
+    },
+  },
+
+  'HR-151': {
+    reason: 'Document management flow not yet implemented — requires delete document UI',
+    validate: async () => {
+      throw new Error('HR-151: Delete document flow is not yet implemented');
+    },
+  },
+
+  'HR-152': {
+    reason: 'Document management flow not yet implemented — requires maintain document types UI',
+    validate: async () => {
+      throw new Error('HR-152: Maintain document types flow is not yet implemented');
+    },
+  },
+
   // ── Absence: Balance/approval issues ──────────────────────────────
 
   'AB-008.00': {

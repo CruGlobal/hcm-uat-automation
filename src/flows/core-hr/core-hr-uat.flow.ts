@@ -1877,6 +1877,9 @@ export class CoreHRUATFlow extends BaseFlow {
         fieldData.fields['Search For'] = searchName;
       }
 
+      console.log(`[Bonus] ${tc.testId}: Navigating to Element Entries before creating ElementEntryFlow`);
+      await this.homePage.goToElementEntries();
+      await this.page.waitForTimeout(5000);
       console.log(`[Bonus] ${tc.testId}: Routing to ElementEntryFlow (person="${getField(fieldData, 'Search For')}", element="${getField(fieldData, 'Element Name')}")`);
       const flow = new ElementEntryFlow(this.page);
       await flow.execute(fieldData);

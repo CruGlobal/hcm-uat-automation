@@ -38,6 +38,8 @@ export class TerminationFlow extends BaseCoreHRFlow {
     await this.homePage.goToPersonManagement();
 
     // Search for person — prefer person number (more reliable), fall back to name
+    // Use "All" filter to find terminated/inactive workers too
+    await this.person.setSearchStatusFilter('All');
     const personNumber = getField(tc, 'Person Number');
     const personName = getField(tc, 'Person Name');
     if (personNumber) {
@@ -83,8 +85,9 @@ export class TerminationFlow extends BaseCoreHRFlow {
    * Uses multiple fallback strategies for finding the Actions menu.
    */
   private async initiateTermination(): Promise<boolean> {
-    await this.page.waitForTimeout(3000);
+    await this.page.waitForTimeout(5000);
     await this.person.waitForJET();
+    await this.person.clearGlassPane();
     await this.person.dismissPopups();
 
     const actionClicked = await this.tryClickActions();
@@ -265,7 +268,10 @@ export class TerminationFlow extends BaseCoreHRFlow {
       return true;
     }
 
-    console.log('[Termination] No "Terminate" option found');
+    // Capture menu contents for debugging
+    const menuText = await this.page.locator('[role="menuitem"], [role="menu"] td, #DhtmlZOrderManagerLayerContainer').first()
+      .textContent({ timeout: 2000 }).catch(() => '(no menu content)');
+    console.log(`[Termination] No "Terminate" option found. Menu contents: ${menuText?.substring(0, 300)}`);
     return false;
   }
 

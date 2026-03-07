@@ -159,9 +159,19 @@ export class PersonManagementPage extends BasePage {
     }
   }
 
+  /** Fill a search field using click → clear → pressSequentially to trigger ADF binding events. */
+  private async fillSearchField(locator: ReturnType<typeof this.page.locator>, value: string): Promise<void> {
+    await locator.click();
+    await locator.clear();
+    await locator.pressSequentially(value, { delay: 30 });
+    await locator.press('Tab');
+    await this.page.waitForTimeout(2000);
+    await this.waitForJET();
+  }
+
   /** Search by person name and click the first result. */
   async searchByName(name: string): Promise<void> {
-    await this.searchName.fill(name);
+    await this.fillSearchField(this.searchName, name);
     await this.searchButton.click();
     await this.page.waitForTimeout(8000);
     await this.waitForJET();
@@ -170,7 +180,7 @@ export class PersonManagementPage extends BasePage {
 
   /** Search by person number and click the first result. */
   async searchByPersonNumber(personNumber: string): Promise<void> {
-    await this.searchPersonNumber.fill(personNumber);
+    await this.fillSearchField(this.searchPersonNumber, personNumber);
     await this.searchButton.click();
     await this.page.waitForTimeout(8000);
     await this.waitForJET();
@@ -182,7 +192,7 @@ export class PersonManagementPage extends BasePage {
    * Returns true if at least one result was found.
    */
   async searchByPersonNumberOnly(personNumber: string): Promise<boolean> {
-    await this.searchPersonNumber.fill(personNumber);
+    await this.fillSearchField(this.searchPersonNumber, personNumber);
     await this.searchButton.click();
     await this.page.waitForTimeout(8000);
     await this.waitForJET();
@@ -220,6 +230,19 @@ export class PersonManagementPage extends BasePage {
     }
   }
 
+  /**
+   * Change the "Show" dropdown filter (default: "Active Assignment") to a different value.
+   * Useful when searching for terminated or pending workers.
+   */
+  async setSearchStatusFilter(status: string): Promise<void> {
+    const showDropdown = this.page.locator('[id$="q1:value30::content"], [id$="soc1::content"], select[id*="q1"]').first();
+    if (await showDropdown.isVisible({ timeout: 3000 }).catch(() => false)) {
+      console.log(`[PersonMgmt] Setting Show filter to: ${status}`);
+      await this.fillCombobox(showDropdown, status);
+      await this.page.waitForTimeout(1000);
+    }
+  }
+
   /** Click the first person in search results table. */
   private async clickFirstSearchResult(): Promise<void> {
     // Search results table uses IDs like: ...Perso1:0:SP3:table1:_ATp:table2:0:gl1
@@ -240,7 +263,21 @@ export class PersonManagementPage extends BasePage {
         await this.page.waitForTimeout(8000);
         await this.waitForJET();
       } else {
-        console.log('[PersonMgmt] No search result link found');
+        // No results with current filter — retry with "All" status filter
+        console.log('[PersonMgmt] No search result link found, retrying with "All" filter...');
+        await this.setSearchStatusFilter('All');
+        await this.searchButton.click();
+        await this.page.waitForTimeout(8000);
+        await this.waitForJET();
+        const retryLink = this.page.locator('[id*="table2:0:gl"], [id*="resId1:0:"] a').first();
+        if (await retryLink.isVisible({ timeout: 5000 }).catch(() => false)) {
+          console.log('[PersonMgmt] Found result after switching to "All" filter');
+          await retryLink.click();
+          await this.page.waitForTimeout(8000);
+          await this.waitForJET();
+        } else {
+          console.log('[PersonMgmt] No search results even with "All" filter');
+        }
       }
     }
   }
