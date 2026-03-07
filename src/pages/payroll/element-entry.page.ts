@@ -168,9 +168,36 @@ export class ElementEntryPage extends BasePage {
       return;
     }
 
-    // No search field found — take a screenshot and throw
+    // Strategy 4: May not be on Element Entries page — try re-navigating via deep link
+    const currentUrl = this.page.url();
+    console.log(`[ElementEntry] No search field found on ${currentUrl}, trying deep link re-navigation...`);
+    await this.page.goto('/fscmUI/faces/FuseOverview?fndGlobalItemNodeId=itemNode_workforce_management_payroll', { timeout: 60_000 });
+    await this.page.waitForLoadState('networkidle', { timeout: 60_000 }).catch(() => {});
+    await this.page.waitForTimeout(5000);
+    await this.waitForJET();
+
+    // Look for Element Entries link on the payroll landing page
+    const eeLink = this.page.locator('a:has-text("Element Entries")').first();
+    if (await eeLink.isVisible({ timeout: 10_000 }).catch(() => false)) {
+      await eeLink.click({ force: true });
+      await this.page.waitForTimeout(5000);
+      await this.waitForJET();
+    }
+
+    // Re-try the person field after re-navigation
+    const retryField = this.page.locator(
+      'input[aria-label*="Person"], input[aria-label*="Employee"], input[aria-label*="Worker"]'
+    ).first();
+    if (await retryField.isVisible({ timeout: 8000 }).catch(() => false)) {
+      await this.fillCombobox(retryField, name);
+      await this.page.waitForTimeout(3000);
+      await this.waitForJET();
+      return;
+    }
+
+    // Final fallback: screenshot and throw
     await this.page.screenshot({ path: 'test-results/element-entry-no-search.png', fullPage: true }).catch(() => {});
-    throw new Error(`[ElementEntry] No search field visible for employee "${name}" — may not be on Element Entries page`);
+    throw new Error(`[ElementEntry] No search field visible for employee "${name}" — may not be on Element Entries page. URL: ${this.page.url()}`);
   }
 
   /** Click the first matching search result. */

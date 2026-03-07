@@ -23,7 +23,7 @@ export class PayrollProcessingPage extends BasePage {
 
   /** "Schedule New Process" button on the Scheduled Processes page. */
   private readonly scheduleNewProcessLink = this.page.locator(
-    'a[role="button"]:has-text("Schedule New Process"), button:has-text("Schedule New Process"), a:has-text("Schedule New Process")'
+    'a[role="button"]:has-text("Schedule New Process"), button:has-text("Schedule New Process"), a:has-text("Schedule New Process"), [title="Schedule New Process"]'
   ).first();
 
   /** "Resubmit" link button. */
@@ -204,14 +204,60 @@ export class PayrollProcessingPage extends BasePage {
     // Wait for Scheduled Processes page to fully render
     await this.page.waitForTimeout(3000);
     await this.waitForJET();
-    if (!await this.scheduleNewProcessLink.isVisible({ timeout: 10_000 }).catch(() => false)) {
-      // Page may not be fully loaded — try refreshing
-      console.log('[Payroll] "Schedule New Process" not visible, refreshing page...');
+
+    // Try multiple strategies to find the "Schedule New Process" button
+    let found = await this.scheduleNewProcessLink.isVisible({ timeout: 10_000 }).catch(() => false);
+
+    if (!found) {
+      // Strategy 2: Try getByRole
+      const roleBtn = this.page.getByRole('button', { name: 'Schedule New Process' });
+      const roleLink = this.page.getByRole('link', { name: 'Schedule New Process' });
+      found = await roleBtn.isVisible({ timeout: 3000 }).catch(() => false) ||
+              await roleLink.isVisible({ timeout: 3000 }).catch(() => false);
+    }
+
+    if (!found) {
+      // Strategy 3: Check if we're actually on Scheduled Processes page
+      const pageTitle = await this.page.title().catch(() => '');
+      const hasHeading = await this.page.locator('h1, [class*="page-title"]').first().textContent().catch(() => '');
+      console.log(`[Payroll] Page title: "${pageTitle}", heading: "${hasHeading?.substring(0, 60)}"`);
+
+      // Re-navigate to Scheduled Processes
+      console.log('[Payroll] "Schedule New Process" not visible, re-navigating...');
+      const home = new HomePage(this.page);
+      await home.goToScheduledProcesses();
+      await this.page.waitForTimeout(5000);
+      await this.waitForJET();
+      found = await this.scheduleNewProcessLink.isVisible({ timeout: 10_000 }).catch(() => false);
+    }
+
+    if (!found) {
+      // Strategy 4: Page reload as last resort
+      console.log('[Payroll] Re-navigation failed, reloading page...');
       await this.page.reload({ timeout: 60_000 });
       await this.page.waitForTimeout(5000);
       await this.waitForJET();
+      found = await this.scheduleNewProcessLink.isVisible({ timeout: 10_000 }).catch(() => false);
     }
-    await this.scheduleNewProcessLink.click();
+
+    if (!found) {
+      // Take screenshot and throw descriptive error
+      await this.page.screenshot({ path: 'test-results/schedule-new-process-not-found.png', fullPage: true }).catch(() => {});
+      const url = this.page.url();
+      const bodyText = await this.page.locator('body').textContent().catch(() => '');
+      throw new Error(`[Payroll] "Schedule New Process" button not found. URL: ${url}, page text: "${bodyText?.substring(0, 200)}"`);
+    }
+
+    // Click whichever variant is visible
+    const roleBtn = this.page.getByRole('button', { name: 'Schedule New Process' });
+    const roleLink = this.page.getByRole('link', { name: 'Schedule New Process' });
+    if (await roleBtn.isVisible({ timeout: 2000 }).catch(() => false)) {
+      await roleBtn.click();
+    } else if (await roleLink.isVisible({ timeout: 2000 }).catch(() => false)) {
+      await roleLink.click();
+    } else {
+      await this.scheduleNewProcessLink.click();
+    }
     await this.page.waitForTimeout(3000);
     await this.waitForJET();
 
@@ -355,6 +401,24 @@ export class PayrollProcessingPage extends BasePage {
           if (resultRowCount > 0) break;
         }
       }
+
+      // If still 0 results, try blank search to list ALL processes
+      if (resultRowCount === 0) {
+        console.log('[Payroll] All searches failed, trying blank search to list all processes');
+        await nameTextbox.click();
+        await nameTextbox.fill('');
+        await this.page.waitForTimeout(300);
+
+        const blankBtn = ssDialog.getByRole('button', { name: 'Search', exact: true }).first();
+        if (await blankBtn.isVisible({ timeout: 2000 }).catch(() => false)) {
+          await blankBtn.click();
+        }
+        await this.page.waitForTimeout(5000);
+        await this.waitForJET();
+
+        resultRowCount = await ssDialog.locator('[_afrrk]').count();
+        console.log(`[Payroll] Blank search returned ${resultRowCount} rows`);
+      }
     } else {
       // No textbox: try clicking Search without criteria to list all processes
       console.log('[Payroll] No search textbox, searching with no criteria');
@@ -429,27 +493,11 @@ export class PayrollProcessingPage extends BasePage {
       await this.page.waitForTimeout(3000);
       await this.waitForJET();
 
-      // If dialog still open after double-click, click OK via ADF
+      // If dialog still open after double-click, click OK
       if (await titleEl.isVisible({ timeout: 2000 }).catch(() => false)) {
         console.log('[Payroll] Dialog still open, clicking OK');
         const okBtn = ssDialog.getByRole('button', { name: 'OK' }).first();
-        try {
-          const isOkVisible = await okBtn.isVisible({ timeout: 3000 }).catch(() => false);
-          const okId = isOkVisible ? await okBtn.getAttribute('id', { timeout: 3000 }).catch(() => '') : '';
-          if (okId) {
-            await this.page.evaluate((id: string) => {
-              const adfPage = (window as any).AdfPage?.PAGE;
-              if (!adfPage) return;
-              const comp = adfPage.findComponentByAbsoluteId(id);
-              if (comp) { new (window as any).AdfActionEvent(comp).queue(); }
-            }, okId);
-          } else {
-            await okBtn.click({ force: true });
-          }
-        } catch {
-          console.log('[Payroll] OK button getAttribute failed, using force click');
-          await okBtn.click({ force: true });
-        }
+        await okBtn.click({ force: true });
         await this.page.waitForTimeout(2000);
       }
     } else {
