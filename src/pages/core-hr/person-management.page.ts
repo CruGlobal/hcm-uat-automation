@@ -149,6 +149,31 @@ export class PersonManagementPage extends BasePage {
 
   // === Person Management Search ===
 
+  /**
+   * Ensure we're on the Person Management page by checking for the search panel.
+   * If not found, navigate via deep link and wait for the search field.
+   */
+  async ensureOnPersonManagement(): Promise<void> {
+    const anySearchField = this.page.locator('[id*="q1:"]').first();
+    const isOnPage = await anySearchField.isVisible({ timeout: 5000 }).catch(() => false);
+    if (isOnPage) return;
+
+    console.log('[PersonMgmt] Search panel not found — navigating via deep link');
+    const baseUrl = process.env.ORACLE_HCM_URL || 'https://stafflife-icahjb-test.fa.ocs.oraclecloud.com';
+    await this.page.goto(`${baseUrl}/fscmUI/faces/deeplink?objType=PERSON_MANAGEMENT`, {
+      waitUntil: 'domcontentloaded',
+      timeout: 60_000,
+    });
+    await this.page.waitForTimeout(5000);
+    await this.waitForJET();
+
+    // Verify search field is now visible
+    const fieldVisible = await this.searchPersonNumber.isVisible({ timeout: 10000 }).catch(() => false);
+    if (!fieldVisible) {
+      console.log('[PersonMgmt] Search field still not visible after deep link navigation');
+    }
+  }
+
   /** Search by name or number (convenience wrapper). */
   async searchPerson(query: string): Promise<void> {
     // If it looks like a number, search by person number; otherwise by name
@@ -171,6 +196,7 @@ export class PersonManagementPage extends BasePage {
 
   /** Search by person name and click the first result. */
   async searchByName(name: string): Promise<void> {
+    await this.ensureOnPersonManagement();
     await this.fillSearchField(this.searchName, name);
     await this.searchButton.click();
     await this.page.waitForTimeout(8000);
@@ -180,6 +206,7 @@ export class PersonManagementPage extends BasePage {
 
   /** Search by person number and click the first result. */
   async searchByPersonNumber(personNumber: string): Promise<void> {
+    await this.ensureOnPersonManagement();
     await this.fillSearchField(this.searchPersonNumber, personNumber);
     await this.searchButton.click();
     await this.page.waitForTimeout(8000);
@@ -192,6 +219,7 @@ export class PersonManagementPage extends BasePage {
    * Returns true if at least one result was found.
    */
   async searchByPersonNumberOnly(personNumber: string): Promise<boolean> {
+    await this.ensureOnPersonManagement();
     await this.fillSearchField(this.searchPersonNumber, personNumber);
     await this.searchButton.click();
     await this.page.waitForTimeout(8000);

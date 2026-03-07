@@ -415,13 +415,40 @@ export class CoreHRUATFlow extends BaseFlow {
       throw new Error(`${tc.testId}: No person reference found in field data or test case`);
     }
     await this.person.searchByName(personName);
-    const found = await this.selectPersonAction('Change Assignment');
+    const process = tc.businessProcess.toLowerCase();
+
+    // "Add Assignment" / "Additional Job" uses a different action name
+    let actionText = 'Change Assignment';
+    if (process.includes('add assignment') || process.includes('add assig') || process.includes('additional job')) {
+      actionText = 'Add Assignment';
+    }
+    const found = await this.selectPersonAction(actionText).catch(async () => {
+      // Fallback: if specific action not found, try "Change Assignment"
+      if (actionText !== 'Change Assignment') {
+        console.log(`[AssignmentChange] ${tc.testId}: "${actionText}" not found, trying "Change Assignment"`);
+        return this.selectPersonAction('Change Assignment');
+      }
+      return false;
+    });
     if (!found) return;
     await this.page.waitForTimeout(2000);
-    await this.person.clickAdfButton('Continue');
+    await this.person.clickAdfButton('Continue').catch(() => {});
     await this.page.waitForTimeout(2000);
-    await this.person.clickAdfButton('Next');
-    await this.page.waitForTimeout(2000);
+    await this.person.waitForJET();
+
+    // Click Next/Continue up to 3 times to advance through wizard steps
+    // (some wizards like "Add Assignment" have multiple steps before Submit)
+    for (let step = 0; step < 3; step++) {
+      const submitVisible = await this.confirmation.isOnReviewStep();
+      if (submitVisible) break;
+      const nextClicked = await this.person.clickAdfButton('Next').then(() => true).catch(() => false);
+      if (!nextClicked) {
+        await this.person.clickAdfButton('Continue').catch(() => {});
+      }
+      await this.page.waitForTimeout(3000);
+      await this.person.waitForJET();
+    }
+
     await this.confirmation.clickSubmit();
     await this.confirmation.expectSuccess();
   }
@@ -2662,32 +2689,47 @@ export class CoreHRUATFlow extends BaseFlow {
    * then selects the specified action text.
    */
   private async selectPersonAction(actionText: string): Promise<boolean> {
-    // Click "Actions" menu button on person page
-    const actionsBtn = this.page.locator(
-      'button:has-text("Actions"), a[role="button"]:has-text("Actions"), [id*="Actions"]'
-    ).first();
-    if (await actionsBtn.isVisible({ timeout: 1000 }).catch(() => false)) {
-      await actionsBtn.click();
-      await this.page.waitForTimeout(500);
-      // Select the action from the dropdown (check visibility first)
-      const actionItem = this.page.getByText(actionText, { exact: false }).first();
-      if (await actionItem.isVisible({ timeout: 1000 }).catch(() => false)) {
-        await actionItem.click();
-        await this.page.waitForTimeout(2000);
-        await this.person.waitForJET();
-        return true;
+    // Wait for person detail page to fully load before trying Actions
+    await this.page.waitForTimeout(3000);
+    await this.person.waitForJET();
+    await this.person.clearGlassPane();
+
+    // Try up to 2 attempts (page may still be loading)
+    for (let attempt = 0; attempt < 2; attempt++) {
+      // Click "Actions" menu button on person page
+      const actionsBtn = this.page.locator(
+        'button:has-text("Actions"), a[role="button"]:has-text("Actions"), [id*="Actions"]'
+      ).first();
+      if (await actionsBtn.isVisible({ timeout: attempt === 0 ? 5000 : 3000 }).catch(() => false)) {
+        await actionsBtn.click({ force: true });
+        await this.page.waitForTimeout(1000);
+        // Select the action from the dropdown
+        const actionItem = this.page.getByText(actionText, { exact: false }).first();
+        if (await actionItem.isVisible({ timeout: 3000 }).catch(() => false)) {
+          await actionItem.click();
+          await this.page.waitForTimeout(2000);
+          await this.person.waitForJET();
+          return true;
+        }
+        // Capture menu contents for debugging
+        const menuItems = await this.page.locator('[role="menuitem"]')
+          .allTextContents().catch(() => [] as string[]);
+        console.log(`[selectPersonAction] "${actionText}" not found. Available: ${menuItems.map(t => t.trim()).filter(Boolean).join(' | ').substring(0, 300)}`);
+        await this.page.keyboard.press('Escape').catch(() => {});
+        if (attempt === 0) {
+          await this.page.waitForTimeout(3000);
+          continue;
+        }
+        throw new Error(`"${actionText}" not found in Actions menu`);
       }
-      // Action not found — close menu and log
-      await this.page.keyboard.press('Escape').catch(() => {});
-      throw new Error(`"${actionText}" not found in Actions menu`);
-    } else {
+
       // Fallback: try ADF menu approach
       const actionsMenuitem = this.page.locator('[role="menuitem"][aria-label="Actions"]');
-      if (await actionsMenuitem.isVisible({ timeout: 1000 }).catch(() => false)) {
+      if (await actionsMenuitem.isVisible({ timeout: 2000 }).catch(() => false)) {
         await actionsMenuitem.click();
-        await this.page.waitForTimeout(500);
+        await this.page.waitForTimeout(1000);
         const actionItem = this.page.getByText(actionText, { exact: false }).first();
-        if (await actionItem.isVisible({ timeout: 1000 }).catch(() => false)) {
+        if (await actionItem.isVisible({ timeout: 3000 }).catch(() => false)) {
           await actionItem.click();
           await this.page.waitForTimeout(2000);
           await this.person.waitForJET();
@@ -2695,8 +2737,16 @@ export class CoreHRUATFlow extends BaseFlow {
         }
         await this.page.keyboard.press('Escape').catch(() => {});
       }
-      throw new Error(`Actions button not visible or "${actionText}" not found`);
+
+      if (attempt === 0) {
+        // First attempt failed — wait for page to load and retry
+        console.log(`[selectPersonAction] Actions not found on attempt 1, waiting and retrying...`);
+        await this.page.waitForTimeout(5000);
+        await this.person.waitForJET();
+        await this.person.clearGlassPane();
+      }
     }
+    throw new Error(`Actions button not visible or "${actionText}" not found — person detail page may not have loaded`);
   }
 
   /** Extract a person name reference from testData or preConditions. */

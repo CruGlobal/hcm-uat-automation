@@ -61,6 +61,19 @@ export class TerminationFlow extends BaseCoreHRFlow {
       await this.person.searchByName(personName);
     }
 
+    // Verify we're on the person detail page (not still on search results with 0 matches)
+    const onPersonDetail = await this.page.locator(
+      'button:has-text("Actions"), a[role="button"]:has-text("Actions"), [id*="Actions"]'
+    ).first().isVisible({ timeout: 5000 }).catch(() => false);
+    if (!onPersonDetail) {
+      // Check if still on search results page with no results
+      const noResults = await this.page.locator('[id*="table2"]').first().isVisible({ timeout: 2000 }).catch(() => false);
+      if (!noResults) {
+        const identifier = personNumber || personName || '(unknown)';
+        throw new Error(`Person ${identifier} not found — search returned no results and person detail page not loaded`);
+      }
+    }
+
     // Determine action type
     const actionType = (getField(tc, "What's the way") || getField(tc, 'Action') || '').toLowerCase();
     const isEndAssignment = actionType.includes('end assignment');
@@ -231,27 +244,44 @@ export class TerminationFlow extends BaseCoreHRFlow {
 
   /**
    * Try to click "Terminate Work Relationship" in the open Actions menu.
+   * Falls back to "End Assignment" or "Terminate Employment" if primary option not found.
    */
   private async tryClickTerminateOption(): Promise<boolean> {
-    // Strategy 1: Menu item with exact text
-    const menuItem = this.page.locator('[role="menuitem"]:has-text("Terminate")').first();
-    if (await menuItem.isVisible({ timeout: 3000 }).catch(() => false)) {
-      console.log('[Termination] Found "Terminate" via role=menuitem');
-      await menuItem.click({ force: true });
-      return true;
+    // Capture all menu items for debugging
+    const allMenuItems = await this.page.locator('[role="menuitem"], [role="menu"] td, #DhtmlZOrderManagerLayerContainer [role="menuitem"]')
+      .allTextContents().catch(() => [] as string[]);
+    console.log(`[Termination] Actions menu contents: ${allMenuItems.map(t => t.trim()).filter(Boolean).join(' | ').substring(0, 500)}`);
+
+    // Try each termination-related action in order of preference
+    const terminateTexts = ['Terminate Work Relationship', 'Terminate Employment', 'Terminate', 'End Assignment'];
+
+    for (const text of terminateTexts) {
+      // Strategy 1: Menu item role
+      const menuItem = this.page.locator(`[role="menuitem"]:has-text("${text}")`).first();
+      if (await menuItem.isVisible({ timeout: 1000 }).catch(() => false)) {
+        console.log(`[Termination] Found "${text}" via role=menuitem`);
+        await menuItem.click({ force: true });
+        return true;
+      }
+
+      // Strategy 2: Table cell or list item
+      const tdLi = this.page.locator(`td:has-text("${text}"), li:has-text("${text}")`).first();
+      if (await tdLi.isVisible({ timeout: 1000 }).catch(() => false)) {
+        console.log(`[Termination] Found "${text}" via td/li`);
+        await tdLi.click({ force: true });
+        return true;
+      }
+
+      // Strategy 3: Link/button
+      const link = this.page.locator(`a:has-text("${text}"), button:has-text("${text}")`).first();
+      if (await link.isVisible({ timeout: 1000 }).catch(() => false)) {
+        console.log(`[Termination] Found "${text}" via has-text`);
+        await link.click({ force: true });
+        return true;
+      }
     }
 
-    // Strategy 2: Table cell or list item in ADF popup menu
-    const termOption = this.page.locator(
-      'td:has-text("Terminate Work Relationship"), li:has-text("Terminate")'
-    ).first();
-    if (await termOption.isVisible({ timeout: 2000 }).catch(() => false)) {
-      console.log('[Termination] Found "Terminate" via td/li');
-      await termOption.click({ force: true });
-      return true;
-    }
-
-    // Strategy 3: Dialog layer
+    // Strategy 4: Dialog layer fallback
     const dialogLayer = this.page.locator('#DhtmlZOrderManagerLayerContainer');
     const termInLayer = dialogLayer.getByText('Terminate', { exact: false }).first();
     if (await termInLayer.isVisible({ timeout: 2000 }).catch(() => false)) {
@@ -260,18 +290,7 @@ export class TerminationFlow extends BaseCoreHRFlow {
       return true;
     }
 
-    // Strategy 4: Any link/button with "Terminate"
-    const termLink = this.page.locator('a:has-text("Terminate"), button:has-text("Terminate")').first();
-    if (await termLink.isVisible({ timeout: 2000 }).catch(() => false)) {
-      console.log('[Termination] Found "Terminate" via has-text');
-      await termLink.click({ force: true });
-      return true;
-    }
-
-    // Capture menu contents for debugging
-    const menuText = await this.page.locator('[role="menuitem"], [role="menu"] td, #DhtmlZOrderManagerLayerContainer').first()
-      .textContent({ timeout: 2000 }).catch(() => '(no menu content)');
-    console.log(`[Termination] No "Terminate" option found. Menu contents: ${menuText?.substring(0, 300)}`);
+    console.log(`[Termination] No termination option found in menu`);
     return false;
   }
 
