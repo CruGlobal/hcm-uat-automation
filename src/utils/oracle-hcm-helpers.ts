@@ -5,19 +5,25 @@ import { type Page, type Locator } from '@playwright/test';
  * Oracle JET uses a busy context — we wait until no busy states remain.
  */
 export async function waitForOracleJET(page: Page, timeout = 30_000): Promise<void> {
-  await page.waitForFunction(
-    () => {
-      // Oracle JET busy context check
-      const jet = (window as any).oj;
-      if (jet?.Context) {
-        const busyContext = jet.Context.getPageContext().getBusyContext();
-        return !busyContext.isReady || busyContext.isReady();
-      }
-      // If JET isn't loaded yet, check for common loading indicators
-      return !document.querySelector('.oj-progress-bar, .oj-loading');
-    },
-    { timeout }
-  );
+  try {
+    await page.waitForFunction(
+      () => {
+        // Oracle JET busy context check
+        const jet = (window as any).oj;
+        if (jet?.Context) {
+          const busyContext = jet.Context.getPageContext().getBusyContext();
+          return !busyContext.isReady || busyContext.isReady();
+        }
+        // If JET isn't loaded yet, check for common loading indicators
+        return !document.querySelector('.oj-progress-bar, .oj-loading');
+      },
+      { timeout }
+    );
+  } catch (err) {
+    // JET busy context can get stuck (e.g., background polling, dialog blocking).
+    // Log warning and continue — the page may actually be ready.
+    console.warn(`[waitForOracleJET] Timeout after ${timeout}ms — continuing anyway (page may be ready)`);
+  }
 }
 
 /** Wait for Oracle HCM page to fully load (JET + network idle). */
