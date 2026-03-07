@@ -35,41 +35,46 @@ const HR_SPECIALIST_ROLES = [
   'CRU Human Resource Analyst View All',
 ];
 
-const LINE_MANAGER_ROLES = [
+/**
+ * Cross-module roles. UAT Plan assigns testers across modules (e.g., an HR tester
+ * may also have Payroll, Benefits, or Compensation tests), so all bots need roles
+ * for every module their tests touch.
+ */
+const CROSS_MODULE_ROLES = [
+  ...HR_SPECIALIST_ROLES,
+  'Payroll Administrator',
+  'Benefits Administrator',
+  'Compensation Specialist',
   'Line Manager',
+  'Time and Labor Manager',
 ];
 
 /**
  * Map: botName → Oracle role display names to assign via Security Console.
  * These match the names used in the existing assign-roles.ts script.
+ *
+ * Most bots get CROSS_MODULE_ROLES since UAT Plan distributes tests across
+ * modules regardless of tester specialty.
  */
 const BOT_ROLE_MAP: Record<string, string[]> = {
-  // HR Admin — full HR access
-  bot_hr_admin: [...HR_SPECIALIST_ROLES],
+  // HR Admin — full cross-module access
+  bot_hr_admin: [...CROSS_MODULE_ROLES],
 
-  // HR Specialists — standard HR Specialist + Cru view-all
-  bot_hr_generalist_no_nid: ['Human Resource Specialist', 'Cru HR Specialist No Crisis and NID Data'],
-  bot_hr_generalist: [...HR_SPECIALIST_ROLES],
-  bot_hr_local_usops: [...HR_SPECIALIST_ROLES],
-  bot_hr_local_campus: [...HR_SPECIALIST_ROLES],
-  bot_hr_local_global: [...HR_SPECIALIST_ROLES],
-  bot_hr_local_global_crisis: [...HR_SPECIALIST_ROLES],
-  bot_hr_local_familylife: [...HR_SPECIALIST_ROLES],
-  bot_local_campus: [...HR_SPECIALIST_ROLES],
-  bot_hr_crisis: [...HR_SPECIALIST_ROLES],
-
-  // Capacity — needs HR Specialist for Core HR tests (Bethany George, Lisa Copeland, Stephanie Slayton)
-  bot_local_us_capacity: [...HR_SPECIALIST_ROLES],
+  // HR Specialists — cross-module (Payroll/Benefits/Comp tests assigned to HR testers)
+  bot_hr_generalist_no_nid: ['Human Resource Specialist', 'Cru HR Specialist No Crisis and NID Data', 'Payroll Administrator', 'Benefits Administrator', 'Compensation Specialist', 'Line Manager', 'Time and Labor Manager'],
+  bot_hr_generalist: [...CROSS_MODULE_ROLES],
+  bot_hr_local_usops: [...CROSS_MODULE_ROLES],
+  bot_hr_local_campus: [...CROSS_MODULE_ROLES],
+  bot_hr_local_global: [...CROSS_MODULE_ROLES],
+  bot_hr_local_global_crisis: [...CROSS_MODULE_ROLES],
+  bot_hr_local_familylife: [...CROSS_MODULE_ROLES],
+  bot_local_campus: [...CROSS_MODULE_ROLES],
+  bot_hr_crisis: [...CROSS_MODULE_ROLES],
+  bot_local_us_capacity: [...CROSS_MODULE_ROLES],
 
   // Dedicated API service user — needs comprehensive REST API access to all endpoints
   api_service: [
-    'Human Resource Specialist',
-    'CRU Human Resource Specialist View All',
-    'CRU Human Resource Analyst View All',
-    'Payroll Administrator',
-    'Benefits Administrator',
-    'Compensation Specialist',
-    'Line Manager',
+    ...CROSS_MODULE_ROLES,
     'IT Security Manager',
     'Human Capital Management Application Administrator',
     'CRU HCM Application Administrator View All',
@@ -77,23 +82,23 @@ const BOT_ROLE_MAP: Record<string, string[]> = {
   ],
 
   // Payroll bots
-  bot_payroll_admin: [...HR_SPECIALIST_ROLES, 'Payroll Administrator'],
-  bot_payroll_spec: [...HR_SPECIALIST_ROLES, 'Payroll Administrator'],
+  bot_payroll_admin: [...CROSS_MODULE_ROLES],
+  bot_payroll_spec: [...CROSS_MODULE_ROLES],
 
   // Benefits bot
-  bot_benefit_admin: [...HR_SPECIALIST_ROLES, 'Benefits Administrator'],
+  bot_benefit_admin: [...CROSS_MODULE_ROLES],
 
   // Time & Labor bot
-  bot_time_admin: [...HR_SPECIALIST_ROLES, 'Time and Labor Manager'],
+  bot_time_admin: [...CROSS_MODULE_ROLES],
 
   // Compensation bots
-  bot_comp_spec: [...HR_SPECIALIST_ROLES, 'Compensation Specialist'],
-  bot_comp_comm_approver: [...LINE_MANAGER_ROLES, 'Compensation Specialist'],
+  bot_comp_spec: [...CROSS_MODULE_ROLES],
+  bot_comp_comm_approver: [...CROSS_MODULE_ROLES],
 
   // Manager/Approver bots
-  bot_line_manager: [...HR_SPECIALIST_ROLES, ...LINE_MANAGER_ROLES],
-  bot_vp_approver: [...HR_SPECIALIST_ROLES, ...LINE_MANAGER_ROLES],
-  bot_div_approver: [...HR_SPECIALIST_ROLES, ...LINE_MANAGER_ROLES],
+  bot_line_manager: [...CROSS_MODULE_ROLES],
+  bot_vp_approver: [...CROSS_MODULE_ROLES],
+  bot_div_approver: [...CROSS_MODULE_ROLES],
 };
 
 // ── Config ───────────────────────────────────────────────────────────

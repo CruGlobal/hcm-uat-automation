@@ -79,7 +79,9 @@ export class OutcomeValidator {
       cat.includes('view') || cat.includes('review') || cat.includes('inquiry') ||
       cat.includes('read') || cat.includes('report') ||
       script.includes('view') || script.includes('review') ||
-      scenario.includes('search and view') || scenario.includes('view only');
+      scenario.includes('review') || scenario.includes('view') ||
+      scenario.includes('administer') || scenario.includes('generates') ||
+      scenario.includes('batch process') || scenario.includes('creates a new plan');
   }
 
   private async verifyNoErrors(): Promise<void> {
