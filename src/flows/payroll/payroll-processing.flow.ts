@@ -264,7 +264,7 @@ export class PayrollProcessingFlow extends BaseFlow {
     await this.payroll.goToScheduledProcesses();
     // Oracle HCM uses "Calculate QuickPay" for off-cycle payroll runs.
     // Try multiple process names in case the environment uses a different name.
-    const processNames = ['Calculate QuickPay', 'Run QuickPay', 'Off-Cycle Payroll'];
+    const processNames = ['Calculate QuickPay', 'Run QuickPay', 'QuickPay', 'Off-Cycle Payroll', 'Off Cycle', 'Calculate Payroll'];
     let scheduled = false;
     for (const name of processNames) {
       try {

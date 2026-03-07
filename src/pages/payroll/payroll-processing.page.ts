@@ -329,6 +329,31 @@ export class PayrollProcessingPage extends BasePage {
         }
         await this.page.waitForTimeout(5000);
         await this.waitForJET();
+
+        resultRowCount = await ssDialog.locator('[_afrrk]').count();
+      }
+
+      // If still 0 results, try %keyword% for each significant keyword
+      if (resultRowCount === 0) {
+        const keywords = processName.split(/[\s-]+/).filter(w => w.length > 3);
+        for (const kw of keywords) {
+          console.log(`[Payroll] Retrying with "%${kw}%"`);
+          await nameTextbox.click();
+          await nameTextbox.fill('');
+          await this.page.waitForTimeout(300);
+          await nameTextbox.pressSequentially('%' + kw + '%', { delay: 30 });
+          await this.page.waitForTimeout(500);
+
+          const kwBtn = ssDialog.getByRole('button', { name: 'Search', exact: true }).first();
+          if (await kwBtn.isVisible({ timeout: 2000 }).catch(() => false)) {
+            await kwBtn.click();
+          }
+          await this.page.waitForTimeout(5000);
+          await this.waitForJET();
+
+          resultRowCount = await ssDialog.locator('[_afrrk]').count();
+          if (resultRowCount > 0) break;
+        }
       }
     } else {
       // No textbox: try clicking Search without criteria to list all processes
@@ -408,15 +433,21 @@ export class PayrollProcessingPage extends BasePage {
       if (await titleEl.isVisible({ timeout: 2000 }).catch(() => false)) {
         console.log('[Payroll] Dialog still open, clicking OK');
         const okBtn = ssDialog.getByRole('button', { name: 'OK' }).first();
-        const okId = await okBtn.getAttribute('id').catch(() => '');
-        if (okId) {
-          await this.page.evaluate((id: string) => {
-            const adfPage = (window as any).AdfPage?.PAGE;
-            if (!adfPage) return;
-            const comp = adfPage.findComponentByAbsoluteId(id);
-            if (comp) { new (window as any).AdfActionEvent(comp).queue(); }
-          }, okId);
-        } else {
+        try {
+          const isOkVisible = await okBtn.isVisible({ timeout: 3000 }).catch(() => false);
+          const okId = isOkVisible ? await okBtn.getAttribute('id', { timeout: 3000 }).catch(() => '') : '';
+          if (okId) {
+            await this.page.evaluate((id: string) => {
+              const adfPage = (window as any).AdfPage?.PAGE;
+              if (!adfPage) return;
+              const comp = adfPage.findComponentByAbsoluteId(id);
+              if (comp) { new (window as any).AdfActionEvent(comp).queue(); }
+            }, okId);
+          } else {
+            await okBtn.click({ force: true });
+          }
+        } catch {
+          console.log('[Payroll] OK button getAttribute failed, using force click');
           await okBtn.click({ force: true });
         }
         await this.page.waitForTimeout(2000);
@@ -837,13 +868,43 @@ export class PayrollProcessingPage extends BasePage {
 
   /** Save current form. */
   async save(): Promise<void> {
-    const saveBtn = this.page.getByRole('button', { name: 'Save' }).first();
-    if (await saveBtn.isVisible({ timeout: 5000 }).catch(() => false)) {
-      await saveBtn.click();
-    } else {
-      await this.clickAdfButton('Save');
+    // Try multiple selector strategies for Save button
+    const saveSelectors = [
+      () => this.page.getByRole('button', { name: 'Save' }).first(),
+      () => this.page.locator('oj-button:has-text("Save")').first(),
+      () => this.page.locator('[role="button"]:has-text("Save")').first(),
+      () => this.page.locator('button[title="Save"]').first(),
+    ];
+
+    for (const getSel of saveSelectors) {
+      const btn = getSel();
+      if (await btn.isVisible({ timeout: 2000 }).catch(() => false)) {
+        await btn.click();
+        await this.page.waitForTimeout(3000);
+        await this.waitForJET();
+        return;
+      }
     }
-    await this.page.waitForTimeout(3000);
-    await this.waitForJET();
+
+    // Try ADF button approach
+    try {
+      await this.clickAdfButton('Save');
+      await this.page.waitForTimeout(3000);
+      await this.waitForJET();
+      return;
+    } catch {
+      // Fall through to Save and Close
+    }
+
+    // Final fallback: Save and Close
+    const saveCloseBtn = this.page.getByRole('button', { name: 'Save and Close' }).first();
+    if (await saveCloseBtn.isVisible({ timeout: 3000 }).catch(() => false)) {
+      await saveCloseBtn.click();
+      await this.page.waitForTimeout(3000);
+      await this.waitForJET();
+      return;
+    }
+
+    console.log('[Payroll] No Save button found');
   }
 }

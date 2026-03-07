@@ -1,4 +1,4 @@
-import { type Page, type Locator } from '@playwright/test';
+import type { Page, Locator } from '@playwright/test';
 import { BasePage } from '../base.page';
 import { getField } from '../../data/test-data-provider';
 import { excelSerialToDate } from '../../utils/oracle-hcm-helpers';
@@ -56,12 +56,15 @@ export class ElementEntryPage extends BasePage {
     'input[aria-label*="Amount"], [id*="Amount"], [id*="amount"]'
   ).first();
 
-  // Create / Submit button — multiple fallback selectors
-  private readonly createButton = this.page.locator(
-    'button:has-text("Create"), button:has-text("Submit"), ' +
-    'button:has-text("Save"), a[role="button"]:has-text("Create"), ' +
-    'a[role="button"]:has-text("Submit"), [id*="Create"]'
-  ).first();
+  // Create / Submit button selector candidates (checked in order by getVisibleCreateButton)
+  private readonly createButtonSelectors = [
+    'button:has-text("Create")',
+    'a[role="button"]:has-text("Create")',
+    '[id*="Create"]',
+    'button:has-text("Submit")',
+    'a[role="button"]:has-text("Submit")',
+    'button:has-text("Save")',
+  ];
 
   /**
    * Fill element entry form from test case field data.
@@ -114,14 +117,14 @@ export class ElementEntryPage extends BasePage {
   /** Search for an employee by name with multiple fallback strategies. */
   private async searchEmployee(name: string): Promise<void> {
     // Wait for page to stabilize after navigation
-    await this.page.waitForTimeout(3000);
+    await this.page.waitForLoadState('domcontentloaded');
     await this.waitForJET();
 
     // Strategy 1: Use Person Name combobox (ADF-style page — most common for Element Entries)
     const personField = this.page.locator(
       'input[aria-label*="Person"], input[aria-label*="Employee"], input[aria-label*="Worker"]'
     ).first();
-    if (await personField.isVisible({ timeout: 5000 }).catch(() => false)) {
+    if (await personField.isVisible({ timeout: 8000 }).catch(() => false)) {
       await this.fillCombobox(personField, name);
       await this.page.waitForTimeout(3000);
       await this.waitForJET();
@@ -144,7 +147,7 @@ export class ElementEntryPage extends BasePage {
       } else {
         await this.searchFor.press('Enter');
       }
-      await this.page.waitForTimeout(5000);
+      await this.page.waitForLoadState('networkidle', { timeout: 15000 }).catch(() => {});
       await this.waitForJET();
 
       // Click first search result
@@ -257,12 +260,25 @@ export class ElementEntryPage extends BasePage {
     }
   }
 
+  /** Find the first visible create/submit button from selector candidates. */
+  private async getVisibleCreateButton(): Promise<Locator | null> {
+    for (const sel of this.createButtonSelectors) {
+      const btn = this.page.locator(sel).first();
+      if (await btn.isVisible({ timeout: 2000 }).catch(() => false)) {
+        return btn;
+      }
+    }
+    return null;
+  }
+
   /** Click the Create/Submit button with multiple fallback strategies. */
   async clickCreate(): Promise<void> {
-    // Strategy 1: Playwright button click
-    const isVisible = await this.createButton.isVisible({ timeout: 5000 }).catch(() => false);
-    if (isVisible) {
-      await this.createButton.click();
+    await this.waitForJET();
+
+    // Strategy 1: Find visible button from ordered selector candidates
+    const visibleBtn = await this.getVisibleCreateButton();
+    if (visibleBtn) {
+      await visibleBtn.click();
       await this.page.waitForTimeout(10000);
       await this.waitForJET();
       return;
