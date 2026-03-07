@@ -250,12 +250,23 @@ async function loginAsAdmin(page: Page): Promise<void> {
 async function navigateToSecurityConsole(page: Page): Promise<void> {
   await page.locator('a[title="Navigator"]').first().click({ force: true });
   await page.waitForTimeout(3000);
+  // Click "Show More" repeatedly until fully expanded
   const showMore = page.locator('a:has-text("Show More")').first();
-  if (await showMore.isVisible({ timeout: 3000 }).catch(() => false)) {
-    await showMore.click();
-    await page.waitForTimeout(2000);
+  for (let i = 0; i < 5; i++) {
+    if (!await showMore.isVisible({ timeout: 2000 }).catch(() => false)) break;
+    await showMore.click({ force: true });
+    await page.waitForTimeout(1500);
   }
-  await page.getByRole('link', { name: 'Security Console' }).first().click();
+  await waitForJET(page);
+
+  const secLink = page.getByRole('link', { name: 'Security Console' }).first();
+  if (await secLink.isVisible({ timeout: 5000 }).catch(() => false)) {
+    await secLink.click();
+  } else {
+    // Direct URL fallback
+    console.log('[Nav] Security Console not in navigator, using direct URL');
+    await page.goto('/fscmUI/faces/FuseOverview?fndGlobalItemNodeId=itemNode_tools_security_console', { timeout: 60_000 });
+  }
   await page.waitForLoadState('networkidle');
   await waitForJET(page);
   await page.waitForTimeout(5000);

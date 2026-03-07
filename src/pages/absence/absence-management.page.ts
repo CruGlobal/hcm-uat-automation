@@ -340,21 +340,18 @@ export class AbsenceManagementPage extends BasePage {
    * tiles are in background DOM but not visible).
    */
   private async clickEssTile(label: string, fallbackIndex: number): Promise<void> {
-    // Try text-based matching — check all matches to find a visible one
-    const textTiles = this.page.getByText(label, { exact: true });
-    const textCount = await textTiles.count().catch(() => 0);
-    for (let i = 0; i < textCount; i++) {
-      const tile = textTiles.nth(i);
-      if (await tile.isVisible({ timeout: 2000 }).catch(() => false)) {
-        await tile.click({ force: true });
-        await this.page.waitForTimeout(5000);
-        await this.waitForJET();
-        return;
-      }
+    // Strategy 1: Click the <a> link that contains the label text.
+    // Redwood card tiles wrap content in <a> tags — clicking the link element
+    // reliably triggers navigation (vs clicking inner text/span which may not).
+    const link = this.page.locator('a').filter({ hasText: new RegExp(`^${label}`) }).first();
+    if (await link.isVisible({ timeout: 3000 }).catch(() => false)) {
+      await link.click({ force: true });
+      await this.page.waitForTimeout(5000);
+      await this.waitForJET();
+      return;
     }
 
-    // Fallback: scan tile indices — tile ordering varies by user role configuration.
-    // Try fallbackIndex first, then scan 0–11 and match by text content.
+    // Strategy 2: Click the tile by ADF id prefix.
     const indicesToTry = [fallbackIndex, ...Array.from({ length: 12 }, (_, i) => i).filter(i => i !== fallbackIndex)];
     for (const idx of indicesToTry) {
       const tile = this.essTile(idx);
@@ -366,6 +363,23 @@ export class AbsenceManagementPage extends BasePage {
           await this.waitForJET();
           return;
         }
+      }
+    }
+
+    // Strategy 3: Click any visible text match (last resort for non-standard layouts).
+    const textTiles = this.page.getByText(label, { exact: true });
+    const textCount = await textTiles.count().catch(() => 0);
+    for (let i = 0; i < textCount; i++) {
+      const tile = textTiles.nth(i);
+      if (await tile.isVisible({ timeout: 2000 }).catch(() => false)) {
+        // Try JS click on the closest <a> parent or the element itself
+        await tile.evaluate((el: HTMLElement) => {
+          const anchor = el.closest('a') || el.querySelector('a') || el;
+          (anchor as HTMLElement).click();
+        });
+        await this.page.waitForTimeout(5000);
+        await this.waitForJET();
+        return;
       }
     }
 
@@ -641,57 +655,62 @@ export class AbsenceManagementPage extends BasePage {
         return true;
       }
 
-      // Desired type not found — try to select the first available item from the OJ list-view.
-      // Clear filter first to show all available options.
+      // Desired type not found — try partial match (e.g., "Sick Salaried" → "Sick")
+      // Extract the base type name (first word) and try that
+      const baseType = type.split(/[\s-]+/)[0]; // e.g., "Sick", "Vacation", "FMLA"
+      if (baseType && baseType !== type) {
+        console.log(`[Absence] Exact match failed for "${type}", trying partial match: "${baseType}"`);
+        const filterInputRetry = this.page.locator('[id*="searchselect-filter-absence-type"]').locator('input').first();
+        if (await filterInputRetry.isVisible({ timeout: 1000 }).catch(() => false)) {
+          await filterInputRetry.fill('');
+          await this.page.waitForTimeout(1000);
+          await filterInputRetry.pressSequentially(baseType.substring(0, 8), { delay: 80 });
+          await this.page.waitForTimeout(3000);
+        }
+        if (await this.selectDropdownItem(baseType)) {
+          console.log(`[Absence] Partial match selected: "${baseType}"`);
+          await this.page.waitForTimeout(2000);
+          await this.waitForJET();
+          return true;
+        }
+      }
+
+      // Check if dropdown has any items at all
       const filterInputClear = this.page.locator('[id*="searchselect-filter-absence-type"]').locator('input').first();
       if (await filterInputClear.isVisible({ timeout: 1000 }).catch(() => false)) {
         await filterInputClear.fill('');
         await this.page.waitForTimeout(3000);
       }
 
-      // Use page.evaluate to find and click the first item in the OJ list-view dropdown.
-      const clicked = await this.page.evaluate(() => {
+      const itemInfo = await this.page.evaluate(() => {
         const resultsContainer = document.getElementById('oj-searchselect-results-absence-type-dropdown');
-        if (!resultsContainer) return { clicked: false, debug: 'results container not found' };
+        if (!resultsContainer) return { hasItems: false, debug: 'results container not found' };
         const allLi = resultsContainer.querySelectorAll('li');
+        const items: string[] = [];
         for (const li of allLi) {
           const text = li.textContent?.trim();
-          // Skip the "no data" placeholder item
           if (text && text.length > 0 && !li.classList.contains('oj-listview-no-data-item')) {
-            (li as HTMLElement).click();
-            return { clicked: true, text };
+            items.push(text);
           }
         }
         const noData = resultsContainer.querySelector('.oj-listview-no-data-item');
-        return { clicked: false, noData: !!noData, itemCount: allLi.length };
-      }).catch((e) => ({ clicked: false, debug: String(e) }));
+        return { hasItems: items.length > 0, noData: !!noData, itemCount: items.length, items: items.slice(0, 5) };
+      }).catch(() => ({ hasItems: false, debug: 'evaluate failed' }));
 
-      console.log(`[Absence] OJ list-view fallback:`, JSON.stringify(clicked));
-      if (clicked.clicked) {
-        await this.page.waitForTimeout(2000);
-        await this.waitForJET();
-        return true;
-      }
+      console.log(`[Absence] Available types:`, JSON.stringify(itemInfo));
 
-      // Check if the dropdown is genuinely empty (bot user not enrolled in absence plans)
-      if ('noData' in clicked && clicked.noData) {
-        console.log(`[Absence] Absence Type dropdown has NO available types — bot user not enrolled in absence plans`);
+      if ('noData' in itemInfo && itemInfo.noData) {
+        console.log(`[Absence] Absence Type dropdown has NO available types — employee not enrolled in absence plans`);
         await this.page.keyboard.press('Escape');
         await this.page.waitForTimeout(1000);
         return false;
       }
 
-      // Also try generic selectors for first available option
-      if (await this.selectFirstAvailableDropdownItem()) {
-        await this.page.waitForTimeout(2000);
-        await this.waitForJET();
-        return true;
-      }
-
-      // Close dropdown if still open
+      // Do NOT blindly select first item — it causes "Employer or AbsenceType isn't valid" errors.
+      // Instead, return false so the flow skips submission and treats this as nav-only.
+      console.log(`[Absence] Type "${type}" not available for this employee — skipping (not falling back to random type)`);
       await this.page.keyboard.press('Escape');
       await this.page.waitForTimeout(1000);
-      console.log(`[Absence] Redwood dropdown: no match for "${type}" and no fallback items`);
       return false;
     }
 
@@ -846,9 +865,15 @@ export class AbsenceManagementPage extends BasePage {
       const match = this.page.locator('[role="gridcell"], [role="option"]').filter({ hasText: new RegExp(reason.split(/[_\s]+/)[0], 'i') }).first();
       if (await match.isVisible({ timeout: 3000 }).catch(() => false)) {
         await match.click();
+        await this.page.waitForTimeout(2000);
+        await this.waitForJET();
+        return;
       }
-      await this.page.waitForTimeout(2000);
-      await this.waitForJET();
+      // No match found — close dropdown and clear typed text so
+      // selectFirstReasonIfRequired() can pick up the empty field.
+      console.log(`[Absence] Reason "${reason}" not found in dropdown — clearing`);
+      await this.page.keyboard.press('Escape');
+      await this.page.waitForTimeout(500);
       return;
     }
     // Check if standard reason field is visible before trying to fill
@@ -860,30 +885,116 @@ export class AbsenceManagementPage extends BasePage {
   }
 
   /**
-   * If the Reason field is visible and required (has validation error),
-   * select the first available option to satisfy the form.
+   * If the Reason field is visible and empty (or has invalid residual text),
+   * select the first available option.
+   * Some absence types (Bereavement, Vacation, etc.) require a Reason value.
+   * Called after every reason fill attempt to catch unmatched codes.
    */
   async selectFirstReasonIfRequired(): Promise<void> {
-    // Look for the Redwood Reason combobox
-    const reasonCombo = this.page.getByRole('combobox', { name: /Reason/i }).first();
-    const visible = await reasonCombo.isVisible({ timeout: 3000 }).catch(() => false);
-    if (!visible) return;
+    // Strategy 1: Redwood oj-select-single containing a Reason label
+    const ojReason = this.page.locator('oj-select-single').filter({
+      has: this.page.locator('[aria-label*="Reason"]'),
+    }).first();
+    if (await ojReason.isVisible({ timeout: 3000 }).catch(() => false)) {
+      if (await this.trySelectFirstReasonOption(ojReason)) return;
+    }
 
-    // Check if it has a validation error (empty required field)
-    const errorIcon = this.page.locator('img[alt="Error"]').first();
-    const hasError = await errorIcon.isVisible({ timeout: 1000 }).catch(() => false);
-    if (!hasError) return;
+    // Strategy 2: combobox with accessible name "Reason"
+    const reasonCombo = this.page.getByRole('combobox', { name: /^Reason$/i }).first();
+    if (await reasonCombo.isVisible({ timeout: 2000 }).catch(() => false)) {
+      // Check if a valid value is already selected (display text, not an internal code)
+      const val = await reasonCombo.inputValue().catch(() => '');
+      if (val && !val.includes('_') && val.length > 2) return;
 
-    console.log('[Absence] Reason field is required but no value provided — selecting first option');
-    await reasonCombo.click();
+      console.log(`[Absence] Reason combobox visible with value="${val}" — selecting first option`);
+      // Clear any residual text and re-select
+      await reasonCombo.click();
+      await this.page.waitForTimeout(500);
+      await this.page.keyboard.press('Control+a');
+      await this.page.keyboard.press('Backspace');
+      await this.page.waitForTimeout(1500);
+
+      const firstOpt = this.page.locator('[role="option"], [role="gridcell"]').first();
+      if (await firstOpt.isVisible({ timeout: 3000 }).catch(() => false)) {
+        await firstOpt.click();
+        await this.page.waitForTimeout(1000);
+        await this.waitForJET();
+        return;
+      }
+      // Close dropdown if no options found
+      await this.page.keyboard.press('Escape');
+      await this.page.waitForTimeout(500);
+    }
+  }
+
+  /** Helper: try to select the first reason option from an oj-select-single component. */
+  private async trySelectFirstReasonOption(ojReason: Locator): Promise<boolean> {
+    // Check if the component already has a valid selected value.
+    // Use the OJ component's displayed text (not the input filter text).
+    const displayedValue = await ojReason.locator('[role="combobox"]')
+      .textContent().catch(() => '');
+    const inputValue = await ojReason.locator('input').inputValue().catch(() => '');
+    const currentValue = (displayedValue || inputValue || '').trim();
+    // Skip if there's a real value (not an internal code with underscores)
+    if (currentValue && !currentValue.includes('_') && currentValue.length > 2) return true;
+
+    console.log(`[Absence] OJ Reason field value="${currentValue}" — selecting first option`);
+    // Close any open dropdown first
+    await this.page.keyboard.press('Escape');
+    await this.page.waitForTimeout(500);
+
+    // Click to open dropdown fresh
+    await ojReason.click();
     await this.page.waitForTimeout(1500);
 
-    // Select the first dropdown option
+    // Clear any filter text
+    const filterInput = ojReason.locator('input').first();
+    if (await filterInput.isVisible({ timeout: 1000 }).catch(() => false)) {
+      await filterInput.fill('');
+      await this.page.waitForTimeout(1000);
+    }
+
     const firstOption = this.page.locator('[role="option"], [role="gridcell"]').first();
     if (await firstOption.isVisible({ timeout: 3000 }).catch(() => false)) {
+      const text = await firstOption.textContent().catch(() => '');
+      console.log(`[Absence] Selecting first reason option: "${text?.trim()}"`);
       await firstOption.click();
       await this.page.waitForTimeout(1000);
       await this.waitForJET();
+      return true;
+    }
+
+    // No options visible — close and bail
+    await this.page.keyboard.press('Escape');
+    await this.page.waitForTimeout(500);
+    return false;
+  }
+
+  /**
+   * If the Business Title field is visible and empty, select the first available option.
+   * Some absence types (e.g. Intermittent Leave) require a Business Title value.
+   */
+  async selectFirstBusinessTitleIfRequired(): Promise<void> {
+    const btCombo = this.page.getByRole('combobox', { name: /^Business Title$/i }).first();
+    if (!await btCombo.isVisible({ timeout: 2000 }).catch(() => false)) return;
+
+    const val = await btCombo.inputValue().catch(() => '');
+    if (val && val.length > 2) return; // Already has a value
+
+    console.log('[Absence] Business Title is visible and empty — selecting first option');
+    await btCombo.click();
+    await this.page.waitForTimeout(1500);
+
+    const firstOpt = this.page.locator('[role="option"], [role="gridcell"]').first();
+    if (await firstOpt.isVisible({ timeout: 3000 }).catch(() => false)) {
+      const text = await firstOpt.textContent().catch(() => '');
+      console.log(`[Absence] Selecting first Business Title: "${text?.trim()}"`);
+      await firstOpt.click();
+      await this.page.waitForTimeout(1000);
+      await this.waitForJET();
+    } else {
+      await this.page.keyboard.press('Escape');
+      await this.page.waitForTimeout(500);
     }
   }
 
@@ -1206,7 +1317,9 @@ export class AbsenceManagementPage extends BasePage {
     if (start) await this.fillStartDate(start);
     if (end) await this.fillEndDate(end);
     if (absenceReason) await this.selectAbsenceReason(absenceReason);
-    if (!absenceReason) await this.selectFirstReasonIfRequired();
+    // Always check — reason codes may not match dropdown display values
+    await this.selectFirstReasonIfRequired();
+    await this.selectFirstBusinessTitleIfRequired();
     if (commentsVal) await this.fillComments(commentsVal);
     return true;
   }
@@ -1238,10 +1351,10 @@ export class AbsenceManagementPage extends BasePage {
     if (reason) {
       try { await this.selectAbsenceReason(reason); } catch { /* reason field not present */ }
     }
-    // If Reason field is required but not provided, select the first available option
-    if (!reason) {
-      await this.selectFirstReasonIfRequired();
-    }
+    // Always check if Reason field is still empty — field data reason codes
+    // (e.g. "PAID_90DAY") often don't match dropdown display values.
+    await this.selectFirstReasonIfRequired();
+    await this.selectFirstBusinessTitleIfRequired();
     return true;
   }
 

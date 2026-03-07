@@ -47,6 +47,10 @@ function getFlowType(tc: UATTestCase): 'entry' | 'approval' | 'admin' {
         scriptId.includes('3001') || scriptId.includes('3002')) {
       return 'entry';
     }
+    // Manager work schedule assignment goes to admin (check before 'schedule' match below)
+    if (bp.includes('workschedule') || bp.includes('work schedule') || scriptId.includes('2401')) {
+      return 'admin';
+    }
     // Manager approval for absences (including FMLA) goes to approval flow
     if (bp.includes('approval') || bp.includes('approve')) {
       return 'approval';
@@ -55,10 +59,6 @@ function getFlowType(tc: UATTestCase): 'entry' | 'approval' | 'admin' {
     if (bp.includes('view') || bp.includes('edit') || bp.includes('withdraw') ||
         bp.includes('schedule') || bp.includes('team')) {
       return 'approval';
-    }
-    // Manager work schedule assignment goes to admin
-    if (bp.includes('work schedule') || scriptId.includes('2401')) {
-      return 'admin';
     }
     // Default for manager: approval
     return 'approval';

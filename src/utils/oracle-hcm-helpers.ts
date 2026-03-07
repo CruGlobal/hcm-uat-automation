@@ -30,6 +30,15 @@ export async function waitForPageReady(page: Page): Promise<void> {
 
 /** Dismiss any Oracle HCM notification popups or walkme guides. */
 export async function dismissPopups(page: Page): Promise<void> {
+  // Handle "You have a new home page!" / feature tour / welcome dialogs first
+  // These use "Got It", "OK, Got It", "Dismiss", or similar buttons
+  const welcomeButtons = page.getByRole('button', { name: /Got It|Dismiss|OK, Got It|Take a Tour/i }).first();
+  if (await welcomeButtons.isVisible({ timeout: 2000 }).catch(() => false)) {
+    console.log('[Popups] Dismissing welcome/feature tour dialog');
+    await welcomeButtons.click().catch(() => {});
+    await page.waitForTimeout(1000);
+  }
+
   const dismissSelectors = [
     '.walkme-click-and-hover',
     '.walkme-custom-balloon-close-button',

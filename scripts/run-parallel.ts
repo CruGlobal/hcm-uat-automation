@@ -46,7 +46,7 @@ function escapeRegex(s: string): string {
   return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
-interface TestInfo { testId: string; bp: string; module: string }
+interface TestInfo { testId: string; bp: string; module: string; category: string }
 
 // ─── Snapshot: capture tracking sheet status before the run ───────────────────
 
@@ -429,12 +429,29 @@ async function main() {
     const bot = getBotForTester(tc.testerName, tc.module || tc.tabName);
     if (!getBotCredentials(bot.botName)) continue;
     const tests = botTests.get(bot.botName) || [];
-    tests.push({ testId: tc.testId, bp: tc.businessProcess, module: tc.module || tc.tabName });
+    tests.push({ testId: tc.testId, bp: tc.businessProcess, module: tc.module || tc.tabName, category: tc.transactionCategory || '' });
     botTests.set(bot.botName, tests);
   }
 
   // Build process list — distribute tests across base bots + clones
-  type ProcessEntry = { accountName: string; tests: TestInfo[] };
+  //
+  // ESS tests (Employee Self-Service) in Absence/Benefits/T&L log in as the TARGET
+  // EMPLOYEE via SCIM, not the bot user. So ESS tests can run highly in parallel —
+  // the bot account is only used as a brief fallback. We split ESS-heavy batches
+  // into smaller groups and cycle through clone accounts (sharing is safe since
+  // each process uses a unique employee login).
+  const ESS_MODULES = new Set(['Absence Management', 'Benefits', 'Time and Labor']);
+  const MAX_ESS_BATCH = 5; // max ESS tests per process for better parallelism
+
+  // A test is "ESS" if it's in an ESS module AND the transaction category indicates
+  // employee self-service (not HR specialist or manager, who use the bot's own login).
+  const isEssTest = (t: TestInfo): boolean => {
+    if (!ESS_MODULES.has(t.module)) return false;
+    const cat = t.category.toLowerCase();
+    return cat.includes('employee') || cat.includes('ess');
+  };
+
+  type ProcessEntry = { accountName: string; baseBotName: string; tests: TestInfo[] };
   const processes: ProcessEntry[] = [];
 
   const baseBots = [...botTests.entries()]
@@ -442,32 +459,67 @@ async function main() {
     .slice(0, maxBots);
 
   for (const [baseBotName, tests] of baseBots) {
+    // Separate ESS tests from admin tests for this bot
+    const essTests = tests.filter(isEssTest);
+    const adminTests = tests.filter(t => !isEssTest(t));
+
     if (noClones) {
       // No clone distribution — one process per base bot (original behavior)
-      processes.push({ accountName: baseBotName, tests });
+      processes.push({ accountName: baseBotName, baseBotName, tests });
       continue;
     }
 
     // Find clones for this base bot
     const cloneNames = getClonesForBot(baseBotName);
-    if (cloneNames.length === 0) {
-      // No clones — run all tests under the base bot
-      processes.push({ accountName: baseBotName, tests });
+    const limitedClones = cloneNames.slice(0, maxClonesPerBot);
+    const accounts = [baseBotName, ...limitedClones];
+
+    if (essTests.length === 0 || essTests.length <= accounts.length) {
+      // Few or no ESS tests — standard round-robin across bot + clones
+      const buckets: TestInfo[][] = accounts.map(() => []);
+      for (let i = 0; i < tests.length; i++) {
+        buckets[i % accounts.length].push(tests[i]);
+      }
+      for (let i = 0; i < accounts.length; i++) {
+        if (buckets[i].length > 0) {
+          processes.push({ accountName: accounts[i], baseBotName, tests: buckets[i] });
+        }
+      }
       continue;
     }
 
-    // Distribute tests round-robin across base + clones (limited by --clones N)
-    const limitedClones = cloneNames.slice(0, maxClonesPerBot);
-    const accounts = [baseBotName, ...limitedClones];
-    const buckets: TestInfo[][] = accounts.map(() => []);
-    for (let i = 0; i < tests.length; i++) {
-      buckets[i % accounts.length].push(tests[i]);
+    // ESS-heavy bot: distribute admin tests across bot's own accounts,
+    // then split ESS tests into small batches using any available clone
+    if (adminTests.length > 0) {
+      const adminBuckets: TestInfo[][] = accounts.map(() => []);
+      for (let i = 0; i < adminTests.length; i++) {
+        adminBuckets[i % accounts.length].push(adminTests[i]);
+      }
+      for (let i = 0; i < accounts.length; i++) {
+        if (adminBuckets[i].length > 0) {
+          processes.push({ accountName: accounts[i], baseBotName, tests: adminBuckets[i] });
+        }
+      }
     }
 
-    for (let i = 0; i < accounts.length; i++) {
-      if (buckets[i].length > 0) {
-        processes.push({ accountName: accounts[i], tests: buckets[i] });
-      }
+    // Split ESS tests into batches of MAX_ESS_BATCH.
+    // ESS tests log in as the TARGET EMPLOYEE (not the bot), so multiple processes
+    // can safely share the same bot account — the bot login is only used as a
+    // brief fallback when employee SCIM provisioning fails.
+    const essBatches: TestInfo[][] = [];
+    for (let i = 0; i < essTests.length; i += MAX_ESS_BATCH) {
+      essBatches.push(essTests.slice(i, i + MAX_ESS_BATCH));
+    }
+
+    // Cycle through bot's own accounts for ESS batches (reuse is OK for ESS)
+    const essAccounts = adminTests.length > 0
+      ? [...limitedClones] // admin already claimed some accounts; use remaining clones
+      : [...accounts]; // no admin tests — use all accounts
+    if (essAccounts.length === 0) essAccounts.push(baseBotName); // ensure at least one
+
+    for (let i = 0; i < essBatches.length; i++) {
+      const account = essAccounts[i % essAccounts.length];
+      processes.push({ accountName: account, baseBotName, tests: essBatches[i] });
     }
   }
 
@@ -529,9 +581,11 @@ async function main() {
     promises.push(new Promise<ProcResult>((resolve) => {
     const t0 = Date.now();
 
-    // For clone accounts, PARALLEL_BOT is still the BASE bot name so isTestable()
-    // picks up the right tests. The clone account is only used for login credentials.
-    const baseBotName = proc.accountName.replace(/_\d+$/, '');
+    // PARALLEL_BOT is the BASE bot name so isTestable() picks up the right tests.
+    // The account is only used for login credentials. For ESS tests, the account
+    // may be a clone from a different bot — that's fine since ESS tests log in
+    // as the target employee anyway.
+    const baseBotName = proc.baseBotName;
 
     // Build args
     const playwrightArgs = [

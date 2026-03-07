@@ -254,35 +254,53 @@ export class PreFlightChecker {
     const startDate = getField(fieldData, 'start date') || getField(fieldData, 'from date');
     if (!startDate) return OK;
 
+    const endDate = getField(fieldData, 'end date') || getField(fieldData, 'to date');
     const absences = await lookupAbsencesByNumber(null, this.baseUrl, personNumber, this.creds);
-    // Check for a duplicate absence with matching start date
-    const duplicate = absences.find(a => {
+
+    // Find absences that overlap the test date range (not just exact start date match).
+    // Oracle HCM rejects absences with overlapping dates even for different absence types.
+    const overlapping = absences.filter(a => {
       if (!a.startDate) return false;
-      // Compare date portions (both may be ISO or various formats)
-      return a.startDate.includes(startDate) || startDate.includes(a.startDate);
+      const status = (a.absenceStatusCd || '').toUpperCase();
+      if (status === 'WITHDRAWN' || status === 'CANCELLED') return false;
+      // Exact start date match
+      if (a.startDate.includes(startDate) || startDate.includes(a.startDate)) return true;
+      // Date range overlap check (if we have both start and end dates)
+      if (endDate && a.endDate) {
+        try {
+          const testStart = new Date(startDate);
+          const testEnd = new Date(endDate);
+          const absStart = new Date(a.startDate);
+          const absEnd = new Date(a.endDate);
+          // Two ranges overlap if one starts before the other ends
+          return testStart <= absEnd && absStart <= testEnd;
+        } catch { /* date parse failure — skip overlap check */ }
+      }
+      return false;
     });
 
-    if (!duplicate) return OK;
+    if (overlapping.length === 0) return OK;
 
-    // Found a duplicate — try to withdraw it
-    const status = (duplicate.absenceStatusCd || '').toUpperCase();
-    if (status === 'WITHDRAWN' || status === 'CANCELLED') {
-      // Already withdrawn — test should be able to create a new one
-      return OK;
+    // Withdraw all overlapping absences
+    let withdrawCount = 0;
+    for (const dup of overlapping) {
+      console.log(`[PreFlight] ${tc.testId}: Overlapping absence for ${personNumber} (${dup.startDate}–${dup.endDate}, status: ${dup.absenceStatusCd}), withdrawing...`);
+      try {
+        await withdrawAbsence(this.baseUrl, dup.absenceCaseId, this.creds);
+        withdrawCount++;
+      } catch (error: any) {
+        console.warn(`[PreFlight] ${tc.testId}: Could not withdraw absence ${dup.absenceCaseId}: ${error.message}`);
+      }
     }
 
-    console.log(`[PreFlight] ${tc.testId}: Duplicate absence found for ${personNumber} (${duplicate.startDate}, status: ${status}), withdrawing...`);
-    try {
-      await withdrawAbsence(this.baseUrl, duplicate.absenceCaseId, this.creds);
+    if (withdrawCount > 0) {
       return {
         ready: true,
         action: 'withdrew-absence',
-        reason: `Withdrew duplicate absence for ${personNumber} (start: ${duplicate.startDate})`,
+        reason: `Withdrew ${withdrawCount} overlapping absence(s) for ${personNumber}`,
       };
-    } catch (error: any) {
-      console.warn(`[PreFlight] ${tc.testId}: Could not withdraw absence for ${personNumber}: ${error.message} — letting test attempt anyway`);
-      return OK;
     }
+    return OK;
   }
 
   /**

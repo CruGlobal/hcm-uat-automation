@@ -156,31 +156,42 @@ export class AbsenceEntryFlow extends BaseAbsenceFlow {
     await this.loginAsTargetEmployee(tc);
     await this.navigateToAbsenceESS();
 
-    // Try the header "Add Absence" button first (works from any ESS sub-page).
-    // Oracle Redwood renders this as a link-styled button in the header bar.
-    // Use getByText for maximum compatibility with oj-button, a, button elements.
-    const addAbsenceBtn = this.page.getByText('Add Absence', { exact: true }).first();
-    if (await addAbsenceBtn.isVisible({ timeout: 5000 }).catch(() => false)) {
-      console.log(`[AbsenceEntry] ${tc.testId}: Clicking "Add Absence" button/link`);
-      await addAbsenceBtn.click({ force: true });
+    // Click the "Add Absence" tile to navigate to the absence entry form.
+    // Use the tile link approach first (reliable for both tile landing and sub-pages).
+    // The tile link uses <a> elements inside card tiles — clicking inner text alone
+    // doesn't trigger navigation in Redwood's card UI.
+    const addLink = this.page.locator('a').filter({ hasText: /^Add Absence/ }).first();
+    const hasLink = await addLink.isVisible({ timeout: 5000 }).catch(() => false);
+    if (hasLink) {
+      console.log(`[AbsenceEntry] ${tc.testId}: Clicking "Add Absence" link`);
+      await addLink.click({ force: true });
       await this.page.waitForTimeout(5000);
       await this.absence.waitForJET();
+    }
 
-      // Verify we navigated away from the Absence Balance page
-      const stillOnBalance = await this.page.getByText("After you're enrolled into an absence plan").isVisible({ timeout: 3000 }).catch(() => false);
-      if (stillOnBalance) {
-        // Click didn't navigate — try JavaScript click
-        console.log(`[AbsenceEntry] ${tc.testId}: Force click didn't work — trying JS click`);
-        await addAbsenceBtn.evaluate((el: HTMLElement) => el.click());
-        await this.page.waitForTimeout(5000);
-        await this.absence.waitForJET();
+    // Check if we're still on the tile landing page (click didn't navigate)
+    const stillOnTiles = await this.page.getByText('Existing Absences', { exact: true })
+      .isVisible({ timeout: 3000 }).catch(() => false);
+    if (stillOnTiles || !hasLink) {
+      // Fallback: try the indexed tile ID approach
+      console.log(`[AbsenceEntry] ${tc.testId}: Still on landing — trying tile ID click`);
+      try {
+        await this.absence.clickAddAbsenceTile();
+      } catch {
+        // Last resort: try JS click on any "Add Absence" element
+        const anyAdd = this.page.getByText('Add Absence', { exact: true }).first();
+        if (await anyAdd.isVisible({ timeout: 2000 }).catch(() => false)) {
+          await anyAdd.evaluate((el: HTMLElement) => el.click());
+          await this.page.waitForTimeout(5000);
+          await this.absence.waitForJET();
+        }
       }
-    } else {
-      // Fallback: try the tile approach
-      const tileClicked = await this.absence.clickAddAbsenceTile().then(() => true).catch(() => false);
-      if (!tileClicked) {
-        console.log(`[AbsenceEntry] ${tc.testId}: Add Absence tile not found — navigating back to ESS landing`);
-        await this.navigateToAbsenceESS();
+
+      // Final check: if still on tiles after all attempts, give up
+      const stillStuck = await this.page.getByText('Existing Absences', { exact: true })
+        .isVisible({ timeout: 3000 }).catch(() => false);
+      if (stillStuck) {
+        console.log(`[AbsenceEntry] ${tc.testId}: Cannot navigate away from ESS landing`);
         return;
       }
     }

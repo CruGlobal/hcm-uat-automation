@@ -199,6 +199,23 @@ export class BenefitsPage extends BasePage {
       // Verify we reached the admin page by checking for the search input
       const onAdminPage = await this.adminSearchInput.isVisible({ timeout: 10_000 }).catch(() => false);
       if (onAdminPage) return;
+
+      // Deep link may land on Benefits Administration home page with icons.
+      // Try clicking "Benefit Activity Center" icon to enter the search page.
+      const activityCenterLink = this.page.locator(
+        'a:has-text("Benefit Activity Center"), a:has-text("Benefits Activity Center"), ' +
+        'a[title*="Activity Center"]'
+      ).first();
+      if (await activityCenterLink.isVisible({ timeout: 5_000 }).catch(() => false)) {
+        console.log('[Benefits] Clicking Benefit Activity Center icon');
+        await activityCenterLink.click();
+        await this.page.waitForLoadState('networkidle', { timeout: 60_000 });
+        await this.page.waitForTimeout(5000);
+        await this.waitForJET();
+        await this.dismissPopups();
+        const onPage = await this.adminSearchInput.isVisible({ timeout: 10_000 }).catch(() => false);
+        if (onPage) return;
+      }
     } catch {
       console.log('[Benefits] Deep link to admin failed, trying Navigator');
     }
@@ -315,6 +332,24 @@ export class BenefitsPage extends BasePage {
         await this.adminBackButton.click();
         await this.page.waitForTimeout(3000);
         await this.waitForJET();
+        searchVisible = await this.adminSearchInput.isVisible({ timeout: 10_000 }).catch(() => false);
+      }
+    }
+
+    if (!searchVisible) {
+      // We may be on the Benefits Administration home page (with icons).
+      // Try clicking "Benefit Activity Center" icon to enter the search page.
+      const activityCenterLink = this.page.locator(
+        'a:has-text("Benefit Activity Center"), a:has-text("Benefits Activity Center"), ' +
+        'a[title*="Activity Center"], img[alt*="Activity Center"]'
+      ).first();
+      if (await activityCenterLink.isVisible({ timeout: 5_000 }).catch(() => false)) {
+        console.log('[Benefits] Clicking Benefit Activity Center icon to reach search page');
+        await activityCenterLink.click();
+        await this.page.waitForLoadState('networkidle', { timeout: 60_000 });
+        await this.page.waitForTimeout(5000);
+        await this.waitForJET();
+        await this.dismissPopups();
         searchVisible = await this.adminSearchInput.isVisible({ timeout: 10_000 }).catch(() => false);
       }
     }
@@ -626,18 +661,28 @@ export class BenefitsPage extends BasePage {
    * If the exact plan name is not found, tries partial matches.
    */
   async selectPlan(planName: string): Promise<void> {
-    // Try exact match first
-    const planRow = this.page.locator(
-      `tr:has-text("${planName}"), div:has-text("${planName}"), li:has-text("${planName}")`
-    ).first();
-    const rowVisible = await planRow.isVisible({ timeout: 5_000 }).catch(() => false);
-
-    if (rowVisible) {
-      const checkbox = planRow.locator('input[type="checkbox"], input[type="radio"]').first();
+    // Try table row first (most precise for enrollment wizards)
+    const tableRow = this.page.locator(`tr:has-text("${planName}")`).first();
+    if (await tableRow.isVisible({ timeout: 5_000 }).catch(() => false)) {
+      const checkbox = tableRow.locator('input[type="checkbox"], input[type="radio"]').first();
       if (await checkbox.isVisible({ timeout: 2000 }).catch(() => false)) {
         await checkbox.check();
       } else {
-        await planRow.click();
+        await tableRow.click();
+      }
+      await this.page.waitForTimeout(2000);
+      await this.waitForJET();
+      return;
+    }
+
+    // Try list item (Redwood card layout)
+    const listItem = this.page.locator(`li:has-text("${planName}")`).first();
+    if (await listItem.isVisible({ timeout: 3_000 }).catch(() => false)) {
+      const checkbox = listItem.locator('input[type="checkbox"], input[type="radio"]').first();
+      if (await checkbox.isVisible({ timeout: 2000 }).catch(() => false)) {
+        await checkbox.check();
+      } else {
+        await listItem.click();
       }
       await this.page.waitForTimeout(2000);
       await this.waitForJET();

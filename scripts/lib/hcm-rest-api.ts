@@ -350,6 +350,8 @@ export async function scimResetPassword(
     });
     return true;
   } catch (err: any) {
+    const detail = err.responseBody ? err.responseBody.slice(0, 200) : err.message;
+    console.warn(`[SCIM] Password reset failed for ${scimUserId}: ${detail}`);
     return false;
   }
 }
@@ -428,20 +430,32 @@ export async function provisionEmployeeLogin(
     await scimUnlockUser(baseUrl, user.id, creds);
   }
 
-  // Generate a unique password to avoid Oracle password-reuse policy rejection.
-  // Use a timestamp suffix to guarantee uniqueness across invocations.
-  const actualPassword = password || `UatAuto!${Date.now().toString(36)}@cru`;
+  // Generate a unique password meeting Oracle HCM password policy.
+  // Policy requires: uppercase, lowercase, digit, special char, min 8 chars,
+  // no consecutive repeated chars, no base36-style gibberish.
+  // Format: "UatAutoTest" + 4-digit number + "!@cru" — proven to pass policy.
+  const ts = Date.now();
+  const actualPassword = password || `UatAutoTest${ts % 10000}!@cru`;
 
-  // Reset password — try twice with different passwords if first attempt fails
-  // (Oracle rejects reusing the same password)
+  // Reset password — two-phase approach if direct reset fails.
+  // Oracle rejects reusing the same password, so set a temp password first
+  // to clear the history, then set the real password.
   let reset = await scimResetPassword(baseUrl, user.id, actualPassword, creds);
   if (!reset) {
-    const fallbackPassword = `UatAuto!${(Date.now() + 1).toString(36)}@cru`;
-    console.log(`[SCIM] Retrying password reset for ${user.userName} with alternate password`);
-    reset = await scimResetPassword(baseUrl, user.id, fallbackPassword, creds);
-    if (reset) return { username: user.userName, password: fallbackPassword };
-    console.warn(`[SCIM] Failed to reset password for ${user.userName}`);
-    return null;
+    // Two-phase: temp password → actual password (proven approach from run-parallel.ts)
+    const tempPassword = `TempReset${ts % 10000}!!2026@cru`;
+    console.log(`[SCIM] Two-phase password reset for ${user.userName}`);
+    const tempOk = await scimResetPassword(baseUrl, user.id, tempPassword, creds);
+    if (!tempOk) {
+      console.warn(`[SCIM] Failed temp password reset for ${user.userName}`);
+      return null;
+    }
+    reset = await scimResetPassword(baseUrl, user.id, actualPassword, creds);
+    if (!reset) {
+      // Temp password worked but final didn't — return temp password as fallback
+      console.warn(`[SCIM] Final password reset failed for ${user.userName}, using temp password`);
+      return { username: user.userName, password: tempPassword };
+    }
   }
 
   return { username: user.userName, password: actualPassword };
