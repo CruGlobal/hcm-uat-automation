@@ -191,8 +191,7 @@ export class AbsenceEntryFlow extends BaseAbsenceFlow {
       const stillStuck = await this.page.getByText('Existing Absences', { exact: true })
         .isVisible({ timeout: 3000 }).catch(() => false);
       if (stillStuck) {
-        console.log(`[AbsenceEntry] ${tc.testId}: Cannot navigate away from ESS landing`);
-        return;
+        throw new Error(`${tc.testId}: Cannot navigate away from ESS landing page to Add Absence`);
       }
     }
 
@@ -313,8 +312,7 @@ export class AbsenceEntryFlow extends BaseAbsenceFlow {
     await this.absence.clickExistingAbsencesTile();
     const hasAbsence = await this.absence.selectAbsenceRow(0);
     if (!hasAbsence) {
-      console.log(`[AbsenceEntry] ${tc.testId}: No existing absences — navigation verified`);
-      return;
+      throw new Error(`${tc.testId}: No existing absences found — cannot edit absence`);
     }
 
     // Click Edit

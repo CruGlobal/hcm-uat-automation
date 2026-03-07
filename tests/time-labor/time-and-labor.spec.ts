@@ -34,10 +34,12 @@ test.describe(MODULE, () => {
         // System tests (notifications, web clock, calculation) go to admin flow
         const flow = new TimeAdminFlow(page);
         await flow.execute(tc);
-      } else {
-        // Employee Self-Service (default)
+      } else if (!category || category.includes('employee') || category.includes('ess')) {
+        // Employee Self-Service
         const flow = new TimecardEntryFlow(page);
         await flow.execute(tc);
+      } else {
+        throw new Error(`Unmapped T&L category: "${category}" (testId: ${tc.testId})`);
       }
 
       // Post-execution outcome validation

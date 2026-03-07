@@ -31,8 +31,7 @@ export class AddPendingWorkerFlow extends BaseCoreHRFlow {
     const dateField = this.page.locator('[id$="SP1:inputDate1::content"]');
     const wizardOpened = await dateField.isVisible({ timeout: 15000 }).catch(() => false);
     if (!wizardOpened) {
-      console.log('[AddPendingWorker] Wizard did not open — navigation verified');
-      return;
+      throw new Error(`${tc.testId}: Add Pending Worker wizard did not open — bot may lack access`);
     }
 
     // Step 1: Identification (Basic Details + Personal Details)

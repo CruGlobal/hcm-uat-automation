@@ -95,8 +95,7 @@ export class TerminationFlow extends BaseCoreHRFlow {
       const retryClicked = await this.tryClickActions();
       if (!retryClicked) {
         await this.page.screenshot({ path: 'test-results/termination-actions-not-found.png', fullPage: true }).catch(() => {});
-        console.log('[Termination] Could not find Actions menu — person may already be terminated or not accessible to this role');
-        return false;
+        throw new Error('Could not find Actions menu — person may already be terminated or not accessible to this role');
       }
     }
 
@@ -118,13 +117,11 @@ export class TerminationFlow extends BaseCoreHRFlow {
         await this.page.waitForTimeout(3000);
         const retryTerm = await this.tryClickTerminateOption();
         if (!retryTerm) {
-          console.log('[Termination] "Terminate Work Relationship" not found — person may lack active work relationship, navigation verified');
-          return false;
+          throw new Error('"Terminate Work Relationship" not found — person may lack active work relationship');
         }
       } else {
         // Could not open Actions menu on retry — person likely already terminated or not accessible
-        console.log('[Termination] Could not re-open Actions menu — navigation verified');
-        return false;
+        throw new Error('Could not re-open Actions menu for termination');
       }
     }
 
@@ -380,7 +377,7 @@ export class TerminationFlow extends BaseCoreHRFlow {
         await genericOk.click();
       } else {
         await this.person.clickAdfButton('OK').catch(() =>
-          this.person.clickAdfButton('Continue').catch(() => {})
+          this.person.clickAdfButton('Continue')
         );
       }
     }

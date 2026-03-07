@@ -151,8 +151,7 @@ export class OneAppFlow extends BaseFlow {
         if (await nextBtn.isVisible({ timeout: 1000 }).catch(() => false)) {
           await nextBtn.click();
         } else {
-          console.log(`[OneApp] Next button not found on Step 1 — navigation verified`);
-          return;
+          throw new Error(`${tc.testId}: Next button not found on Step 1 — wizard did not open`)
         }
       });
       await this.page.waitForTimeout(4000);
@@ -368,8 +367,7 @@ export class OneAppFlow extends BaseFlow {
     // Initiate assignment change
     const actionInitiated = await this.trySelectPersonAction('Change Assignment');
     if (!actionInitiated) {
-      console.log(`[OneApp] ${tc.testId}: Change Assignment not available — navigation verified`);
-      return;
+      throw new Error(`[OneApp] ${tc.testId}: Change Assignment action not available`);
     }
 
     // When/Why page — fill effective date if available
@@ -535,12 +533,10 @@ export class OneAppFlow extends BaseFlow {
           await this.page.waitForTimeout(2000);
           await this.person.waitForJET();
         } else {
-          console.log('[OneApp] No salary task in Tasks panel — verifying person exists as fallback');
-          return;
+          throw new Error(`[OneApp] ${tc.testId}: No salary task found in Tasks panel`);
         }
       } else {
-        console.log('[OneApp] Tasks panel not available — verifying person exists as fallback');
-        return;
+        throw new Error(`[OneApp] ${tc.testId}: No Actions button or Tasks panel available for Payroll Change`);
       }
     }
 
@@ -590,8 +586,7 @@ export class OneAppFlow extends BaseFlow {
     // Navigate to Manage Salary for the person
     const found = await this.trySelectPersonAction('Manage Salary');
     if (!found) {
-      console.log(`[OneApp] ${tc.testId}: Manage Salary not available — navigation verified`);
-      return;
+      throw new Error(`[OneApp] ${tc.testId}: Manage Salary action not available`);
     }
 
     // Fill salary amount if field data available
@@ -609,10 +604,8 @@ export class OneAppFlow extends BaseFlow {
     }
 
     await this.clickWizardButton('Continue').catch(() => {});
-    await this.confirmation.clickSubmit().catch(() => {
-      console.log(`[OneApp] ${tc.testId}: Submit not available — salary form navigation verified`);
-    });
-    await this.confirmation.expectSuccess().catch(() => {});
+    await this.confirmation.clickSubmit();
+    await this.confirmation.expectSuccess();
   }
 
   /** Transfer from one worker type to another (e.g., PTFS to RMO). */

@@ -79,8 +79,7 @@ export class AbsenceApprovalFlow extends BaseAbsenceFlow {
 
     const found = await this.absence.openAbsenceNotification();
     if (!found) {
-      console.warn(`[AbsenceApproval] ${tc.testId}: WARNING — No pending approval notification found. This test depends on a prior absence submission that may not have occurred yet.`);
-      return;
+      throw new Error(`${tc.testId}: No pending approval notification found — prior absence submission may not have occurred`);
     }
 
     await this.absence.fillApprovalComments(`Approved per test case ${tc.testId}`);
@@ -94,8 +93,7 @@ export class AbsenceApprovalFlow extends BaseAbsenceFlow {
 
     const found = await this.absence.openAbsenceNotification();
     if (!found) {
-      console.warn(`[AbsenceApproval] ${tc.testId}: WARNING — No pending rejection notification found. This test depends on a prior absence submission that may not have occurred yet.`);
-      return;
+      throw new Error(`${tc.testId}: No pending rejection notification found — prior absence submission may not have occurred`);
     }
 
     await this.absence.fillApprovalComments(`Rejected per test case ${tc.testId}`);
@@ -112,8 +110,7 @@ export class AbsenceApprovalFlow extends BaseAbsenceFlow {
 
     const found = await this.absence.openAbsenceNotification();
     if (!found) {
-      console.warn(`[AbsenceApproval] ${tc.testId}: WARNING — No pending HR approval notification found. This test depends on a prior absence submission that may not have occurred yet.`);
-      return;
+      throw new Error(`${tc.testId}: No pending HR approval notification found — prior absence submission may not have occurred`);
     }
 
     await this.absence.fillApprovalComments(`Approved per test case ${tc.testId}`);
@@ -139,8 +136,7 @@ export class AbsenceApprovalFlow extends BaseAbsenceFlow {
     const hasAbsence = await this.absence.selectAbsenceRow(0);
 
     if (!hasAbsence) {
-      console.log(`[AbsenceApproval] ${tc.testId}: No existing absences to withdraw — navigation verified`);
-      return;
+      throw new Error(`${tc.testId}: No existing absences to withdraw`);
     }
 
     // Withdraw the selected absence
@@ -154,18 +150,11 @@ export class AbsenceApprovalFlow extends BaseAbsenceFlow {
   private async managerWithdrawsAbsence(tc: UATTestCase): Promise<void> {
     await this.loginAndNavigateToAbsenceESS(tc);
 
-    // Navigate to existing absences (bot may land on a sub-page; skip gracefully if tile not found)
-    try {
-      await this.absence.clickExistingAbsencesTile();
-    } catch {
-      console.log(`[AbsenceApproval] ${tc.testId}: Existing Absences tile not found — navigation verified`);
-      return;
-    }
+    await this.absence.clickExistingAbsencesTile();
 
     const hasAbsence = await this.absence.selectAbsenceRow(0);
     if (!hasAbsence) {
-      console.log(`[AbsenceApproval] ${tc.testId}: No existing absences to withdraw — navigation verified`);
-      return;
+      throw new Error(`${tc.testId}: No existing absences to withdraw`);
     }
 
     // Withdraw
@@ -226,8 +215,7 @@ export class AbsenceApprovalFlow extends BaseAbsenceFlow {
     await this.absence.clickExistingAbsencesTile();
     const hasAbsence = await this.absence.selectAbsenceRow(0);
     if (!hasAbsence) {
-      console.log(`[AbsenceApproval] ${tc.testId}: No existing absences found — navigation verified (manager edit absence requires pre-existing absence)`);
-      return;
+      throw new Error(`${tc.testId}: No existing absences found — manager edit absence requires pre-existing absence`);
     }
 
     // Edit the absence

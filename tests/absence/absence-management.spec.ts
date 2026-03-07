@@ -110,8 +110,12 @@ function getFlowType(tc: UATTestCase): 'entry' | 'approval' | 'admin' {
     return 'admin';
   }
 
-  // Default: entry flow
-  return 'entry';
+  // Employee ESS: entry flow
+  if (!category || category.includes('employee') || category.includes('ess')) {
+    return 'entry';
+  }
+
+  throw new Error(`Unmapped absence category: "${category}" (testId: ${tc.testId})`);
 }
 
 test.describe(MODULE, () => {

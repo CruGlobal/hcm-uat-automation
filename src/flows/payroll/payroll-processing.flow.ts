@@ -227,17 +227,12 @@ export class PayrollProcessingFlow extends BaseFlow {
 
   /** Execute new hire reporting scenario. */
   private async executeHireReporting(tc: UATTestCase): Promise<void> {
-    try {
-      await this.payroll.goToScheduledProcesses();
-    } catch {
-      console.log(`[Payroll] ${tc.testId}: Scheduled Processes not accessible — navigation verified`);
-      return;
-    }
+    await this.payroll.goToScheduledProcesses();
     await this.payroll.scheduleNewProcess('New Hire Report').catch(() => {
       console.log('[Payroll] "New Hire Report" process not found, using generic payroll run');
     });
-    await this.payroll.submitFlow().catch(() => {});
-    await this.payroll.verifyResult().catch(() => {});
+    await this.payroll.submitFlow();
+    await this.payroll.verifyResult();
   }
 
   /** Search for a person by name on the current page. */
@@ -382,12 +377,7 @@ export class PayrollProcessingFlow extends BaseFlow {
 
   /** Year end processing (W-2) via Scheduled Processes. */
   private async executeYearEnd(tc: UATTestCase): Promise<void> {
-    try {
-      await this.payroll.goToScheduledProcesses();
-    } catch {
-      console.log(`[Payroll] ${tc.testId}: Skipping — bot lacks Scheduled Processes access`);
-      return;
-    }
+    await this.payroll.goToScheduledProcesses();
     await this.payroll.scheduleNewProcess('Year End Process');
     await this.payroll.submitFlow();
     await this.payroll.verifyResult();

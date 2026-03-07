@@ -200,7 +200,7 @@ export class CoreHRUATFlow extends BaseFlow {
     } else if (category.includes('employee')) {
       await this.executeEmployeeSelfService(tc);
     } else {
-      await this.executeGenericHRAction(tc);
+      throw new Error(`Unmatched Core HR business process: "${tc.businessProcess}" (category: ${tc.transactionCategory}, testId: ${tc.testId})`);
     }
   }
 
@@ -412,8 +412,7 @@ export class CoreHRUATFlow extends BaseFlow {
     await this.homePage.goToPersonManagement();
     const personName = this.extractPersonRef(tc);
     if (!personName) {
-      console.log(`[CoreHR] No person reference for ${tc.testId} — navigation verified`);
-      return;
+      throw new Error(`${tc.testId}: No person reference found in field data or test case`);
     }
     await this.person.searchByName(personName);
     const found = await this.selectPersonAction('Change Assignment');
@@ -550,8 +549,7 @@ export class CoreHRUATFlow extends BaseFlow {
     const submitVisible = await this.page.getByRole('button', { name: 'Submit' }).first()
       .isVisible({ timeout: 1000 }).catch(() => false);
     if (!submitVisible) {
-      console.log(`[ManagerChange] No Submit button — person not found or dialog not opened, navigation verified`);
-      return;
+      throw new Error(`${tc.testId}: No Submit button found — person not found or manager change dialog not opened`);
     }
     await this.confirmation.clickSubmit();
     await this.confirmation.expectSuccess();
@@ -1820,8 +1818,7 @@ export class CoreHRUATFlow extends BaseFlow {
     const found = await this.selectPersonAction('Change Working Hours');
     if (!found) {
       // "Change Working Hours" not available — person not found or action not in menu
-      console.log('[ChangeWorkingHours] Action not available — navigation verified');
-      return;
+      throw new Error(`${tc.testId}: "Change Working Hours" action not available in Actions menu`);
     }
     await this.page.waitForTimeout(2000);
     // Try Continue, then Next (Oracle HCM form varies by configuration)
@@ -2679,8 +2676,7 @@ export class CoreHRUATFlow extends BaseFlow {
       }
       // Action not found — close menu and log
       await this.page.keyboard.press('Escape').catch(() => {});
-      console.log(`[CoreHR] "${actionText}" not found in Actions menu — navigation verified`);
-      return false;
+      throw new Error(`"${actionText}" not found in Actions menu`);
     } else {
       // Fallback: try ADF menu approach
       const actionsMenuitem = this.page.locator('[role="menuitem"][aria-label="Actions"]');
@@ -2696,8 +2692,7 @@ export class CoreHRUATFlow extends BaseFlow {
         }
         await this.page.keyboard.press('Escape').catch(() => {});
       }
-      console.log(`[CoreHR] Actions button not visible or "${actionText}" not found — navigation verified`);
-      return false;
+      throw new Error(`Actions button not visible or "${actionText}" not found`);
     }
   }
 
@@ -2755,8 +2750,7 @@ export class CoreHRUATFlow extends BaseFlow {
     const docRecordsLink = this.page.getByText('Document Records', { exact: false }).first();
     const hasDocRecords = await docRecordsLink.isVisible({ timeout: 3000 }).catch(() => false);
     if (!hasDocRecords) {
-      console.log(`[DeleteDocument] ${tc.testId}: Document Records section not found — navigation verified`);
-      return;
+      throw new Error(`${tc.testId}: Document Records section not found on person page`);
     }
     await docRecordsLink.click();
     await this.page.waitForTimeout(2000);
@@ -2766,8 +2760,7 @@ export class CoreHRUATFlow extends BaseFlow {
     const firstRow = this.page.locator('table tbody tr, [role="row"]').first();
     const hasRows = await firstRow.isVisible({ timeout: 1000 }).catch(() => false);
     if (!hasRows) {
-      console.log(`[DeleteDocument] ${tc.testId}: No document rows found — navigation verified`);
-      return;
+      throw new Error(`${tc.testId}: No document rows found to delete`);
     }
 
     // Click the row to select it

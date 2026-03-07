@@ -35,8 +35,7 @@ export class HireEmployeeFlow extends BaseCoreHRFlow {
     const dateField = this.page.locator('[id$="SP1:inputDate1::content"]');
     const wizardOpened = await dateField.isVisible({ timeout: 15000 }).catch(() => false);
     if (!wizardOpened) {
-      console.log('[Hire] Wizard did not open — bot may lack "Hire an Employee" access, navigation verified');
-      return;
+      throw new Error(`${tc.testId}: Hire wizard did not open — bot may lack "Hire an Employee" access`);
     }
 
     // Step 1: Identification (When/Why + Personal Details)

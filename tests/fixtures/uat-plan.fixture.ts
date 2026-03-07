@@ -25,6 +25,10 @@ export const test = base.extend<UATFixtures>({
   },
 });
 
+export function logExpectedResult(tc: UATTestCase): void {
+  console.log(`[Expected] ${tc.testId}: ${tc.expectedResult || '(no expected result defined)'}`);
+}
+
 export { expect } from '@playwright/test';
 export { uatTestTitle, isTestable, hasUATRequiredFields as hasRequired };
 export type { UATTestCase };

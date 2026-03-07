@@ -25,6 +25,37 @@ import {
 } from '../../scripts/lib/hcm-rest-api';
 import { resolveApiCredentials } from './api-credentials';
 
+interface ExpectedOutcome {
+  signals: Set<string>;
+  raw: string;
+}
+
+function parseExpectedResult(text: string): ExpectedOutcome {
+  const lower = text.toLowerCase();
+  const signals = new Set<string>();
+  if (lower.includes('submit'))       signals.add('submitted');
+  if (lower.includes('approv'))       signals.add('approved');
+  if (lower.includes('created') || lower.includes('added') || lower.includes('enter'))
+                                      signals.add('created');
+  if (lower.includes('populated') || lower.includes('data is populated'))
+                                      signals.add('data-populated');
+  if (lower.includes('assigned'))     signals.add('assigned');
+  if (lower.includes('terminat'))     signals.add('terminated');
+  if (lower.includes('eligible'))     signals.add('eligibility-checked');
+  if (lower.includes('completes successfully'))
+                                      signals.add('completed');
+  if (lower.includes('calculated'))   signals.add('calculated');
+  if (lower.includes('uploaded'))     signals.add('uploaded');
+  if (lower.includes('refresh'))      signals.add('refreshed');
+  if (lower.includes('viewed') || lower.includes('view'))
+                                      signals.add('viewed');
+  if (lower.includes('journey'))      signals.add('journey');
+  if (lower.includes('notification')) signals.add('notification');
+  if (lower.includes('forwarded') && lower.includes('manager'))
+                                      signals.add('forwarded-to-manager');
+  return { signals, raw: text };
+}
+
 export class OutcomeValidator {
   private baseUrl: string;
   private creds: BasicAuthCredentials;
@@ -288,12 +319,10 @@ export class OutcomeValidator {
 
     if (absences.length === 0) {
       if (onForm) {
-        console.log(`[OutcomeValidator] ${tc.testId}: On absence form with 0 absences — submission likely rejected by Oracle validation`);
-        return;
+        expect(false, `${tc.testId}: Absence submission rejected by Oracle validation (on form with 0 absences). Expected: "${tc.expectedResult}"`).toBe(true);
       }
       if (onEssLanding) {
-        console.log(`[OutcomeValidator] ${tc.testId}: On ESS landing with 0 absences — absence type likely not available for employee`);
-        return;
+        expect(false, `${tc.testId}: Absence type not available for employee (ESS landing with 0 absences). Expected: "${tc.expectedResult}"`).toBe(true);
       }
     }
 
@@ -314,18 +343,12 @@ export class OutcomeValidator {
 
     const absences = await lookupAbsencesByNumber(null, this.baseUrl, personNumber, this.creds);
     if (absences.length === 0) {
-      // No absences to approve — navigation-only validation
-      console.log(`[OutcomeValidator] ${tc.testId}: No absences found for ${personNumber} — approval target may not exist`);
-      await this.assertNotStuckOnWrongPage(tc);
-      return;
+      expect(false, `${tc.testId}: No absences found for ${personNumber} — cannot validate approval. Expected: "${tc.expectedResult}"`).toBe(true);
     }
 
     const approved = absences.filter(a => a.approvalStatusCd === 'APPROVED');
     if (approved.length === 0) {
-      console.log(`[OutcomeValidator] ${tc.testId}: ${absences.length} absence(s) but none APPROVED — ` +
-        `statuses: ${absences.map(a => `${a.absenceStatusCd}/${a.approvalStatusCd}`).join(', ')}`);
-      await this.assertNotStuckOnWrongPage(tc);
-      return;
+      expect(false, `${tc.testId}: ${absences.length} absence(s) but none APPROVED. Expected: "${tc.expectedResult}"`).toBe(true);
     }
 
     console.log(`[OutcomeValidator] ${tc.testId}: ${approved.length} approved absence(s) for ${personNumber}`);
@@ -377,9 +400,7 @@ export class OutcomeValidator {
     } catch (err: any) {
       // benefitEnrollments API may return 403 if API user lacks access
       if (err.statusCode === 403) {
-        console.log(`[OutcomeValidator] ${tc.testId}: benefitEnrollments API returned 403 — skipping REST validation`);
-        await this.assertNotStuckOnWrongPage(tc);
-        return;
+        expect(false, `${tc.testId}: Benefits API returned 403 — cannot validate. Expected: "${tc.expectedResult}"`).toBe(true);
       }
       throw err;
     }
@@ -391,11 +412,7 @@ export class OutcomeValidator {
     }
 
     if (enrollments.length === 0) {
-      // Some workers may not have enrollments yet (terminated, pending, etc.)
-      // Log but don't fail — the flow already verified navigation succeeded
-      console.log(`[OutcomeValidator] ${tc.testId}: 0 benefit enrollments for ${personNumber} — worker may not have active enrollments`);
-      await this.assertNotStuckOnWrongPage(tc);
-      return;
+      expect(false, `${tc.testId}: 0 benefit enrollments for ${personNumber}. Expected: "${tc.expectedResult}"`).toBe(true);
     }
 
     const first = enrollments[0];
@@ -470,8 +487,7 @@ export class OutcomeValidator {
     }
 
     if (!personNumber) {
-      console.warn(`[OutcomeValidator] ${tc.testId}: No person number in field data and could not resolve from name — skipping element entry validation`);
-      return;
+      expect(false, `${tc.testId}: No person number — cannot validate element entry. Expected: "${tc.expectedResult}"`).toBe(true);
     }
 
     const entries = await lookupElementEntriesByNumber(null, this.baseUrl, personNumber, this.creds);
@@ -543,8 +559,7 @@ export class OutcomeValidator {
     const records = await lookupTimeRecords(null, this.baseUrl, personNumber, undefined, undefined, this.creds);
 
     if (records.length === 0) {
-      console.log(`[OutcomeValidator] ${tc.testId}: No time records for ${personNumber} — may be expected for this scenario`);
-      return;
+      expect(false, `${tc.testId}: No time records for ${personNumber}. Expected: "${tc.expectedResult}"`).toBe(true);
     }
 
     const latest = records[records.length - 1];
@@ -563,10 +578,7 @@ export class OutcomeValidator {
       checklists = await lookupAllocatedChecklistsByNumber(null, this.baseUrl, personNumber, this.creds);
     } catch (err: any) {
       if (err.statusCode === 403) {
-        // allocatedChecklists API requires elevated Journeys role — fall back to UI verification
-        console.log(`[OutcomeValidator] ${tc.testId}: allocatedChecklists API returned 403 — verifying via UI`);
-        await this.assertNotStuckOnWrongPage(tc);
-        return;
+        expect(false, `${tc.testId}: Journeys API returned 403 — cannot validate. Expected: "${tc.expectedResult}"`).toBe(true);
       }
       throw err;
     }

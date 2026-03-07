@@ -292,10 +292,15 @@ export class AbsenceManagementPage extends BasePage {
     await this.waitForJET();
   }
 
-  /** Click the "Absences and Entitlements" task link (opens person search). */
+  /** Click the "Absences and Entitlements" task link (opens Redwood person search page). */
   async openAbsencesAndEntitlements(): Promise<void> {
-    await this.absencesAndEntitlementsLink.click({ force: true });
-    await this.page.waitForTimeout(5000);
+    // The ADF link click often doesn't trigger Redwood navigation in headless mode.
+    // Navigate directly to the Redwood Absences and Entitlements URL.
+    const baseUrl = this.page.url().split('/hcmUI/')[0] || this.page.url().split('/fscmUI/')[0];
+    const redwoodUrl = `${baseUrl}/fscmUI/redwood/human-resources/feature/launch?searchEnabled=true&context=MyClientGroups&action=ManageAbsenceRecords&vbAppUi=absences&vbcsFlow=absence-administration&vbPage=manage-absences-plans&vbParams=pfsUserMode=%27ADMIN%27&vbFlowStringKey=manageAbsencesAndEntitlements`;
+    console.log(`[Absence] Navigating directly to Redwood Absences and Entitlements`);
+    await this.page.goto(redwoodUrl, { waitUntil: 'domcontentloaded', timeout: 60000 });
+    await this.page.waitForTimeout(10000);
     await this.waitForJET();
   }
 
@@ -1293,6 +1298,182 @@ export class AbsenceManagementPage extends BasePage {
     }
     console.log('[Absence] No plan rows found in Plan Participation — person may have no enrollments');
     return false;
+  }
+
+  // ===== Redwood Admin — Absences and Entitlements =====
+
+  /**
+   * Search for a person on the Redwood Absences and Entitlements page.
+   * Uses the top search bar ("Search by Name, Business Title, Work Email, or Person Number").
+   * After search, clicks on the first matching person name link.
+   * Returns true if the person's detail page loaded.
+   */
+  async searchPersonRedwood(personNumberOrName: string): Promise<boolean> {
+    // The Redwood search bar has a specific placeholder
+    const searchBar = this.page.locator(
+      'input[placeholder*="Search by Name"], input[placeholder*="Search by name"], input[placeholder*="Person Number"]'
+    ).first();
+    if (!await searchBar.isVisible({ timeout: 20000 }).catch(() => false)) {
+      // Fallback: try any search input on the page
+      const fallbackSearch = this.page.locator('input[type="search"], input[placeholder*="Search"]').first();
+      if (!await fallbackSearch.isVisible({ timeout: 5000 }).catch(() => false)) {
+        console.log('[Absence] Redwood search bar not found on Absences and Entitlements page');
+        return false;
+      }
+      // Use the fallback
+      await fallbackSearch.click();
+      await this.page.waitForTimeout(500);
+      await this.page.keyboard.press('Control+a');
+      await fallbackSearch.pressSequentially(personNumberOrName, { delay: 50 });
+      await this.page.keyboard.press('Enter');
+      await this.page.waitForTimeout(8000);
+      await this.waitForJET();
+      // Click first person link
+      const nameLink = this.page.locator('table a, [role="grid"] a, [role="row"] a').first();
+      if (await nameLink.isVisible({ timeout: 5000 }).catch(() => false)) {
+        await nameLink.click();
+        await this.page.waitForTimeout(8000);
+        await this.waitForJET();
+        return true;
+      }
+      return false;
+    }
+
+    await searchBar.click();
+    await this.page.waitForTimeout(500);
+    await this.page.keyboard.press('Control+a');
+    await searchBar.pressSequentially(personNumberOrName, { delay: 50 });
+    await this.page.keyboard.press('Enter');
+    await this.page.waitForTimeout(8000);
+    await this.waitForJET();
+
+    // Click on the first person name link in the results table
+    const personLink = this.page.locator('a').filter({
+      hasText: new RegExp('.+')
+    }).first();
+    // More specific: find the first link in the Name column
+    const nameLink = this.page.locator('table a, [role="grid"] a, [role="row"] a').first();
+    if (await nameLink.isVisible({ timeout: 5000 }).catch(() => false)) {
+      await nameLink.click();
+      await this.page.waitForTimeout(8000);
+      await this.waitForJET();
+      return true;
+    }
+
+    console.log('[Absence] No person found in Redwood search results');
+    return false;
+  }
+
+  /**
+   * Click the "Plans" tab on the Redwood person absence detail page.
+   * Distinct from navigateToPlanParticipation() which targets ADF "Plan Participation" text.
+   */
+  async clickPlansTab(): Promise<boolean> {
+    // Redwood tab: exact text "Plans"
+    const plansTab = this.page.getByRole('tab', { name: 'Plans' })
+      .or(this.page.locator('[role="tab"]').filter({ hasText: /^Plans$/ }))
+      .or(this.page.getByText('Plans', { exact: true }))
+      .first();
+
+    if (await plansTab.isVisible({ timeout: 5000 }).catch(() => false)) {
+      await plansTab.click();
+      await this.page.waitForTimeout(5000);
+      await this.waitForJET();
+      return true;
+    }
+
+    console.log('[Absence] "Plans" tab not found on person absence detail page');
+    return false;
+  }
+
+  /**
+   * Click the "..." (Actions) menu on a specific plan row by plan name,
+   * then click the specified action (e.g., "Disburse balance", "Adjust balance").
+   * Returns 'clicked' if action was clicked, 'disabled' if greyed out, 'not-found' if plan/action not found.
+   */
+  async clickPlanRowAction(planName: string | undefined, actionName: string): Promise<'clicked' | 'disabled' | 'not-found'> {
+    // Find the plan row — look for a row containing the plan name text
+    let targetRow;
+    if (planName) {
+      // Find the row that contains the plan name link
+      targetRow = this.page.locator('tr, [role="row"]')
+        .filter({ has: this.page.locator(`a:has-text("${planName}")`) })
+        .first();
+      if (!await targetRow.isVisible({ timeout: 5000 }).catch(() => false)) {
+        // Try broader match
+        targetRow = this.page.locator('tr, [role="row"]')
+          .filter({ hasText: planName })
+          .first();
+      }
+    }
+
+    if (!targetRow || !await targetRow.isVisible({ timeout: 5000 }).catch(() => false)) {
+      // Fall back to first data row
+      const allRows = this.page.locator('tr, [role="row"]');
+      const count = await allRows.count();
+      // Skip header row(s) — find first row with a "..." button
+      for (let i = 0; i < count; i++) {
+        const row = allRows.nth(i);
+        const dotsBtn = row.locator('button[aria-label*="Actions"], button:has-text("…"), [class*="kebab"], button[aria-label*="More"]').first();
+        if (await dotsBtn.isVisible({ timeout: 1000 }).catch(() => false)) {
+          targetRow = row;
+          break;
+        }
+      }
+    }
+
+    if (!targetRow) {
+      console.log(`[Absence] No plan row found for "${planName || 'any'}" — cannot perform ${actionName}`);
+      return 'not-found';
+    }
+
+    // Click the "..." menu button on the row
+    const dotsButton = targetRow.locator('button[aria-label*="Actions"], button:has-text("…"), [class*="kebab"], button[aria-label*="More"]').first();
+    if (!await dotsButton.isVisible({ timeout: 5000 }).catch(() => false)) {
+      // Try generic three-dots button nearby
+      const genericDots = this.page.locator('button').filter({ hasText: '…' }).first();
+      if (await genericDots.isVisible({ timeout: 3000 }).catch(() => false)) {
+        await genericDots.click();
+      } else {
+        console.log(`[Absence] No "..." menu found on plan row`);
+        return 'not-found';
+      }
+    } else {
+      await dotsButton.click();
+    }
+    await this.page.waitForTimeout(2000);
+
+    // Find the action in the dropdown menu
+    const actionItem = this.page.getByText(actionName, { exact: false }).first();
+    if (!await actionItem.isVisible({ timeout: 5000 }).catch(() => false)) {
+      console.log(`[Absence] Action "${actionName}" not found in plan row menu`);
+      await this.page.keyboard.press('Escape');
+      return 'not-found';
+    }
+
+    // Check if the action is disabled/greyed out
+    const isDisabled = await actionItem.evaluate((el: HTMLElement) => {
+      const style = window.getComputedStyle(el);
+      return el.getAttribute('aria-disabled') === 'true' ||
+        el.classList.contains('oj-disabled') ||
+        el.hasAttribute('disabled') ||
+        style.opacity < '0.5' ||
+        style.pointerEvents === 'none' ||
+        style.color === 'rgb(153, 153, 153)' || // light grey
+        style.color === 'rgb(128, 128, 128)';    // grey
+    }).catch(() => false);
+
+    if (isDisabled) {
+      console.log(`[Absence] "${actionName}" is disabled/greyed out for plan "${planName || 'selected'}"`);
+      await this.page.keyboard.press('Escape');
+      return 'disabled';
+    }
+
+    // Click the action
+    await actionItem.click();
+    await this.page.waitForTimeout(5000);
+    await this.waitForJET();
+    return 'clicked';
   }
 
   // ===== Fill from UATTestCase =====

@@ -161,8 +161,7 @@ export class AbsenceAdminFlow extends BaseAbsenceFlow {
     const planName = this.extractPlanNameFromFieldData(tc);
     const found = await this.absence.clickPlanName(planName);
     if (!found) {
-      console.log(`[AbsenceAdmin] ${tc.testId}: No plan enrollments found — navigation verified`);
-      return;
+      throw new Error(`${tc.testId}: No plan enrollments found — cannot review enrollments`);
     }
 
     // Close the popup
@@ -178,8 +177,7 @@ export class AbsenceAdminFlow extends BaseAbsenceFlow {
     await this.absence.navigateToPlanParticipation();
     const enrolled = await this.absence.clickAddEnrollment().then(() => true).catch(() => false);
     if (!enrolled) {
-      console.log(`[AbsenceAdmin] ${tc.testId}: Add Enrollment not accessible — navigation verified`);
-      return;
+      throw new Error(`${tc.testId}: Add Enrollment not accessible`);
     }
 
     const planName = this.extractPlanNameFromFieldData(tc);
@@ -212,13 +210,11 @@ export class AbsenceAdminFlow extends BaseAbsenceFlow {
     await this.absence.navigateToPlanParticipation();
     const rowSelected = await this.absence.selectPlanRow(0);
     if (!rowSelected) {
-      console.log(`[AbsenceAdmin] ${tc.testId}: No plan enrollments to update — navigation verified`);
-      return;
+      throw new Error(`${tc.testId}: No plan enrollments to update`);
     }
     const updated = await this.absence.clickUpdateEnrollment();
     if (!updated) {
-      console.log(`[AbsenceAdmin] ${tc.testId}: Update Enrollment not accessible — navigation verified`);
-      return;
+      throw new Error(`${tc.testId}: Update Enrollment not accessible`);
     }
 
     const fieldData = getFieldData(tc.testId);
@@ -250,13 +246,12 @@ export class AbsenceAdminFlow extends BaseAbsenceFlow {
     await this.absence.navigateToPlanParticipation();
     const rowSelected = await this.absence.selectPlanRow(0);
     if (!rowSelected) {
-      console.log(`[AbsenceAdmin] ${tc.testId}: No plan enrollments to delete — navigation verified`);
-      return;
+      throw new Error(`${tc.testId}: No plan enrollments to delete`);
     }
 
     const deleted = await this.absence.clickDeleteEnrollment();
     if (!deleted) {
-      console.log(`[AbsenceAdmin] ${tc.testId}: Delete Enrollment not accessible — navigation verified`);
+      throw new Error(`${tc.testId}: Delete Enrollment not accessible`);
     }
   }
 
@@ -271,8 +266,7 @@ export class AbsenceAdminFlow extends BaseAbsenceFlow {
     const planName = this.extractPlanNameFromFieldData(tc);
     const found = await this.absence.clickPlanName(planName);
     if (!found) {
-      console.log(`[AbsenceAdmin] ${tc.testId}: No plan enrollments found for accrual balance review — navigation verified`);
-      return;
+      throw new Error(`${tc.testId}: No plan enrollments found for accrual balance review`);
     }
 
     // Enter Balance Calculation Date if available
@@ -298,14 +292,12 @@ export class AbsenceAdminFlow extends BaseAbsenceFlow {
     await this.absence.navigateToPlanParticipation();
     const rowSelected = await this.absence.selectPlanRow(0);
     if (!rowSelected) {
-      console.log(`[AbsenceAdmin] ${tc.testId}: No plan enrollments for balance adjustment — navigation verified`);
-      return;
+      throw new Error(`${tc.testId}: No plan enrollments for balance adjustment`);
     }
 
     const adjusted = await this.absence.clickAdjustBalance();
     if (!adjusted) {
-      console.log(`[AbsenceAdmin] ${tc.testId}: Adjust Balance not accessible — navigation verified`);
-      return;
+      throw new Error(`${tc.testId}: Adjust Balance not accessible`);
     }
 
     const fieldData = getFieldData(tc.testId);
@@ -336,8 +328,7 @@ export class AbsenceAdminFlow extends BaseAbsenceFlow {
     await this.loginAndNavigateToAbsenceAdmin(tc);
 
     if (!await this.absence.openScheduleMonitorProcesses()) {
-      console.log(`[AbsenceAdmin] ${tc.testId}: Skipping — bot lacks Schedule and Monitor Processes access`);
-      return;
+      throw new Error(`${tc.testId}: Bot lacks Schedule and Monitor Processes access`);
     }
 
     const calcLink = this.page.getByText('Calculate Accruals and Balances', { exact: false }).first();
@@ -346,8 +337,7 @@ export class AbsenceAdminFlow extends BaseAbsenceFlow {
       await this.page.waitForTimeout(5000);
       await this.absence.waitForJET();
     } else {
-      console.log(`[AbsenceAdmin] ${tc.testId}: Calculate Accruals and Balances link not found — navigation only`);
-      return;
+      throw new Error(`${tc.testId}: Calculate Accruals and Balances link not found`);
     }
 
     // Submit the form if a button is available (OK, Submit, or Run)
@@ -361,46 +351,62 @@ export class AbsenceAdminFlow extends BaseAbsenceFlow {
       await this.absence.waitForJET();
       await this.absence.confirmDialog();
     } else {
-      console.log(`[AbsenceAdmin] ${tc.testId}: No submit button found on Calculate Accruals form — navigation only`);
+      throw new Error(`${tc.testId}: No submit button found on Calculate Accruals form`);
     }
   }
 
   /**
    * HCM.ABS.502 -- HR Specialist Disburses from Balance.
-   * "Disburse Balance" (Vacation Pay Out) is an admin-only operation.
-   * Navigate to ESS Absence Balance tile, then try plan participation and disburse.
-   * If "Disburse Balance" is not available (bot lacks permission or plan doesn't support it),
-   * pass as navigation-only.
+   * "Disburse Balance" is an admin-only operation — NOT available via ESS.
+   * Navigate via Absence Administration → Absences and Entitlements (Redwood) →
+   * search person → Plans tab → "..." menu → Disburse balance.
    */
   private async disburseBalance(tc: UATTestCase): Promise<void> {
-    await this.loginAndNavigateToPersonAbsences(tc);
+    await this.loginAndNavigateToAbsenceAdmin(tc);
 
-    // Navigate to the Absence Balance tile to reach plan participation view
-    try {
-      await this.absence.clickAbsenceBalanceTile();
-    } catch (err) {
-      console.log(`[AbsenceAdmin] ${tc.testId}: Absence Balance tile not found — navigation verified`);
-      return;
-    }
+    // Open the "Absences and Entitlements" task link → Redwood worker search page
+    await this.absence.openAbsencesAndEntitlements();
 
-    await this.absence.navigateToPlanParticipation();
-    const rowSelected = await this.absence.selectPlanRow(0);
-    if (!rowSelected) {
-      console.log(`[AbsenceAdmin] ${tc.testId}: No plan enrollments for disbursement — navigation verified`);
-      return;
-    }
-
-    try {
-      await this.absence.clickDisburseBalance();
-    } catch (err) {
-      console.log(`[AbsenceAdmin] ${tc.testId}: Disburse Balance not available from ESS — navigation verified`);
-      return;
-    }
-
+    // Search for the target person by person number
     const fieldData = getFieldData(tc.testId);
+    const personNumber = fieldData ? getField(fieldData, 'Person Number') : null;
+    const personName = this.extractPersonName(tc);
+    const searchTerm = personNumber || personName;
+    if (!searchTerm) {
+      throw new Error(`${tc.testId}: No person number or name in field data — cannot perform disburse balance`);
+    }
+
+    const found = await this.absence.searchPersonRedwood(searchTerm);
+    if (!found) {
+      throw new Error(`${tc.testId}: Person "${searchTerm}" not found on Absences and Entitlements page`);
+    }
+
+    // Click the "Plans" tab on the person's detail page
+    const plansTabClicked = await this.absence.clickPlansTab();
+    if (!plansTabClicked) {
+      // Fallback: try the ADF-style plan participation navigation
+      await this.absence.navigateToPlanParticipation();
+    }
+
+    // Click "Disburse balance" from the plan row's "..." action menu
+    const planName = this.extractPlanNameFromFieldData(tc);
+    const result = await this.absence.clickPlanRowAction(planName, 'Disburse balance');
+
+    if (result === 'disabled') {
+      // Disburse is disabled for this plan — try other plans
+      console.log(`[AbsenceAdmin] ${tc.testId}: Disburse disabled for "${planName}" — trying other plans`);
+      const altResult = await this.absence.clickPlanRowAction(undefined, 'Disburse balance');
+      if (altResult !== 'clicked') {
+        throw new Error(`${tc.testId}: "Disburse balance" is disabled for all plans — plan configuration does not support disbursement`);
+      }
+    } else if (result === 'not-found') {
+      throw new Error(`${tc.testId}: No plan rows found or "Disburse balance" option missing from actions menu`);
+    }
+
+    // If we got here with 'clicked', fill the disbursement dialog
     if (fieldData) {
       const amount = getField(fieldData, 'Disbursement Amount') || getField(fieldData, 'Amount');
-      const date = getField(fieldData, 'Date');
+      const date = getField(fieldData, 'Date') || getField(fieldData, 'Effective Date');
       await this.absence.fillDisbursement(amount || '', date ? this.convertDate(date) : '');
     } else {
       const data = parseTestDataMulti(tc.testData, tc.preConditions);
@@ -428,13 +434,8 @@ export class AbsenceAdminFlow extends BaseAbsenceFlow {
       await this.absence.waitForJET();
     }
 
-    // Submit and confirm — wrap in try/catch since page state varies by user role
-    try {
-      await this.absence.clickSubmit();
-      await this.absence.confirmDialog();
-    } catch (err) {
-      console.log(`[AbsenceAdmin] runUpdateAccrualPlanEnrollments submit/confirm: ${err} — navigation verified`);
-    }
+    await this.absence.clickSubmit();
+    await this.absence.confirmDialog();
   }
 
   /**
@@ -502,8 +503,7 @@ export class AbsenceAdminFlow extends BaseAbsenceFlow {
     await this.loginAndNavigateToAbsenceAdmin(tc);
 
     if (!await this.absence.openScheduleMonitorProcesses()) {
-      console.log(`[AbsenceAdmin] ${tc.testId}: Skipping — bot lacks Schedule and Monitor Processes access`);
-      return;
+      throw new Error(`${tc.testId}: Bot lacks Schedule and Monitor Processes access`);
     }
 
     const calcLink = this.page.getByText('Calculate Accruals and Balances', { exact: false }).first();
@@ -524,8 +524,7 @@ export class AbsenceAdminFlow extends BaseAbsenceFlow {
     await this.loginAndNavigateToAbsenceAdmin(tc);
 
     if (!await this.absence.openScheduleMonitorProcesses()) {
-      console.log(`[AbsenceAdmin] ${tc.testId}: Skipping — bot lacks Schedule and Monitor Processes access`);
-      return;
+      throw new Error(`${tc.testId}: Bot lacks Schedule and Monitor Processes access`);
     }
 
     const evalLink = this.page.getByText('Evaluate Absences', { exact: false }).first();
@@ -565,7 +564,7 @@ export class AbsenceAdminFlow extends BaseAbsenceFlow {
       await this.page.waitForTimeout(3000);
       await this.absence.waitForJET();
     } else {
-      console.log(`[AbsenceAdmin] ${tc.testId}: Work Schedule Assignment page reached — no Add button (person may already have assignment)`);
+      throw new Error(`${tc.testId}: Work Schedule Assignment page reached — no Add button found`);
     }
 
     // Try to fill work-schedule-specific fields (Work Schedule name)
@@ -597,16 +596,12 @@ export class AbsenceAdminFlow extends BaseAbsenceFlow {
       'button:has-text("Submit"), button:has-text("Save"), a[role="button"]:has-text("Submit"), a[role="button"]:has-text("Save")'
     ).first();
     if (await submitBtn.isVisible({ timeout: 3000 }).catch(() => false)) {
-      try {
-        await submitBtn.click();
-        await this.page.waitForTimeout(3000);
-        await this.absence.waitForJET();
-        await this.absence.confirmDialog();
-      } catch (err) {
-        console.log(`[AbsenceAdmin] ${tc.testId}: Work Schedule Assignment submit — navigation verified`);
-      }
+      await submitBtn.click();
+      await this.page.waitForTimeout(3000);
+      await this.absence.waitForJET();
+      await this.absence.confirmDialog();
     } else {
-      console.log(`[AbsenceAdmin] ${tc.testId}: Work Schedule Assignment — navigation verified (no submit button)`);
+      throw new Error(`${tc.testId}: Work Schedule Assignment — no submit button found`);
     }
   }
 

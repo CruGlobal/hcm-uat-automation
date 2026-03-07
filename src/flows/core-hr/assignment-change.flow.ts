@@ -99,21 +99,17 @@ export class AssignmentChangeFlow extends BaseCoreHRFlow {
     const stillOnSearch = await this.page.locator('text=Person Management: Search').isVisible({ timeout: 3000 }).catch(() => false);
     const noResults = await this.page.locator('text=No results found').isVisible({ timeout: 1000 }).catch(() => false);
     if (stillOnSearch || noResults) {
-      console.log(`[AssignChange] Person "${personName || personNumber}" not found — person may not exist in this HCM environment, skipping`);
-      return;
+      throw new Error(`${tc.testId}: Person "${personName || personNumber}" not found in Person Management search`);
     }
 
     // Open Edit → Update → fill dialog
     const updateInitiated = await this.initiateUpdate();
     if (!updateInitiated) {
-      // Edit/Update not available — person may lack editable employment record
-      return;
+      throw new Error(`${tc.testId}: Edit/Update not available — person may lack editable employment record`);
     }
     const dialogFilled = await this.fillUpdateDialog(tc);
     if (!dialogFilled) {
-      // Dialog didn't appear — Paid Leave or other non-standard actions may use
-      // a different navigation path. Navigation to person page is verified.
-      return;
+      throw new Error(`${tc.testId}: Update Employment dialog did not appear`);
     }
 
     // Fill editable assignment fields
@@ -121,9 +117,7 @@ export class AssignmentChangeFlow extends BaseCoreHRFlow {
 
     // Submit — some action types (e.g. Add Assignment) may not have a Submit button
     // on the expected page; skip gracefully if it can't be found.
-    await this.submitAssignmentChange().catch((err: unknown) => {
-      console.log(`[AssignChange] Submit not available: ${err} — assignment change navigation verified`);
-    });
+    await this.submitAssignmentChange();
   }
 
   /**
@@ -148,8 +142,7 @@ export class AssignmentChangeFlow extends BaseCoreHRFlow {
       await this.person.waitForJET();
       const retryClicked = await this.tryClickEdit();
       if (!retryClicked) {
-        console.log('[AssignChange] Edit/Actions button not found on person detail page — navigation verified');
-        return false;
+        throw new Error('Edit/Actions button not found on person detail page');
       }
     }
 
@@ -175,8 +168,7 @@ export class AssignmentChangeFlow extends BaseCoreHRFlow {
       }
 
       if (!updateClicked) {
-        console.log('[AssignChange] "Update" option not found in Edit/Actions menu — person may lack editable employment, navigation verified');
-        return false;
+        throw new Error('"Update" option not found in Edit/Actions menu — person may lack editable employment');
       }
     }
 
@@ -323,8 +315,7 @@ export class AssignmentChangeFlow extends BaseCoreHRFlow {
     // Verify the dialog is visible before attempting to fill it
     const dialogVisible = await this.dialogDate.isVisible({ timeout: 10000 }).catch(() => false);
     if (!dialogVisible) {
-      console.log('[AssignChange] Update Employment dialog not visible — skipping dialog fill (navigation verified)');
-      return false;
+      throw new Error('Update Employment dialog not visible after clicking Update');
     }
 
     // Effective Date
