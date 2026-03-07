@@ -111,6 +111,10 @@ const MODULE_BOT_OVERRIDES: Record<string, string> = {
  * Delete Enrollment) are routed to bot_payroll_admin (Grace George) instead.
  */
 const TEST_ID_BOT_OVERRIDES: Record<string, string> = {
+  // Absence admin tests needing Schedule and Monitor Processes → bot_hr_admin
+  'AB-015.00': 'bot_hr_admin',
+  'AB-016.00': 'bot_hr_admin',
+  'AB-023.00': 'bot_hr_admin',
   // Absence tests needing plan enrollment → bot_payroll_admin
   'AB-054.00': 'bot_payroll_admin',
   'AB-056.00': 'bot_payroll_admin',

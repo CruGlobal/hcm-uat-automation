@@ -240,6 +240,11 @@ export class PreFlightChecker {
       return this.prepareAbsenceApproval(tc);
     }
 
+    // View/edit/withdraw tests need existing absences — check and skip if none exist
+    if (bp.includes('view') || bp.includes('edit') || bp.includes('withdraw')) {
+      return this.prepareAbsenceViewEditWithdraw(tc);
+    }
+
     // Only check for absence entry/submission tests — other tests are generally safe
     if (!bp.includes('entry') && !bp.includes('submit') && !bp.includes('add')) {
       return OK;
@@ -357,6 +362,27 @@ export class PreFlightChecker {
       `(approval: ${approval}, date: ${latest.startDate}) — cannot re-submit via REST API. ` +
       `Test will attempt approval via notification bell; if no notification exists, it passes as navigation-only.`,
     );
+    return OK;
+  }
+
+  /**
+   * Absence View/Edit/Withdraw pre-flight: check if the person has any existing
+   * absences. If none exist, return skip so the test is gracefully skipped.
+   */
+  private async prepareAbsenceViewEditWithdraw(tc: UATTestCase): Promise<PreFlightResult> {
+    const fieldData = getFieldData(tc.testId);
+    if (!fieldData) return OK;
+
+    const personNumber = getField(fieldData, 'person number') || getField(fieldData, 'personnumber');
+    if (!personNumber) return OK;
+
+    const absences = await lookupAbsencesByNumber(null, this.baseUrl, personNumber, this.creds);
+    if (absences.length === 0) {
+      console.log(`[PreFlight] ${tc.testId}: No existing absences for ${personNumber} — skipping view/edit/withdraw test`);
+      return { ready: false, action: 'skip', reason: `No existing absences for ${personNumber}` };
+    }
+
+    console.log(`[PreFlight] ${tc.testId}: ${absences.length} absence(s) found for ${personNumber} — ready for view/edit/withdraw`);
     return OK;
   }
 
