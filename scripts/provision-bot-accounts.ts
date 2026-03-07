@@ -58,8 +58,8 @@ const BOT_ROLE_MAP: Record<string, string[]> = {
   bot_local_campus: [...HR_SPECIALIST_ROLES],
   bot_hr_crisis: [...HR_SPECIALIST_ROLES],
 
-  // Capacity — employee role only (auto-provisioned)
-  bot_local_us_capacity: [],
+  // Capacity — needs HR Specialist for Core HR tests (Bethany George, Lisa Copeland, Stephanie Slayton)
+  bot_local_us_capacity: [...HR_SPECIALIST_ROLES],
 
   // Dedicated API service user — needs comprehensive REST API access to all endpoints
   api_service: [

@@ -165,7 +165,9 @@ export class ElementEntryPage extends BasePage {
       return;
     }
 
-    console.log(`[ElementEntry] No search field visible for employee "${name}"`);
+    // No search field found — take a screenshot and throw
+    await this.page.screenshot({ path: 'test-results/element-entry-no-search.png', fullPage: true }).catch(() => {});
+    throw new Error(`[ElementEntry] No search field visible for employee "${name}" — may not be on Element Entries page`);
   }
 
   /** Click the first matching search result. */

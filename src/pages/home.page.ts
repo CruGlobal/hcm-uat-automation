@@ -46,9 +46,14 @@ export class HomePage extends BasePage {
     await this.dismissPopups();
     await this.navigator.click({ force: true });
     await this.page.waitForTimeout(2000);
-    if (await this.showMore.isVisible({ timeout: 3000 }).catch(() => false)) {
+
+    // Click "Show More" repeatedly until fully expanded (becomes "Show Less" or disappears).
+    // Oracle HCM Navigator may need multiple clicks to reveal all sections.
+    for (let i = 0; i < 5; i++) {
+      const showMoreVisible = await this.showMore.isVisible({ timeout: 2000 }).catch(() => false);
+      if (!showMoreVisible) break;
       await this.showMore.click({ force: true });
-      await this.page.waitForTimeout(2000);
+      await this.page.waitForTimeout(1500);
     }
     // Wait for ADF to finish rendering nav items (critical after session recovery)
     await this.waitForJET();
@@ -86,28 +91,20 @@ export class HomePage extends BasePage {
    * Falls back to matching by link title/text if the ADF ID is not found.
    */
   async navigateVia(navItemId: string, linkText?: string): Promise<void> {
-    await this.openNavigator();
-    const byId = this.page.locator(`[id$="${navItemId}"]`);
-    if (await byId.isVisible({ timeout: 3000 }).catch(() => false)) {
-      await byId.click({ force: true });
-    } else if (linkText) {
-      // Fallback: click by exact link name using accessible role
-      const byRole = this.page.getByRole('link', { name: linkText, exact: true }).first();
-      if (await byRole.isVisible({ timeout: 3000 }).catch(() => false)) {
-        await byRole.click({ force: true });
+    for (let attempt = 1; attempt <= 2; attempt++) {
+      await this.openNavigator();
+      const clicked = await this.tryClickNavItem(navItemId, linkText);
+      if (clicked) break;
+
+      if (attempt === 1) {
+        // Nav item not found — close navigator, go home, and retry
+        console.log(`[Home] Nav item "${linkText || navItemId}" not found, retrying...`);
+        await this.closeNavigator();
+        await this.page.goto('/fscmUI/faces/AtkHomePageWelcome', { timeout: 60_000 }).catch(() => {});
+        await this.page.waitForTimeout(3000);
       } else {
-        // Broader fallback: match by has-text
-        const byText = this.page.locator(`a:has-text("${linkText}")`).first();
-        try {
-          await byText.click({ force: true });
-        } catch {
-          // Last resort: JS click bypasses display:none CSS which force:true cannot overcome
-          await byText.evaluate((el: HTMLElement) => el.click());
-        }
+        throw new Error(`Navigator item "${linkText || navItemId}" not found after 2 attempts. The bot user may lack the required security role.`);
       }
-    } else {
-      // Last resort: try the ID selector with longer timeout
-      await byId.click({ force: true, timeout: 10_000 });
     }
     await this.page.waitForLoadState('networkidle', { timeout: 60_000 });
     await this.page.waitForTimeout(3000);
@@ -116,9 +113,36 @@ export class HomePage extends BasePage {
     await this.page.waitForTimeout(2000);
   }
 
-  /** Navigate to My Client Groups > New Person task page. */
+  /** Try to click a nav item. Returns true if clicked, false if not found. */
+  private async tryClickNavItem(navItemId: string, linkText?: string): Promise<boolean> {
+    const byId = this.page.locator(`[id$="${navItemId}"]`);
+    if (await byId.isVisible({ timeout: 3000 }).catch(() => false)) {
+      await byId.click({ force: true });
+      return true;
+    }
+    if (linkText) {
+      const byRole = this.page.getByRole('link', { name: linkText, exact: true }).first();
+      if (await byRole.isVisible({ timeout: 3000 }).catch(() => false)) {
+        await byRole.click({ force: true });
+        return true;
+      }
+      const byText = this.page.locator(`a:has-text("${linkText}")`).first();
+      if (await byText.isVisible({ timeout: 3000 }).catch(() => false)) {
+        await byText.click({ force: true });
+        return true;
+      }
+    }
+    return false;
+  }
+
+  /** Navigate to My Client Groups > New Person task page. Falls back to direct URL. */
   async goToNewPerson(): Promise<void> {
-    await this.navigateVia('nv_itemNode_workforce_management_new_person', 'New Person');
+    try {
+      await this.navigateVia('nv_itemNode_workforce_management_new_person', 'New Person');
+    } catch {
+      console.log('[Home] Navigator fallback: direct URL for New Person');
+      await this.gotoDirectUrl('itemNode_workforce_management_new_person');
+    }
   }
 
   /** Click a task on the New Person page using AdfActionEvent, with link-text fallback. */
@@ -220,9 +244,14 @@ export class HomePage extends BasePage {
     await this.clickNewPersonTask(4, 'Add a Nonworker');
   }
 
-  /** Navigate to Person Management (My Client Groups > Person Management). */
+  /** Navigate to Person Management (My Client Groups > Person Management). Falls back to direct URL. */
   async goToPersonManagement(): Promise<void> {
-    await this.navigateVia('nv_itemNode_workforce_management_person_management', 'Person Management');
+    try {
+      await this.navigateVia('nv_itemNode_workforce_management_person_management', 'Person Management');
+    } catch {
+      console.log('[Home] Navigator fallback: direct URL for Person Management');
+      await this.gotoDirectUrl('itemNode_workforce_management_person_management');
+    }
   }
 
   /** Navigate to Absence Administration (My Client Groups). */
@@ -230,9 +259,14 @@ export class HomePage extends BasePage {
     await this.navigateVia('nv_itemNode_workforce_management_absence_administration');
   }
 
-  /** Navigate to self-service Absences (My Information > Time and Absences). */
+  /** Navigate to self-service Absences (My Information > Time and Absences). Falls back to direct URL. */
   async goToAbsenceESS(): Promise<void> {
-    await this.navigateVia('nv_itemNode_my_information_absences1', 'Time and Absences');
+    try {
+      await this.navigateVia('nv_itemNode_my_information_absences1', 'Time and Absences');
+    } catch {
+      console.log('[Home] Navigator fallback: direct URL for Time and Absences');
+      await this.gotoDirectUrl('itemNode_my_information_absences1');
+    }
   }
 
   /** Navigate to self-service Benefits (My Information). */
@@ -245,9 +279,14 @@ export class HomePage extends BasePage {
     await this.navigateVia('nv_itemNode_groupNode_benefits_BenefitsActivityCenter', 'Benefits Activity Center');
   }
 
-  /** Navigate to Workforce Compensation (Manager Resources). */
+  /** Navigate to Workforce Compensation (Manager Resources). Falls back to direct URL. */
   async goToWorkforceCompensation(): Promise<void> {
-    await this.navigateVia('nv_itemNode_manager_resources_workforce_compensation', 'Workforce Compensation');
+    try {
+      await this.navigateVia('nv_itemNode_manager_resources_workforce_compensation', 'Workforce Compensation');
+    } catch {
+      console.log('[Home] Navigator fallback: direct URL for Workforce Compensation');
+      await this.gotoDirectUrl('itemNode_manager_resources_workforce_compensation');
+    }
   }
 
   /** Navigate to Workforce Structures (My Client Groups). */
@@ -270,19 +309,34 @@ export class HomePage extends BasePage {
     await this.navigateVia('nv_itemNode_my_information_pay', 'Pay');
   }
 
-  /** Navigate to Scheduled Processes (Tools). */
+  /** Navigate to Scheduled Processes (Tools). Falls back to direct URL. */
   async goToScheduledProcesses(): Promise<void> {
-    await this.navigateVia('nv_itemNode_tools_scheduled_processes_fuse_plus', 'Scheduled Processes');
+    try {
+      await this.navigateVia('nv_itemNode_tools_scheduled_processes_fuse_plus', 'Scheduled Processes');
+    } catch {
+      console.log('[Home] Navigator fallback: direct URL for Scheduled Processes');
+      await this.gotoDirectUrl('itemNode_tools_scheduled_processes');
+    }
   }
 
-  /** Navigate to Time Management (My Client Groups). */
+  /** Navigate to Time Management (My Client Groups). Falls back to direct URL. */
   async goToTimeAdmin(): Promise<void> {
-    await this.navigateVia('nv_itemNode_workforce_management_time_management', 'Time Management');
+    try {
+      await this.navigateVia('nv_itemNode_workforce_management_time_management', 'Time Management');
+    } catch {
+      console.log('[Home] Navigator fallback: direct URL for Time Management');
+      await this.gotoDirectUrl('itemNode_workforce_management_time_management');
+    }
   }
 
-  /** Navigate to self-service Time (My Information). */
+  /** Navigate to self-service Time (My Information). Falls back to direct URL. */
   async goToTimeESS(): Promise<void> {
-    await this.navigateVia('nv_itemNode_my_information_time', 'Time and Absences');
+    try {
+      await this.navigateVia('nv_itemNode_my_information_time', 'Time and Absences');
+    } catch {
+      console.log('[Home] Navigator fallback: direct URL for Time ESS');
+      await this.gotoDirectUrl('itemNode_my_information_time');
+    }
   }
 
   /** Navigate to Pending Workers dashboard (Redwood direct URL). */
@@ -325,6 +379,17 @@ export class HomePage extends BasePage {
     }
     await this.page.waitForTimeout(5000);
     await this.waitForReady();
+  }
+
+  /** Navigate to an Oracle HCM page by its fndGlobalItemNodeId (direct URL bypass). */
+  private async gotoDirectUrl(itemNodeId: string): Promise<void> {
+    await this.page.goto(
+      `/fscmUI/faces/FuseOverview?fndGlobalItemNodeId=${itemNodeId}`,
+      { timeout: 60_000 },
+    );
+    await this.page.waitForLoadState('networkidle', { timeout: 60_000 }).catch(() => {});
+    await this.page.waitForTimeout(3000);
+    await this.waitForJET();
   }
 
   /** Go to the home springboard. */

@@ -23,7 +23,7 @@ export class PayrollProcessingPage extends BasePage {
 
   /** "Schedule New Process" button on the Scheduled Processes page. */
   private readonly scheduleNewProcessLink = this.page.locator(
-    'button:has-text("Schedule New Process"), a[role="button"]:has-text("Schedule New Process")'
+    'a[role="button"]:has-text("Schedule New Process"), button:has-text("Schedule New Process"), a:has-text("Schedule New Process")'
   ).first();
 
   /** "Resubmit" link button. */
@@ -201,6 +201,16 @@ export class PayrollProcessingPage extends BasePage {
    *   4. OK on outer "Schedule New Process" dialog to proceed to parameters
    */
   async scheduleNewProcess(processName: string): Promise<void> {
+    // Wait for Scheduled Processes page to fully render
+    await this.page.waitForTimeout(3000);
+    await this.waitForJET();
+    if (!await this.scheduleNewProcessLink.isVisible({ timeout: 10_000 }).catch(() => false)) {
+      // Page may not be fully loaded — try refreshing
+      console.log('[Payroll] "Schedule New Process" not visible, refreshing page...');
+      await this.page.reload({ timeout: 60_000 });
+      await this.page.waitForTimeout(5000);
+      await this.waitForJET();
+    }
     await this.scheduleNewProcessLink.click();
     await this.page.waitForTimeout(3000);
     await this.waitForJET();
