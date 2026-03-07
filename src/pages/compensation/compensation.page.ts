@@ -157,6 +157,16 @@ export class CompensationPage extends BasePage {
     const home = new HomePage(this.page);
     await home.goToWorkforceCompensation();
     await this.waitForJET();
+
+    // Verify we landed on a compensation page
+    const onCompPage = await this.page.locator(
+      'h1:has-text("Compensation"), input[aria-label*="Search"], [id*="apPlnDtl"]'
+    ).first().isVisible({ timeout: 10_000 }).catch(() => false);
+
+    if (!onCompPage) {
+      console.log(`[Compensation] Warning: Navigation may not have reached compensation page. URL: ${this.page.url()}`);
+      await this.page.screenshot({ path: `.screenshots/comp-nav-verify-${Date.now()}.png` }).catch(() => {});
+    }
   }
 
   /**
