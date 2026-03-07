@@ -297,20 +297,9 @@ export class BenefitsPage extends BasePage {
     await this.dismissPopups();
   }
 
-  /** Navigate to Benefits via the Navigator menu. */
+  /** Navigate to Benefits (delegates to self-service deep link + Navigator fallback). */
   async navigateToBenefits(): Promise<void> {
-    const benefitsNav = this.page.locator(
-      'a[title="Benefits"], [id*="nv_itemNode_benefits"]'
-    ).first();
-    if (await benefitsNav.isVisible({ timeout: 5000 }).catch(() => false)) {
-      await benefitsNav.click({ force: true });
-    } else {
-      await this.page.goto('/fscmUI/redwood/benefits/enrollment-summary');
-    }
-    await this.page.waitForLoadState('networkidle', { timeout: 60_000 });
-    await this.page.waitForTimeout(5000);
-    await this.waitForJET();
-    await this.dismissPopups();
+    await this.navigateToSelfServiceBenefits();
   }
 
   // ===================================================================

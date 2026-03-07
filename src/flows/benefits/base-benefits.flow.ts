@@ -24,10 +24,9 @@ export class BaseBenefitsFlow extends BaseFlow {
     this.benefits = new BenefitsPage(page);
   }
 
-  /** Login and navigate to the Benefits module via Navigator. */
+  /** Login and navigate to the Benefits module. */
   async loginAndNavigateToBenefits(tc?: UATTestCase): Promise<void> {
     await this.loginToHCM(tc);
-    await this.homePage.openNavigator();
     await this.benefits.navigateToBenefits();
   }
 
