@@ -213,25 +213,20 @@ export class PersonManagementPage extends BasePage {
 
       let retryVisible = await locator.isVisible({ timeout: 15000 }).catch(() => false);
       if (!retryVisible) {
-        // ADF search panel may need a page reload to render — common race condition
-        console.log('[PersonMgmt] Search field still not visible after navigation — reloading page...');
-        await this.page.reload({ timeout: 60_000 }).catch(() => {});
+        // ADF may be stuck — navigate to home first to reset state, then back to Person Management
+        console.log('[PersonMgmt] Search field still not visible — resetting via home page...');
+        await this.page.goto('/fscmUI/faces/AtkHomePageWelcome', { timeout: 60_000 }).catch(() => {});
         await this.page.waitForLoadState('networkidle', { timeout: 30_000 }).catch(() => {});
-        await this.page.waitForTimeout(5000);
+        await this.page.waitForTimeout(3000);
+        // Now navigate to Person Management (fresh ADF page transition)
+        await this.page.goto(
+          '/fscmUI/faces/FuseOverview?fndGlobalItemNodeId=itemNode_workforce_management_person_management',
+          { timeout: 60_000 },
+        ).catch(() => {});
+        await this.page.waitForLoadState('networkidle', { timeout: 30_000 }).catch(() => {});
+        await this.page.waitForTimeout(8000);
         await this.waitForJET();
         await this.dismissPopups();
-        retryVisible = await locator.isVisible({ timeout: 15000 }).catch(() => false);
-      }
-      if (!retryVisible) {
-        // Final attempt: deep link
-        console.log('[PersonMgmt] Search field not visible after reload — trying deep link');
-        const baseUrl = process.env.ORACLE_HCM_URL || 'https://stafflife-icahjb-test.fa.ocs.oraclecloud.com';
-        await this.page.goto(`${baseUrl}/fscmUI/faces/deeplink?objType=PERSON_MANAGEMENT&action=NONE`, {
-          timeout: 60_000,
-        }).catch(() => {});
-        await this.page.waitForLoadState('networkidle', { timeout: 30_000 }).catch(() => {});
-        await this.page.waitForTimeout(5000);
-        await this.waitForJET();
         retryVisible = await locator.isVisible({ timeout: 15000 }).catch(() => false);
       }
       if (!retryVisible) {
