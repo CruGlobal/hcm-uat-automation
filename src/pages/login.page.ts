@@ -3,6 +3,7 @@ import { BasePage } from './base.page';
 import { env } from '../config/environment';
 import { TOTP } from 'otpauth';
 import { unlockBotAccount } from '../../scripts/lib/hcm-rest-api';
+import { getBotCredentials } from '../config/bot-users';
 
 export class LoginPage extends BasePage {
   // Oracle native login form (direct login, no SSO)
@@ -274,11 +275,43 @@ export class LoginPage extends BasePage {
    * - Without totpSecret: Direct Oracle login (username → password → HCM)
    */
   async fullLogin(username?: string, password?: string, totpSecret?: string): Promise<void> {
-    // If we're already on the HCM page (storageState session), just ensure it's ready
+    // If we're already on the HCM page, verify the session is actually alive
     const currentUrl = this.page.url();
     if (currentUrl.includes('fscmUI')) {
-      await this.waitForReady();
-      await this.dismissPopups();
+      const alive = await this.isSessionAlive();
+      if (alive) {
+        await this.waitForReady();
+        await this.dismissPopups();
+        return;
+      }
+
+      // Session is dead — try navigating to home page to revive it
+      console.log('[Login] Session appears dead despite fscmUI URL, attempting recovery...');
+      await this.page.goto('/fscmUI/faces/AtkHomePageWelcome', { timeout: 60_000 }).catch(() => {});
+      await this.page.waitForLoadState('networkidle', { timeout: 30_000 }).catch(() => {});
+
+      if (await this.isSessionAlive()) {
+        await this.waitForReady();
+        await this.dismissPopups();
+        return;
+      }
+
+      // Still dead — need a fresh login
+      console.log('[Login] Session unrecoverable via navigation, performing fresh login...');
+      const creds = this.resolveRecoveryCreds(username, password, totpSecret);
+      if (creds) {
+        await this.navigate();
+        if (creds.totpSecret) {
+          await this.login(creds.username, creds.password, creds.totpSecret);
+        } else {
+          await this.directLogin(creds.username, creds.password);
+        }
+        return;
+      }
+
+      // No credentials available — fall through to default SSO login
+      await this.navigate();
+      await this.login();
       return;
     }
 
@@ -297,6 +330,39 @@ export class LoginPage extends BasePage {
     } else {
       await this.login(username, password, totpSecret);
     }
+  }
+
+  /**
+   * Check if the current page has a live Oracle HCM session.
+   * A dead/blank page still has a fscmUI URL but no meaningful content.
+   */
+  private async isSessionAlive(): Promise<boolean> {
+    try {
+      const textLength = await this.page.evaluate(() => document.body?.innerText?.length ?? 0);
+      return textLength > 100;
+    } catch {
+      return false;
+    }
+  }
+
+  /**
+   * Resolve credentials for session recovery.
+   * Priority: explicit args > PARALLEL_BOT_ACCOUNT env var > null (fallback to SSO).
+   */
+  private resolveRecoveryCreds(
+    username?: string, password?: string, totpSecret?: string
+  ): { username: string; password: string; totpSecret?: string } | null {
+    if (username && password) {
+      return { username, password, totpSecret };
+    }
+    const botAccount = process.env.PARALLEL_BOT_ACCOUNT;
+    if (botAccount) {
+      const creds = getBotCredentials(botAccount);
+      if (creds) {
+        return { username: creds.username, password: creds.password, totpSecret: creds.totpSecret };
+      }
+    }
+    return null;
   }
 
   /** Log out of Oracle HCM by navigating to the signout URL. */

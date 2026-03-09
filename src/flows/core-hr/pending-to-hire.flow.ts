@@ -132,7 +132,9 @@ export class PendingToHireFlow extends BaseCoreHRFlow {
     } else {
       // Fallback: click person name to go to detail page, then try Actions there
       console.log('[PendingToHire] Hire not in row actions — clicking through to detail page');
-      const nameLink = this.page.locator('[id*="table2:0:gl"]').first();
+      const nameLink = this.page.locator(
+        '[id*="table2:0:gl"], [id*="resId1:0:"] a, tr[_afrrk] a, [id*="SP3"] a[id*=":gl"]'
+      ).first();
       await nameLink.click();
       await this.page.waitForTimeout(10000);
       await this.person.waitForJET();

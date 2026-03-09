@@ -219,7 +219,7 @@ export class CreateWorkRelationshipFlow extends BaseCoreHRFlow {
       if (!retryClicked) {
         // Fallback: try clicking the person name first, then look for Actions on detail page
         console.log('[CWR] Falling back to person detail page Actions menu');
-        const nameLink = this.page.locator('[id*="table2:0:gl"]').first();
+        const nameLink = this.page.locator('[id*="table2:0:gl"], [id*="resId1:0:"] a, tr[_afrrk] a').first();
         if (await nameLink.isVisible({ timeout: 5000 }).catch(() => false)) {
           await nameLink.click();
           await this.page.waitForTimeout(4000);
@@ -388,7 +388,7 @@ export class CreateWorkRelationshipFlow extends BaseCoreHRFlow {
    */
   private async initiateCWRFromDetailPage(): Promise<boolean> {
     // Click the person name link to go to their detail page
-    const nameLink = this.page.locator('[id*="table2:0:gl"]').first();
+    const nameLink = this.page.locator('[id*="table2:0:gl"], [id*="resId1:0:"] a, tr[_afrrk] a').first();
     if (await nameLink.isVisible({ timeout: 5000 }).catch(() => false)) {
       console.log('[CWR] Clicking person name to go to detail page');
       await nameLink.click();

@@ -1,5 +1,7 @@
 import { type Page } from '@playwright/test';
 import { BasePage } from '../base.page';
+import { LoginPage } from '../login.page';
+import { HomePage } from '../home.page';
 import { getField } from '../../data/test-data-provider';
 import { excelSerialToDate } from '../../utils/oracle-hcm-helpers';
 import type { TestCase } from '../../data/types';
@@ -26,6 +28,12 @@ export class PersonManagementPage extends BasePage {
   private readonly searchNationalId = this.page.locator('[id$="q1:value20::content"]');
   private readonly searchButton = this.page.locator('[id$="q1::search"]');
   private readonly searchReset = this.page.locator('[id$="q1::reset"]');
+
+  // === Person Management Search — Saved Search / Show dropdown ===
+  // The "Saved Search" dropdown controls which people appear (Active Assignment, All, etc.)
+  private readonly savedSearchDropdown = this.page.locator(
+    '[id*="q1"][id*="savedSearch1::content"], [id*="qsPanel"][id*="savedSearch"]'
+  ).first();
 
   // === Step 1: Identification — Personal Details ===
   // These suffixes are stable but the middle index (i1:N) changes after LE selection.
@@ -149,31 +157,6 @@ export class PersonManagementPage extends BasePage {
 
   // === Person Management Search ===
 
-  /**
-   * Ensure we're on the Person Management page by checking for the search panel.
-   * If not found, navigate via deep link and wait for the search field.
-   */
-  async ensureOnPersonManagement(): Promise<void> {
-    const anySearchField = this.page.locator('[id*="q1:"]').first();
-    const isOnPage = await anySearchField.isVisible({ timeout: 5000 }).catch(() => false);
-    if (isOnPage) return;
-
-    console.log('[PersonMgmt] Search panel not found — navigating via deep link');
-    const baseUrl = process.env.ORACLE_HCM_URL || 'https://stafflife-icahjb-test.fa.ocs.oraclecloud.com';
-    await this.page.goto(`${baseUrl}/fscmUI/faces/deeplink?objType=PERSON_MANAGEMENT`, {
-      waitUntil: 'domcontentloaded',
-      timeout: 60_000,
-    });
-    await this.page.waitForTimeout(5000);
-    await this.waitForJET();
-
-    // Verify search field is now visible
-    const fieldVisible = await this.searchPersonNumber.isVisible({ timeout: 10000 }).catch(() => false);
-    if (!fieldVisible) {
-      console.log('[PersonMgmt] Search field still not visible after deep link navigation');
-    }
-  }
-
   /** Search by name or number (convenience wrapper). */
   async searchPerson(query: string): Promise<void> {
     // If it looks like a number, search by person number; otherwise by name
@@ -186,12 +169,104 @@ export class PersonManagementPage extends BasePage {
 
   /** Fill a search field using click → clear → pressSequentially to trigger ADF binding events. */
   private async fillSearchField(locator: ReturnType<typeof this.page.locator>, value: string): Promise<void> {
+    // Wait for the search field to become visible, with retry via direct navigation
+    const visible = await locator.isVisible({ timeout: 10000 }).catch(() => false);
+    if (!visible) {
+      // Check if we're even on an Oracle HCM page (blank page = session dead)
+      const currentUrl = this.page.url();
+      const pageContent = await this.page.content().catch(() => '');
+      const isBlankOrDead = !currentUrl.includes('fscmUI') || pageContent.length < 500;
+
+      if (isBlankOrDead) {
+        console.log(`[PersonMgmt] Page appears blank/dead (url: ${currentUrl}, content length: ${pageContent.length})`);
+        // Use ensureSessionAlive to recover (handles re-login if needed)
+        const home = new HomePage(this.page);
+        await home.ensureSessionAlive();
+      }
+
+      // Navigate via FuseOverview (same as goToPersonManagement direct fallback)
+      console.log('[PersonMgmt] Search field not visible — navigating to Person Management');
+      await this.page.goto(
+        '/fscmUI/faces/FuseOverview?fndGlobalItemNodeId=itemNode_workforce_management_person_management',
+        { timeout: 60_000 },
+      ).catch(() => {});
+      await this.page.waitForLoadState('networkidle', { timeout: 30_000 }).catch(() => {});
+      await this.page.waitForTimeout(5000);
+
+      // Check if we got redirected to a login page (session truly dead)
+      const postNavUrl = this.page.url();
+      if (postNavUrl.includes('login') || postNavUrl.includes('okta') || postNavUrl.includes('signin') || postNavUrl.includes('auth_cred_submit')) {
+        console.log(`[PersonMgmt] Redirected to login page (${postNavUrl}), re-authenticating...`);
+        const login = new LoginPage(this.page);
+        await login.fullLogin();
+        // Re-navigate to Person Management after login
+        await this.page.goto(
+          '/fscmUI/faces/FuseOverview?fndGlobalItemNodeId=itemNode_workforce_management_person_management',
+          { timeout: 60_000 },
+        ).catch(() => {});
+        await this.page.waitForLoadState('networkidle', { timeout: 30_000 }).catch(() => {});
+        await this.page.waitForTimeout(5000);
+      }
+
+      await this.waitForJET();
+      await this.dismissPopups();
+
+      let retryVisible = await locator.isVisible({ timeout: 15000 }).catch(() => false);
+      if (!retryVisible) {
+        // ADF search panel may need a page reload to render — common race condition
+        console.log('[PersonMgmt] Search field still not visible after navigation — reloading page...');
+        await this.page.reload({ timeout: 60_000 }).catch(() => {});
+        await this.page.waitForLoadState('networkidle', { timeout: 30_000 }).catch(() => {});
+        await this.page.waitForTimeout(5000);
+        await this.waitForJET();
+        await this.dismissPopups();
+        retryVisible = await locator.isVisible({ timeout: 15000 }).catch(() => false);
+      }
+      if (!retryVisible) {
+        // Final attempt: deep link
+        console.log('[PersonMgmt] Search field not visible after reload — trying deep link');
+        const baseUrl = process.env.ORACLE_HCM_URL || 'https://stafflife-icahjb-test.fa.ocs.oraclecloud.com';
+        await this.page.goto(`${baseUrl}/fscmUI/faces/deeplink?objType=PERSON_MANAGEMENT&action=NONE`, {
+          timeout: 60_000,
+        }).catch(() => {});
+        await this.page.waitForLoadState('networkidle', { timeout: 30_000 }).catch(() => {});
+        await this.page.waitForTimeout(5000);
+        await this.waitForJET();
+        retryVisible = await locator.isVisible({ timeout: 15000 }).catch(() => false);
+      }
+      if (!retryVisible) {
+        const retryUrl = this.page.url();
+        const retryContent = await this.page.content().catch(() => '');
+        await this.page.screenshot({ path: `test-results/person-search-not-visible.png`, fullPage: true }).catch(() => {});
+        throw new Error(`Person Management search field not visible after navigation retry (url: ${retryUrl}, content: ${retryContent.length} chars)`);
+      }
+    }
     await locator.click();
     await locator.clear();
     await locator.pressSequentially(value, { delay: 30 });
     await locator.press('Tab');
     await this.page.waitForTimeout(2000);
     await this.waitForJET();
+  }
+
+  /**
+   * Ensure we're on the Person Management page by checking for the search panel.
+   * If not found, navigate via deep link and wait for the search field.
+   */
+  private async ensureOnPersonManagement(): Promise<void> {
+    const anySearchField = this.page.locator('[id*="q1:"]').first();
+    const isOnPage = await anySearchField.isVisible({ timeout: 5000 }).catch(() => false);
+    if (isOnPage) return;
+
+    console.log('[PersonMgmt] Search panel not found — navigating via FuseOverview URL');
+    await this.page.goto(
+      '/fscmUI/faces/FuseOverview?fndGlobalItemNodeId=itemNode_workforce_management_person_management',
+      { timeout: 60_000 },
+    ).catch(() => {});
+    await this.page.waitForLoadState('networkidle', { timeout: 30_000 }).catch(() => {});
+    await this.page.waitForTimeout(3000);
+    await this.waitForJET();
+    await this.dismissPopups();
   }
 
   /** Search by person name and click the first result. */
@@ -224,7 +299,16 @@ export class PersonManagementPage extends BasePage {
     await this.searchButton.click();
     await this.page.waitForTimeout(8000);
     await this.waitForJET();
-    const resultLink = this.page.locator('[id*="table2:0:gl"]').first();
+
+    // Check for "No results found" first
+    const noResults = await this.page.locator('text=No results found, text=No data to display').first()
+      .isVisible({ timeout: 2000 }).catch(() => false);
+    if (noResults) return false;
+
+    // Check multiple result link selectors
+    const resultLink = this.page.locator(
+      '[id*="table2:0:gl"], [id*="resId1:0:"] a, tr[_afrrk] a, [id*="SP3"] a[id*=":gl"]'
+    ).first();
     return await resultLink.isVisible({ timeout: 5000 }).catch(() => false);
   }
 
@@ -244,6 +328,21 @@ export class PersonManagementPage extends BasePage {
   }
 
   /**
+   * Change the saved search filter (e.g. "Active Assignment" → "All").
+   * Returns true if changed successfully.
+   */
+  async setSavedSearchFilter(filterName: string): Promise<boolean> {
+    if (await this.savedSearchDropdown.isVisible({ timeout: 3000 }).catch(() => false)) {
+      await this.fillCombobox(this.savedSearchDropdown, filterName);
+      await this.page.waitForTimeout(2000);
+      await this.waitForJET();
+      return true;
+    }
+    console.log('[PersonMgmt] Saved search dropdown not found');
+    return false;
+  }
+
+  /**
    * Click the per-row Actions icon (orange dropdown) for the first search result.
    * This opens a context menu with available actions for that person.
    */
@@ -258,55 +357,72 @@ export class PersonManagementPage extends BasePage {
     }
   }
 
-  /**
-   * Change the "Show" dropdown filter (default: "Active Assignment") to a different value.
-   * Useful when searching for terminated or pending workers.
-   */
-  async setSearchStatusFilter(status: string): Promise<void> {
-    const showDropdown = this.page.locator('[id$="q1:value30::content"], [id$="soc1::content"], select[id*="q1"]').first();
-    if (await showDropdown.isVisible({ timeout: 3000 }).catch(() => false)) {
-      console.log(`[PersonMgmt] Setting Show filter to: ${status}`);
-      await this.fillCombobox(showDropdown, status);
-      await this.page.waitForTimeout(1000);
-    }
-  }
-
   /** Click the first person in search results table. */
   private async clickFirstSearchResult(): Promise<void> {
+    // Check for "No results found" message first
+    const noResults = await this.page.locator('text=No results found, text=No data to display').first()
+      .isVisible({ timeout: 3000 }).catch(() => false);
+    if (noResults) {
+      throw new Error('Person search returned no results');
+    }
+
+    // Clear glass pane that may persist from search — blocks clicks on result links
+    await this.clearGlassPane();
+
     // Search results table uses IDs like: ...Perso1:0:SP3:table1:_ATp:table2:0:gl1
     // The name link is the first <a> inside the results table (table2).
+    // Strategy 1: Standard ADF table result link ID patterns
     const resultLink = this.page.locator('[id*="table2:0:gl"], [id*="resId1:0:"] a').first();
     const isVisible = await resultLink.isVisible({ timeout: 10000 }).catch(() => false);
     if (isVisible) {
       console.log('[PersonMgmt] Clicking first search result');
-      await resultLink.click();
+      await resultLink.click({ force: true });
       await this.page.waitForTimeout(8000);
       await this.waitForJET();
-    } else {
-      // Fallback: any clickable link in the first row of search results
-      const fallbackLink = this.page.locator('table[id*="table2"] tbody tr:first-child a, table[id*="resId1"] tbody tr:first-child a').first();
-      if (await fallbackLink.isVisible({ timeout: 5000 }).catch(() => false)) {
-        console.log('[PersonMgmt] Clicking fallback search result link');
-        await fallbackLink.click();
-        await this.page.waitForTimeout(8000);
-        await this.waitForJET();
-      } else {
-        // No results with current filter — retry with "All" status filter
-        console.log('[PersonMgmt] No search result link found, retrying with "All" filter...');
-        await this.setSearchStatusFilter('All');
-        await this.searchButton.click();
-        await this.page.waitForTimeout(8000);
-        await this.waitForJET();
-        const retryLink = this.page.locator('[id*="table2:0:gl"], [id*="resId1:0:"] a').first();
-        if (await retryLink.isVisible({ timeout: 5000 }).catch(() => false)) {
-          console.log('[PersonMgmt] Found result after switching to "All" filter');
-          await retryLink.click();
-          await this.page.waitForTimeout(8000);
-          await this.waitForJET();
-        } else {
-          console.log('[PersonMgmt] No search results even with "All" filter');
-        }
-      }
+      return;
     }
+
+    // Strategy 2: Any clickable link in the first row of search results table
+    const fallbackLink = this.page.locator('table[id*="table2"] tbody tr:first-child a, table[id*="resId1"] tbody tr:first-child a').first();
+    if (await fallbackLink.isVisible({ timeout: 5000 }).catch(() => false)) {
+      console.log('[PersonMgmt] Clicking fallback search result link');
+      await fallbackLink.click({ force: true });
+      await this.page.waitForTimeout(8000);
+      await this.waitForJET();
+      return;
+    }
+
+    // Strategy 3: ADF data rows with [_afrrk] attribute — these are virtual table rows
+    const afrrkRow = this.page.locator('tr[_afrrk] a, [_afrrk] a').first();
+    if (await afrrkRow.isVisible({ timeout: 3000 }).catch(() => false)) {
+      console.log('[PersonMgmt] Clicking ADF data row link [_afrrk]');
+      await afrrkRow.click({ force: true });
+      await this.page.waitForTimeout(8000);
+      await this.waitForJET();
+      return;
+    }
+
+    // Strategy 4: Any link inside the search results panel (SP3 container)
+    const sp3Link = this.page.locator('[id*="SP3"] a[id*=":gl"], [id*="SP3"] a[id*=":ot"]').first();
+    if (await sp3Link.isVisible({ timeout: 3000 }).catch(() => false)) {
+      console.log('[PersonMgmt] Clicking SP3 container link');
+      await sp3Link.click({ force: true });
+      await this.page.waitForTimeout(8000);
+      await this.waitForJET();
+      return;
+    }
+
+    // Strategy 5: Any link in a table row within the results area
+    const anyTableLink = this.page.locator('[id*="table"] tbody tr a').first();
+    if (await anyTableLink.isVisible({ timeout: 3000 }).catch(() => false)) {
+      console.log('[PersonMgmt] Clicking generic table result link');
+      await anyTableLink.click({ force: true });
+      await this.page.waitForTimeout(8000);
+      await this.waitForJET();
+      return;
+    }
+
+    console.log('[PersonMgmt] No search result link found — person may not exist');
+    throw new Error('Person search found no clickable results');
   }
 }

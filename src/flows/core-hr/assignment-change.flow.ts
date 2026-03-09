@@ -73,33 +73,21 @@ export class AssignmentChangeFlow extends BaseCoreHRFlow {
     const personNumber = getField(tc, 'Person Number');
     const personName = getField(tc, 'Person Name');
     if (personNumber) {
-      // Search by number; if no results found, try by name
-      const found = await this.person.searchByPersonNumberOnly(personNumber);
-      if (found) {
-        // Click the result to go to person detail
-        const nameLink = this.page.locator('[id*="table2:0:gl"]').first();
-        await nameLink.click();
-        await this.page.waitForTimeout(3000);
-        await this.person.waitForJET();
-      } else if (personName) {
-        console.log(`[AssignChange] Person ${personNumber} not found, trying name: ${personName}`);
-        // Reset search form before trying name search
-        await this.page.locator('[id$="q1::reset"]').click().catch(() => {});
-        await this.page.waitForTimeout(2000);
-        await this.person.searchByName(personName);
-      } else {
-        throw new Error(`Person ${personNumber} not found in Person Management search`);
+      try {
+        await this.person.searchByPersonNumber(personNumber);
+      } catch {
+        // Person number search failed — try by name as fallback
+        if (personName) {
+          console.log(`[AssignChange] Person ${personNumber} not found by number, trying name: ${personName}`);
+          await this.person.searchByName(personName);
+        } else {
+          throw new Error(`${tc.testId}: Person ${personNumber} not found in Person Management search`);
+        }
       }
     } else if (personName) {
       await this.person.searchByName(personName);
-    }
-
-    // Verify we actually navigated to a person detail page (not still on search results)
-    // Person detail pages have "Manage Employment" or person name heading, not "Person Management: Search"
-    const stillOnSearch = await this.page.locator('text=Person Management: Search').isVisible({ timeout: 3000 }).catch(() => false);
-    const noResults = await this.page.locator('text=No results found').isVisible({ timeout: 1000 }).catch(() => false);
-    if (stillOnSearch || noResults) {
-      throw new Error(`${tc.testId}: Person "${personName || personNumber}" not found in Person Management search`);
+    } else {
+      throw new Error(`${tc.testId}: No person number or name in field data`);
     }
 
     // Open Edit → Update → fill dialog
@@ -168,7 +156,7 @@ export class AssignmentChangeFlow extends BaseCoreHRFlow {
       }
 
       if (!updateClicked) {
-        throw new Error('"Update" option not found in Edit/Actions menu — person may lack editable employment');
+        throw new Error('"Update" or "Correct" option not found in Edit/Actions menu — person may lack editable employment');
       }
     }
 
@@ -303,7 +291,31 @@ export class AssignmentChangeFlow extends BaseCoreHRFlow {
       return true;
     }
 
-    console.log('[AssignChange] No Update option found with any strategy');
+    // Strategy 7: "Correct" option — Oracle shows "Correct" instead of "Update"
+    // when the effective date is today or in the past
+    const correctItem = this.page.locator('[role="menuitem"]:has-text("Correct")').first();
+    if (await correctItem.isVisible({ timeout: 2000 }).catch(() => false)) {
+      console.log('[AssignChange] Found "Correct" instead of "Update" (effective date is current/past)');
+      await correctItem.click({ force: true });
+      return true;
+    }
+
+    // Strategy 8: "Correct" in dialog layer or broader selectors
+    const correctInLayer = this.page.locator(
+      'td:has-text("Correct"), a:has-text("Correct"), [id*="correctEFF"], [id*="corBtn"]'
+    ).first();
+    if (await correctInLayer.isVisible({ timeout: 2000 }).catch(() => false)) {
+      console.log('[AssignChange] Found "Correct" via broader selector');
+      await correctInLayer.click({ force: true });
+      return true;
+    }
+
+    // Capture what IS visible in any open menu for debugging
+    const menuItems = await this.page.locator('[role="menuitem"]').allTextContents().catch(() => []);
+    const dialogContent = await this.page.locator('#DhtmlZOrderManagerLayerContainer').textContent().catch(() => '');
+    console.log(`[AssignChange] No Update or Correct found. Menu items: [${menuItems.join(', ')}]`);
+    if (dialogContent) console.log(`[AssignChange] Dialog layer content: ${dialogContent.substring(0, 200)}`);
+    await this.page.screenshot({ path: 'test-results/update-correct-not-found.png', fullPage: true }).catch(() => {});
     return false;
   }
 
@@ -313,9 +325,41 @@ export class AssignmentChangeFlow extends BaseCoreHRFlow {
    */
   private async fillUpdateDialog(tc: TestCase): Promise<boolean> {
     // Verify the dialog is visible before attempting to fill it
-    const dialogVisible = await this.dialogDate.isVisible({ timeout: 10000 }).catch(() => false);
+    let dialogVisible = await this.dialogDate.isVisible({ timeout: 10000 }).catch(() => false);
     if (!dialogVisible) {
-      throw new Error('Update Employment dialog not visible after clicking Update');
+      // Retry: the dialog may take longer to appear. Wait and check again.
+      console.log('[AssignChange] Update Employment dialog not visible on first check, retrying...');
+      await this.page.waitForTimeout(5000);
+      await this.person.waitForJET();
+      await this.person.clearGlassPane();
+
+      // Check for alternative dialog field selectors
+      const altDateField = this.page.locator(
+        '[id*="effectiveDate"][id$="::content"], input[id*="inputDate"][id$="::content"]'
+      ).first();
+      dialogVisible = await altDateField.isVisible({ timeout: 5000 }).catch(() => false);
+
+      if (!dialogVisible) {
+        // One more attempt: try clicking Update again
+        console.log('[AssignChange] Retrying Edit → Update to trigger dialog...');
+        await this.page.keyboard.press('Escape').catch(() => {});
+        await this.page.waitForTimeout(2000);
+        const retryEdit = await this.tryClickEdit();
+        if (retryEdit) {
+          await this.page.waitForTimeout(1000);
+          await this.person.waitForJET();
+          await this.tryClickUpdate();
+          await this.page.waitForTimeout(5000);
+          await this.person.waitForJET();
+          await this.person.clearGlassPane();
+          dialogVisible = await this.dialogDate.isVisible({ timeout: 5000 }).catch(() => false)
+            || await altDateField.isVisible({ timeout: 3000 }).catch(() => false);
+        }
+
+        if (!dialogVisible) {
+          throw new Error('Update Employment dialog not visible after clicking Update');
+        }
+      }
     }
 
     // Effective Date

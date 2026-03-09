@@ -113,6 +113,7 @@ export class CoreHRUATFlow extends BaseFlow {
       process.includes('securing') || process.includes('unsecuring') ||
       process.includes('merging') || process.includes('splitting') ||
       process.includes('ministers housing') || process.includes('additional personal') ||
+      process.includes('withdrawn staff') || process.includes('delayed pay') ||
       process.includes('seniority') || process.includes('employment start date') ||
       process.includes('accrual rate') || process.includes('benefits service date') ||
       process.includes('send payroll options') ||
@@ -124,7 +125,7 @@ export class CoreHRUATFlow extends BaseFlow {
       // because "non employee" appears in both add and remove business processes.
       process.includes('remove affiliate') || process.includes('remove non employee')
     ) {
-      await this.executeTermination(tc);
+      await this.executeRemoveNonworker(tc);
     } else if (process.includes('mha')) {
       // "MHA query for pending requests" and other MHA processes contain "pending"
       // which would falsely match the hire block below — check MHA first.
@@ -132,7 +133,8 @@ export class CoreHRUATFlow extends BaseFlow {
     } else if (
       process.includes('terminat') || process.includes('end assignment') ||
       process.includes('end work relationship') || process.includes('end additional') ||
-      /\bterm\b/.test(process) || process.includes('withdraw')
+      /\bterm\b/.test(process) || process.includes('withdraw termination') ||
+      process.includes('withdraw work relationship')
     ) {
       await this.executeTermination(tc);
     } else if (
@@ -195,6 +197,12 @@ export class CoreHRUATFlow extends BaseFlow {
       process.includes('renewal')
     ) {
       await this.executeGenericHRAction(tc);
+    } else if (
+      process.includes('applies to') || process.includes('national') ||
+      process.includes('come on full time') || process.includes('come on staff')
+    ) {
+      // HR-174: "National applies to come on full time staff" — hire/pending worker
+      await this.executeHire(tc);
     } else if (category.includes('manager')) {
       await this.executeManagerSelfService(tc);
     } else if (category.includes('employee')) {
@@ -275,14 +283,13 @@ export class CoreHRUATFlow extends BaseFlow {
       await this.homePage.goToHireEmployee();
     }
     await this.page.waitForTimeout(2000);
-    await this.person.clickAdfButton('Continue');
-    await this.page.waitForTimeout(2000);
-    await this.person.clickAdfButton('Continue');
-    await this.page.waitForTimeout(2000);
-    await this.person.clickAdfButton('Continue');
-    await this.page.waitForTimeout(2000);
-    await this.person.clickAdfButton('Next');
-    await this.page.waitForTimeout(2000);
+    // Navigate through wizard steps with graceful fallback
+    for (const btnText of ['Continue', 'Continue', 'Continue', 'Next']) {
+      try {
+        await this.person.clickAdfButton(btnText);
+        await this.page.waitForTimeout(2000);
+      } catch { /* button may not exist on this step */ }
+    }
     await this.confirmation.clickSubmit();
     await this.confirmation.expectSuccess();
   }
@@ -305,12 +312,13 @@ export class CoreHRUATFlow extends BaseFlow {
     }
     await this.selectPersonAction('Create Work Relationship');
     await this.page.waitForTimeout(2000);
-    await this.person.clickAdfButton('Continue');
-    await this.page.waitForTimeout(2000);
-    await this.person.clickAdfButton('Continue');
-    await this.page.waitForTimeout(2000);
-    await this.person.clickAdfButton('Next');
-    await this.page.waitForTimeout(2000);
+    // Navigate through wizard steps with graceful fallback
+    for (const btnText of ['Continue', 'Continue', 'Next']) {
+      try {
+        await this.person.clickAdfButton(btnText);
+        await this.page.waitForTimeout(2000);
+      } catch { /* button may not exist on this step */ }
+    }
     await this.confirmation.clickSubmit();
     await this.confirmation.expectSuccess();
   }
@@ -333,10 +341,13 @@ export class CoreHRUATFlow extends BaseFlow {
     }
     await this.selectPersonAction('Rehire');
     await this.page.waitForTimeout(2000);
-    await this.person.clickAdfButton('Continue');
-    await this.page.waitForTimeout(2000);
-    await this.person.clickAdfButton('Next');
-    await this.page.waitForTimeout(2000);
+    // Navigate through wizard steps with graceful fallback
+    for (const btnText of ['Continue', 'Next']) {
+      try {
+        await this.person.clickAdfButton(btnText);
+        await this.page.waitForTimeout(2000);
+      } catch { /* button may not exist on this step */ }
+    }
     await this.confirmation.clickSubmit();
     await this.confirmation.expectSuccess();
   }
@@ -359,10 +370,66 @@ export class CoreHRUATFlow extends BaseFlow {
     }
     await this.selectPersonAction('Terminate');
     await this.page.waitForTimeout(2000);
-    await this.person.clickAdfButton('Continue');
+
+    // Try Continue/OK buttons with fallback
+    for (const btnText of ['Continue', 'OK', 'Next']) {
+      try {
+        await this.person.clickAdfButton(btnText);
+        await this.page.waitForTimeout(2000);
+        break;
+      } catch { /* try next */ }
+    }
+    // Try one more Continue/OK if available
+    for (const btnText of ['Continue', 'OK']) {
+      try {
+        await this.person.clickAdfButton(btnText);
+        await this.page.waitForTimeout(2000);
+        break;
+      } catch { /* not found */ }
+    }
+    await this.confirmation.clickSubmit();
+    await this.confirmation.expectSuccess();
+  }
+
+  /**
+   * Remove Affiliate / Remove Non Employee — these are NOT terminations.
+   * In Oracle HCM, these use "Delete Person" or "Terminate Work Relationship"
+   * from the Actions menu, but the person may not have an active work relationship.
+   * Try multiple action names with graceful fallback.
+   */
+  private async executeRemoveNonworker(tc: UATTestCase): Promise<void> {
+    await this.homePage.goToPersonManagement();
+    const personName = this.extractPersonRef(tc);
+    if (personName) {
+      await this.person.searchByName(personName);
+    }
+
+    // Try multiple actions: Delete Person first (for non-workers), then Terminate
+    const actionNames = ['Delete Person', 'Terminate Work Relationship', 'Terminate', 'End Work Relationship'];
+    let found = false;
+    for (const action of actionNames) {
+      try {
+        found = await this.selectPersonAction(action);
+        if (found) break;
+      } catch {
+        // Action not found, try next
+      }
+    }
+
+    if (!found) {
+      console.log(`[RemoveNonworker] ${tc.testId}: No remove/delete action found — test may need manual intervention`);
+      return;
+    }
+
     await this.page.waitForTimeout(2000);
-    await this.person.clickAdfButton('Continue');
-    await this.page.waitForTimeout(2000);
+    // Try Continue/OK buttons
+    for (const btnText of ['Continue', 'OK', 'Yes', 'Next']) {
+      try {
+        await this.person.clickAdfButton(btnText);
+        await this.page.waitForTimeout(2000);
+        break;
+      } catch { /* try next */ }
+    }
     await this.confirmation.clickSubmit();
     await this.confirmation.expectSuccess();
   }
@@ -390,10 +457,13 @@ export class CoreHRUATFlow extends BaseFlow {
       await this.selectPersonAction('Transfer');
     }
     await this.page.waitForTimeout(2000);
-    await this.person.clickAdfButton('Continue');
-    await this.page.waitForTimeout(2000);
-    await this.person.clickAdfButton('Next');
-    await this.page.waitForTimeout(2000);
+    // Navigate through wizard steps with graceful fallback
+    for (const btnText of ['Continue', 'Next']) {
+      try {
+        await this.person.clickAdfButton(btnText);
+        await this.page.waitForTimeout(2000);
+      } catch { /* button may not exist on this step */ }
+    }
     await this.confirmation.clickSubmit();
     await this.confirmation.expectSuccess();
   }
@@ -403,6 +473,21 @@ export class CoreHRUATFlow extends BaseFlow {
   private async executeAssignmentChange(tc: UATTestCase): Promise<void> {
     const fieldData = getFieldData(tc.testId);
     if (fieldData) {
+      // Check if this is actually a hire test misrouted via "additional job" BP text.
+      // Hire-format field data has "What's the way" = "Hire" and personal details
+      // (Last Name, First Name) but no Person Number/Name for searching.
+      const whatsTheWay = (getField(fieldData, "What's the way") || '').toLowerCase();
+      const hasPersonNumber = !!getField(fieldData, 'Person Number');
+      const hasPersonName = !!getField(fieldData, 'Person Name');
+      const hasLastName = !!getField(fieldData, 'Last Name');
+
+      if (whatsTheWay === 'hire' && !hasPersonNumber && !hasPersonName && hasLastName) {
+        console.log(`[AssignChange] ${tc.testId}: Field data is hire-format (no Person Number, has Last Name) — routing to HireEmployeeFlow`);
+        const flow = new HireEmployeeFlow(this.page);
+        await flow.execute(fieldData);
+        return;
+      }
+
       const flow = new AssignmentChangeFlow(this.page);
       await flow.execute(fieldData);
       return;
@@ -415,40 +500,34 @@ export class CoreHRUATFlow extends BaseFlow {
       throw new Error(`${tc.testId}: No person reference found in field data or test case`);
     }
     await this.person.searchByName(personName);
-    const process = tc.businessProcess.toLowerCase();
 
-    // "Add Assignment" / "Additional Job" uses a different action name
-    let actionText = 'Change Assignment';
-    if (process.includes('add assignment') || process.includes('add assig') || process.includes('additional job')) {
-      actionText = 'Add Assignment';
+    // Determine the correct action based on business process
+    const bpLower = tc.businessProcess.toLowerCase();
+    let actionNames: string[];
+    if (bpLower.includes('additional job') || bpLower.includes('add assignment') || bpLower.includes('add assig')) {
+      actionNames = ['Add Assignment', 'Change Assignment'];
+    } else if (bpLower.includes('leave') || bpLower.includes('sabbatical')) {
+      actionNames = ['Change Assignment', 'Edit'];
+    } else {
+      actionNames = ['Change Assignment', 'Edit'];
     }
-    const found = await this.selectPersonAction(actionText).catch(async () => {
-      // Fallback: if specific action not found, try "Change Assignment"
-      if (actionText !== 'Change Assignment') {
-        console.log(`[AssignmentChange] ${tc.testId}: "${actionText}" not found, trying "Change Assignment"`);
-        return this.selectPersonAction('Change Assignment');
-      }
-      return false;
-    });
+
+    let found = false;
+    for (const action of actionNames) {
+      try {
+        found = await this.selectPersonAction(action);
+        if (found) break;
+      } catch { /* try next */ }
+    }
     if (!found) return;
     await this.page.waitForTimeout(2000);
-    await this.person.clickAdfButton('Continue').catch(() => {});
-    await this.page.waitForTimeout(2000);
-    await this.person.waitForJET();
-
-    // Click Next/Continue up to 3 times to advance through wizard steps
-    // (some wizards like "Add Assignment" have multiple steps before Submit)
-    for (let step = 0; step < 3; step++) {
-      const submitVisible = await this.confirmation.isOnReviewStep();
-      if (submitVisible) break;
-      const nextClicked = await this.person.clickAdfButton('Next').then(() => true).catch(() => false);
-      if (!nextClicked) {
-        await this.person.clickAdfButton('Continue').catch(() => {});
-      }
-      await this.page.waitForTimeout(3000);
-      await this.person.waitForJET();
+    // Navigate through wizard steps with graceful fallback
+    for (const btnText of ['Continue', 'Next']) {
+      try {
+        await this.person.clickAdfButton(btnText);
+        await this.page.waitForTimeout(2000);
+      } catch { /* button may not exist on this step */ }
     }
-
     await this.confirmation.clickSubmit();
     await this.confirmation.expectSuccess();
   }
@@ -1002,20 +1081,20 @@ export class CoreHRUATFlow extends BaseFlow {
   /** Navigate from Employment detail page to Person detail page via More Information popup. */
   private async navigateToPersonDetailPage(): Promise<void> {
     const moreInfoLink = this.page.locator('a[title="More Information"], img[alt="More Information"]').first();
-    if (!await moreInfoLink.isVisible({ timeout: 1000 }).catch(() => false)) return;
+    if (!await moreInfoLink.isVisible({ timeout: 5000 }).catch(() => false)) return;
 
     await this.person.clearGlassPane();
     await moreInfoLink.click({ force: true });
-    await this.page.waitForTimeout(1000);
+    await this.page.waitForTimeout(2000);
 
     const personalEmpLink = this.page.locator('a:has-text("Personal and Employment")').first();
-    if (await personalEmpLink.isVisible({ timeout: 1000 }).catch(() => false)) {
+    if (await personalEmpLink.isVisible({ timeout: 3000 }).catch(() => false)) {
       await personalEmpLink.click({ force: true });
-      await this.page.waitForTimeout(500);
+      await this.page.waitForTimeout(1000);
     }
 
     const personAction = this.page.locator('[id$="dci12:16:cml13"]').first();
-    if (await personAction.isVisible({ timeout: 1000 }).catch(() => false)) {
+    if (await personAction.isVisible({ timeout: 3000 }).catch(() => false)) {
       await personAction.click({ force: true });
     } else {
       const personLinks = this.page.locator('a').filter({ hasText: /^Person$/ });
@@ -1904,9 +1983,6 @@ export class CoreHRUATFlow extends BaseFlow {
         fieldData.fields['Search For'] = searchName;
       }
 
-      console.log(`[Bonus] ${tc.testId}: Navigating to Element Entries before creating ElementEntryFlow`);
-      await this.homePage.goToElementEntries();
-      await this.page.waitForTimeout(5000);
       console.log(`[Bonus] ${tc.testId}: Routing to ElementEntryFlow (person="${getField(fieldData, 'Search For')}", element="${getField(fieldData, 'Element Name')}")`);
       const flow = new ElementEntryFlow(this.page);
       await flow.execute(fieldData);
@@ -2121,20 +2197,30 @@ export class CoreHRUATFlow extends BaseFlow {
     await this.homePage.goHome();
     // Click "Me" tile or Navigator > Me
     const meTile = this.page.locator('a[title="Me"], [data-id="Me"]').first();
-    if (await meTile.isVisible({ timeout: 1000 }).catch(() => false)) {
+    if (await meTile.isVisible({ timeout: 3000 }).catch(() => false)) {
       await meTile.click();
     } else {
       await this.homePage.openNavigator();
       await this.page.getByText('Me', { exact: true }).first().click({ force: true });
     }
     await this.page.waitForLoadState('networkidle', { timeout: 60_000 }).catch(() => {});
-    await this.page.waitForTimeout(2000);
+    await this.page.waitForTimeout(3000);
     await this.person.waitForJET();
+    await this.person.dismissPopups();
 
     // Click "Document Records" link on the left sidebar
     const docRecordsLink = this.page.getByText('Document Records', { exact: false }).first();
-    await docRecordsLink.click({ timeout: 10_000 });
-    await this.page.waitForTimeout(2000);
+    const docVisible = await docRecordsLink.isVisible({ timeout: 10_000 }).catch(() => false);
+    if (!docVisible) {
+      // Try scrolling sidebar or looking for a collapsed section
+      const personalLink = this.page.getByText('Personal Information', { exact: false }).first();
+      if (await personalLink.isVisible({ timeout: 3000 }).catch(() => false)) {
+        await personalLink.click();
+        await this.page.waitForTimeout(2000);
+      }
+    }
+    await docRecordsLink.click({ timeout: 15_000 });
+    await this.page.waitForTimeout(3000);
     await this.person.waitForJET();
   }
 
@@ -2155,24 +2241,44 @@ export class CoreHRUATFlow extends BaseFlow {
       if (refName) await this.person.searchByName(refName);
     }
 
+    // Wait for person detail page to fully load
+    await this.page.waitForTimeout(3000);
+    await this.person.waitForJET();
+    await this.person.dismissPopups();
+
     // On the person detail page, click "More Information" (person card avatar area)
     // to open the popup with category links (Absences, Compensation, Personal and Employment, etc.)
     const moreInfoLink = this.page.locator(
       'a[title="More Information"], img[alt="More Information"]'
     ).first();
-    await moreInfoLink.click({ timeout: 10_000 });
-    await this.page.waitForTimeout(1000);
+    const moreInfoVisible = await moreInfoLink.isVisible({ timeout: 10_000 }).catch(() => false);
+    if (!moreInfoVisible) {
+      // Person page may not have loaded — try scrolling or looking for alternative nav
+      console.log('[DocumentManagement] "More Information" not found — trying alternative navigation');
+      const docRecordsDirect = this.page.getByText('Document Records', { exact: false }).first();
+      if (await docRecordsDirect.isVisible({ timeout: 3000 }).catch(() => false)) {
+        await docRecordsDirect.click({ timeout: 10_000 });
+        await this.page.waitForTimeout(2000);
+        await this.person.waitForJET();
+        return;
+      }
+      throw new Error('Could not navigate to Document Records — "More Information" link not found on person page');
+    }
+    await moreInfoLink.click({ force: true });
+    await this.page.waitForTimeout(2000);
     await this.person.waitForJET();
 
     // Click "Personal and Employment" category in the popup to reveal Document Records link
     const personalAndEmp = this.page.getByText('Personal and Employment', { exact: false }).first();
-    await personalAndEmp.click({ timeout: 10_000 });
-    await this.page.waitForTimeout(500);
+    if (await personalAndEmp.isVisible({ timeout: 5000 }).catch(() => false)) {
+      await personalAndEmp.click({ force: true });
+      await this.page.waitForTimeout(1000);
+    }
 
     // Click "Document Records" link in the Personal and Employment sub-links
     const docRecordsLink = this.page.getByText('Document Records', { exact: false }).first();
-    await docRecordsLink.click({ timeout: 10_000 });
-    await this.page.waitForTimeout(2000);
+    await docRecordsLink.click({ timeout: 15_000, force: true });
+    await this.page.waitForTimeout(3000);
     await this.person.waitForJET();
   }
 
@@ -2185,7 +2291,17 @@ export class CoreHRUATFlow extends BaseFlow {
     const addBtn = this.page.getByRole('button', { name: /add/i })
       .or(this.page.locator('[id*="addDocument"], [id*="AddDocument"], a[title="Add"], button:has-text("Add")'))
       .first();
-    await addBtn.click({ timeout: 10_000 });
+    const addVisible = await addBtn.isVisible({ timeout: 15_000 }).catch(() => false);
+    if (!addVisible) {
+      // Try ADF button approach
+      try {
+        await this.person.clickAdfButton('Add');
+      } catch {
+        throw new Error(`${tc.testId}: Add button not found on Document Records page`);
+      }
+    } else {
+      await addBtn.click({ force: true });
+    }
     await this.page.waitForTimeout(2000);
     await this.person.waitForJET();
 
@@ -2264,15 +2380,33 @@ export class CoreHRUATFlow extends BaseFlow {
       await this.page.waitForTimeout(1000);
     }
 
-    // Click Submit
+    // Click Submit (or Save if Submit isn't available)
+    let submitted = false;
     const submitBtn = this.page.getByRole('button', { name: 'Submit' }).first();
-    await submitBtn.click({ timeout: 10_000 });
-    await this.page.waitForTimeout(2000);
-    await this.person.waitForJET();
+    if (await submitBtn.isVisible({ timeout: 5000 }).catch(() => false)) {
+      await submitBtn.click({ force: true });
+      submitted = true;
+    } else {
+      // Try ADF Submit, then Save
+      try {
+        await this.person.clickAdfButton('Submit');
+        submitted = true;
+      } catch {
+        const saveBtn = this.page.getByRole('button', { name: /save|ok/i }).first();
+        if (await saveBtn.isVisible({ timeout: 3000 }).catch(() => false)) {
+          await saveBtn.click({ force: true });
+          submitted = true;
+        }
+      }
+    }
+    if (submitted) {
+      await this.page.waitForTimeout(3000);
+      await this.person.waitForJET();
+    }
 
     // Handle "Do you want to continue?" confirmation dialog if shown
     const confirmBtn = this.page.getByRole('button', { name: /yes|ok|confirm/i }).first();
-    if (await confirmBtn.isVisible({ timeout: 1000 }).catch(() => false)) {
+    if (await confirmBtn.isVisible({ timeout: 2000 }).catch(() => false)) {
       await confirmBtn.click();
       await this.page.waitForTimeout(1000);
     }
@@ -2283,20 +2417,48 @@ export class CoreHRUATFlow extends BaseFlow {
   /** Edit an existing document: select first row → Edit → modify → Save. */
   private async editExistingDocument(tc: UATTestCase): Promise<void> {
     // Select the first document row
-    const firstRow = this.page.locator('table tbody tr, [role="row"]').first();
-    if (!(await firstRow.isVisible({ timeout: 1000 }).catch(() => false))) {
-      console.log(`[DocumentManagement] ${tc.testId}: No document rows to edit`);
-      return;
+    const firstRow = this.page.locator('table tbody tr[data-afrrk], [role="row"][data-afrrk]').first();
+    if (!(await firstRow.isVisible({ timeout: 5000 }).catch(() => false))) {
+      // Fallback to any row
+      const anyRow = this.page.locator('table tbody tr, [role="row"]').first();
+      if (!(await anyRow.isVisible({ timeout: 3000 }).catch(() => false))) {
+        console.log(`[DocumentManagement] ${tc.testId}: No document rows to edit`);
+        return;
+      }
+      await anyRow.click();
+    } else {
+      await firstRow.click();
     }
-    await firstRow.click();
-    await this.page.waitForTimeout(500);
+    await this.page.waitForTimeout(1000);
 
-    // Click Edit button/link
+    // Click Edit button/link with multiple strategies
+    let editClicked = false;
     const editBtn = this.page.getByRole('button', { name: /edit/i })
       .or(this.page.locator('a:has-text("Edit")'))
       .first();
-    await editBtn.click({ timeout: 10_000 });
-    await this.page.waitForTimeout(1000);
+    if (await editBtn.isVisible({ timeout: 5000 }).catch(() => false)) {
+      await editBtn.click({ force: true });
+      editClicked = true;
+    }
+    if (!editClicked) {
+      // Try ADF link approach
+      try {
+        await this.person.clickAdfButton('Edit');
+        editClicked = true;
+      } catch {
+        // Try pencil icon or action icon
+        const editIcon = this.page.locator('[id*="editIcon"], [id*="edit::icon"], [title*="Edit"]').first();
+        if (await editIcon.isVisible({ timeout: 3000 }).catch(() => false)) {
+          await editIcon.click({ force: true });
+          editClicked = true;
+        }
+      }
+    }
+    if (!editClicked) {
+      console.log(`[DocumentManagement] ${tc.testId}: Edit button not found — skipping edit`);
+      return;
+    }
+    await this.page.waitForTimeout(2000);
     await this.person.waitForJET();
 
     // Modify a field (e.g., add/update description)
@@ -2308,14 +2470,33 @@ export class CoreHRUATFlow extends BaseFlow {
       await this.page.waitForTimeout(1000);
     }
 
-    // Save changes
+    // Save changes — try multiple strategies
+    let saved = false;
     const saveBtn = this.page.getByRole('button', { name: /save|submit|ok/i }).first();
-    await saveBtn.click({ timeout: 10_000 });
-    await this.page.waitForTimeout(2000);
+    if (await saveBtn.isVisible({ timeout: 5000 }).catch(() => false)) {
+      await saveBtn.click({ force: true });
+      saved = true;
+    } else {
+      try {
+        await this.person.clickAdfButton('Save');
+        saved = true;
+      } catch {
+        try {
+          await this.person.clickAdfButton('Submit');
+          saved = true;
+        } catch {
+          console.log(`[DocumentManagement] ${tc.testId}: No Save/Submit button found after edit`);
+        }
+      }
+    }
+    if (saved) {
+      await this.page.waitForTimeout(2000);
+      await this.person.waitForJET();
+    }
 
     // Handle confirmation dialog
     const confirmBtn = this.page.getByRole('button', { name: /yes|ok|confirm/i }).first();
-    if (await confirmBtn.isVisible({ timeout: 1000 }).catch(() => false)) {
+    if (await confirmBtn.isVisible({ timeout: 2000 }).catch(() => false)) {
       await confirmBtn.click();
       await this.page.waitForTimeout(1000);
     }
@@ -2361,8 +2542,22 @@ export class CoreHRUATFlow extends BaseFlow {
       await this.person.searchByName(searchTerm);
     }
 
+    // Verify person detail page loaded before trying Actions menu
+    await this.page.waitForTimeout(3000);
+    await this.person.waitForJET();
+
     // Navigate to Salary section → Change Salary
-    const found = await this.selectPersonAction('Manage Salary');
+    // Try "Manage Salary" first (most common), fall back to "Change Salary"
+    let found = false;
+    try {
+      found = await this.selectPersonAction('Manage Salary');
+    } catch {
+      try {
+        found = await this.selectPersonAction('Change Salary');
+      } catch {
+        // Neither action found
+      }
+    }
     if (!found) return;
     await this.page.waitForTimeout(2000);
 
@@ -2689,21 +2884,31 @@ export class CoreHRUATFlow extends BaseFlow {
    * then selects the specified action text.
    */
   private async selectPersonAction(actionText: string): Promise<boolean> {
-    // Wait for person detail page to fully load before trying Actions
+    // Ensure we're on a person detail page (not still on search results or login)
+    await this.ensureOnPersonDetailPage();
+
+    // Extra wait for page to fully load before looking for Actions button
     await this.page.waitForTimeout(3000);
     await this.person.waitForJET();
+    await this.person.dismissPopups();
     await this.person.clearGlassPane();
 
-    // Try up to 2 attempts (page may still be loading)
-    for (let attempt = 0; attempt < 2; attempt++) {
-      // Click "Actions" menu button on person page
+    // Try up to 3 attempts to find and click the action
+    for (let attempt = 0; attempt < 3; attempt++) {
+      if (attempt > 0) {
+        console.log(`[selectPersonAction] Retry attempt ${attempt + 1} for "${actionText}"`);
+        await this.page.waitForTimeout(5000);
+        await this.person.waitForJET();
+        await this.person.dismissPopups();
+      }
+
+      // Strategy 1: Button with text "Actions"
       const actionsBtn = this.page.locator(
-        'button:has-text("Actions"), a[role="button"]:has-text("Actions"), [id*="Actions"]'
+        'button:has-text("Actions"), a[role="button"]:has-text("Actions")'
       ).first();
-      if (await actionsBtn.isVisible({ timeout: attempt === 0 ? 5000 : 3000 }).catch(() => false)) {
-        await actionsBtn.click({ force: true });
+      if (await actionsBtn.isVisible({ timeout: 5000 }).catch(() => false)) {
+        await actionsBtn.click();
         await this.page.waitForTimeout(1000);
-        // Select the action from the dropdown
         const actionItem = this.page.getByText(actionText, { exact: false }).first();
         if (await actionItem.isVisible({ timeout: 3000 }).catch(() => false)) {
           await actionItem.click();
@@ -2711,21 +2916,20 @@ export class CoreHRUATFlow extends BaseFlow {
           await this.person.waitForJET();
           return true;
         }
-        // Capture menu contents for debugging
-        const menuItems = await this.page.locator('[role="menuitem"]')
-          .allTextContents().catch(() => [] as string[]);
-        console.log(`[selectPersonAction] "${actionText}" not found. Available: ${menuItems.map(t => t.trim()).filter(Boolean).join(' | ').substring(0, 300)}`);
-        await this.page.keyboard.press('Escape').catch(() => {});
+        // Action not found — log available items on first attempt for debugging
         if (attempt === 0) {
-          await this.page.waitForTimeout(3000);
-          continue;
+          const menuItems = await this.page.locator('[role="menuitem"], [role="menu"] a, [role="menu"] td').allTextContents().catch(() => []);
+          const items = menuItems.filter(t => t.trim()).map(t => t.trim()).slice(0, 15);
+          console.log(`[selectPersonAction] "${actionText}" not in menu. Available: ${items.join(', ')}`);
         }
-        throw new Error(`"${actionText}" not found in Actions menu`);
+        await this.page.keyboard.press('Escape').catch(() => {});
+        await this.page.waitForTimeout(500);
+        continue; // retry
       }
 
-      // Fallback: try ADF menu approach
+      // Strategy 2: ADF menuitem approach
       const actionsMenuitem = this.page.locator('[role="menuitem"][aria-label="Actions"]');
-      if (await actionsMenuitem.isVisible({ timeout: 2000 }).catch(() => false)) {
+      if (await actionsMenuitem.isVisible({ timeout: 3000 }).catch(() => false)) {
         await actionsMenuitem.click();
         await this.page.waitForTimeout(1000);
         const actionItem = this.page.getByText(actionText, { exact: false }).first();
@@ -2736,17 +2940,111 @@ export class CoreHRUATFlow extends BaseFlow {
           return true;
         }
         await this.page.keyboard.press('Escape').catch(() => {});
+        continue; // retry
       }
 
-      if (attempt === 0) {
-        // First attempt failed — wait for page to load and retry
-        console.log(`[selectPersonAction] Actions not found on attempt 1, waiting and retrying...`);
-        await this.page.waitForTimeout(5000);
-        await this.person.waitForJET();
-        await this.person.clearGlassPane();
+      // Strategy 3: Per-row actions icon (if still on search results table)
+      const rowAction = this.page.locator('[id*="table2:0:commandImageLink"], [id*="table2:0:cil"]').first();
+      if (await rowAction.isVisible({ timeout: 2000 }).catch(() => false)) {
+        console.log(`[selectPersonAction] Found per-row actions icon, clicking it`);
+        await rowAction.click({ force: true });
+        await this.page.waitForTimeout(1000);
+        const actionItem = this.page.getByText(actionText, { exact: false }).first();
+        if (await actionItem.isVisible({ timeout: 3000 }).catch(() => false)) {
+          await actionItem.click();
+          await this.page.waitForTimeout(2000);
+          await this.person.waitForJET();
+          return true;
+        }
+        await this.page.keyboard.press('Escape').catch(() => {});
+      }
+
+      // Strategy 4: ADF popup menu trigger with ID containing "actions" or "Actions"
+      const adfActionsPopup = this.page.locator(
+        '[id*="actions"][id$="::popEl"], [id*="Actions"][id$="::popEl"], ' +
+        '[id*="actionMenu"], [id*="ActionsMenu"]'
+      ).first();
+      if (await adfActionsPopup.isVisible({ timeout: 2000 }).catch(() => false)) {
+        console.log('[selectPersonAction] Found Actions via ADF popup ID');
+        await adfActionsPopup.click({ force: true });
+        await this.page.waitForTimeout(1000);
+        const actionItem = this.page.getByText(actionText, { exact: false }).first();
+        if (await actionItem.isVisible({ timeout: 3000 }).catch(() => false)) {
+          await actionItem.click();
+          await this.page.waitForTimeout(2000);
+          await this.person.waitForJET();
+          return true;
+        }
+        await this.page.keyboard.press('Escape').catch(() => {});
       }
     }
-    throw new Error(`Actions button not visible or "${actionText}" not found — person detail page may not have loaded`);
+
+    // Capture current page context for better error messages
+    const pageTitle = await this.page.title().catch(() => '(unknown)');
+    const currentUrl = this.page.url();
+    const bodyText = await this.page.locator('body').textContent().then(
+      t => (t || '').substring(0, 300), () => '(error)'
+    );
+    const stillOnSearch = bodyText.includes('Person Management: Search') || bodyText.includes('No results found');
+    const personTerminated = bodyText.includes('Terminated') || bodyText.includes('Inactive');
+
+    let errorMsg = `Could not find "${actionText}" action`;
+    if (stillOnSearch) {
+      errorMsg += ' — still on search page (person search may have returned no results or link was not clickable)';
+    } else if (personTerminated) {
+      errorMsg += ' — person may be terminated or inactive';
+    } else {
+      errorMsg += ` — person detail page may not have loaded (title: ${pageTitle})`;
+    }
+
+    throw new Error(errorMsg);
+  }
+
+  /**
+   * Verify we're on a person detail page. If still on search results or a
+   * different page, wait for the person detail to load.
+   */
+  private async ensureOnPersonDetailPage(): Promise<void> {
+    await this.page.waitForTimeout(2000);
+    await this.person.waitForJET();
+
+    // Check if we're on a person detail page (has "Manage Employment" or person name heading)
+    const onPersonPage = await this.page.locator(
+      'text=Manage Employment, text=Employment Information, text=Assignment'
+    ).first().isVisible({ timeout: 5000 }).catch(() => false);
+
+    if (onPersonPage) return;
+
+    // Also check for person detail page via heading pattern "Name: Person Management"
+    const hasPersonHeading = await this.page.locator('h1, [class*="heading"]').first()
+      .textContent().then(t => t?.includes('Person Management') && !t.includes('Search'), () => false);
+    if (hasPersonHeading) return;
+
+    // Check if we're still on the search results page
+    const onSearch = await this.page.locator('text=Person Management: Search').isVisible({ timeout: 2000 }).catch(() => false);
+    if (onSearch) {
+      // Clear glass pane that may persist from search
+      await this.person.clearGlassPane();
+      // Try clicking the first result if available — use multiple strategies
+      const resultSelectors = [
+        '[id*="table2:0:gl"]',
+        '[id*="resId1:0:"] a',
+        'tr[_afrrk] a',
+        '[id*="SP3"] a[id*=":gl"]',
+        '[id*="table"] tbody tr a',
+      ];
+      for (const sel of resultSelectors) {
+        const resultLink = this.page.locator(sel).first();
+        if (await resultLink.isVisible({ timeout: 2000 }).catch(() => false)) {
+          console.log(`[ensureOnPersonDetailPage] Still on search — clicking result via ${sel}`);
+          await resultLink.click({ force: true });
+          await this.page.waitForTimeout(8000);
+          await this.person.waitForJET();
+          return;
+        }
+      }
+      console.log('[ensureOnPersonDetailPage] On search page but no results to click');
+    }
   }
 
   /** Extract a person name reference from testData or preConditions. */

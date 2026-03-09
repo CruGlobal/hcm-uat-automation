@@ -14,28 +14,58 @@ export class HomePage extends BasePage {
   private readonly TASK_LINK_PREFIX = '_FOpt1:_FOr1:0:_FONSr2:0:_FOTsr1:0:cl01Upl:UPsp1:cl01Pce:';
 
   /**
+   * Verify the page is interactive (Navigator link visible).
+   * If the session is dead or on a login page, re-login using bot credentials.
+   */
+  async ensureSessionAlive(): Promise<void> {
+    const navVisible = await this.navigator.isVisible({ timeout: 5000 }).catch(() => false);
+    if (navVisible) return;
+
+    console.log('[Home] Session check: Navigator not visible, recovering...');
+    const url = this.page.url();
+
+    // If on a login page, re-authenticate immediately
+    if (url.includes('login') || url.includes('okta') || url.includes('signin') || url.includes('auth_cred_submit')) {
+      console.log('[Home] On login page, re-authenticating...');
+      const login = new LoginPage(this.page);
+      await login.fullLogin();
+      return;
+    }
+
+    // Try navigating to home page to revive session
+    await this.page.goto('/fscmUI/faces/AtkHomePageWelcome', { timeout: 60_000 }).catch(() => {});
+    await this.page.waitForLoadState('networkidle', { timeout: 30_000 }).catch(() => {});
+    await this.page.waitForTimeout(3000);
+
+    // Check if we got redirected to login
+    const postNavUrl = this.page.url();
+    if (postNavUrl.includes('login') || postNavUrl.includes('okta') || postNavUrl.includes('signin')) {
+      console.log('[Home] Redirected to login after home navigation, re-authenticating...');
+      const login = new LoginPage(this.page);
+      await login.fullLogin();
+      return;
+    }
+
+    // Check if Navigator appeared
+    const retryVisible = await this.navigator.isVisible({ timeout: 5000 }).catch(() => false);
+    if (retryVisible) return;
+
+    // Last resort: fresh login
+    console.log('[Home] Navigator still not visible, performing fresh login...');
+    const login = new LoginPage(this.page);
+    await login.fullLogin();
+  }
+
+  /**
    * Open the navigator/hamburger menu and expand all sections.
    * If Navigator isn't visible, attempts session recovery (re-login).
    */
   async openNavigator(): Promise<void> {
     const navVisible = await this.navigator.isVisible({ timeout: 5000 }).catch(() => false);
     if (!navVisible) {
-      // Session may have expired — try navigating to home first
-      console.log('[Home] Navigator not visible, attempting session recovery...');
-      const url = this.page.url();
+      await this.ensureSessionAlive();
 
-      if (url.includes('login') || url.includes('okta') || url.includes('signin')) {
-        // On login page — re-authenticate
-        console.log('[Home] On login page, re-authenticating...');
-        const login = new LoginPage(this.page);
-        await login.fullLogin();
-      } else {
-        // Try navigating to Oracle HCM home
-        await this.page.goto('/fscmUI/faces/AtkHomePageWelcome', { timeout: 60_000 }).catch(() => {});
-        await this.page.waitForTimeout(5000);
-      }
-
-      // Check again
+      // Check again after recovery
       const retryVisible = await this.navigator.isVisible({ timeout: 10000 }).catch(() => false);
       if (!retryVisible) {
         throw new Error('Navigator not visible after session recovery attempt');
@@ -309,13 +339,25 @@ export class HomePage extends BasePage {
     await this.navigateVia('nv_itemNode_my_information_pay', 'Pay');
   }
 
-  /** Navigate to Scheduled Processes (Tools). Falls back to direct URL. */
+  /** Navigate to Scheduled Processes (Tools). Falls back to direct URL. Verifies destination. */
   async goToScheduledProcesses(): Promise<void> {
     try {
       await this.navigateVia('nv_itemNode_tools_scheduled_processes_fuse_plus', 'Scheduled Processes');
     } catch {
       console.log('[Home] Navigator fallback: direct URL for Scheduled Processes');
       await this.gotoDirectUrl('itemNode_tools_scheduled_processes');
+    }
+    // Verify we actually landed on Scheduled Processes (not home page)
+    const onScheduledProcesses = await this.page.locator(
+      'h1:has-text("Scheduled Processes"), a:has-text("Schedule New Process"), [class*="page-title"]:has-text("Scheduled")'
+    ).first().isVisible({ timeout: 5000 }).catch(() => false);
+    if (!onScheduledProcesses) {
+      const currentUrl = this.page.url();
+      console.log(`[Home] Not on Scheduled Processes (URL: ${currentUrl}), retrying with direct URL`);
+      await this.gotoDirectUrl('itemNode_tools_scheduled_processes_fuse_plus');
+      // Wait a bit more for the page to load
+      await this.page.waitForTimeout(5000);
+      await this.waitForJET();
     }
   }
 
@@ -377,8 +419,26 @@ export class HomePage extends BasePage {
         await this.page.waitForLoadState('networkidle', { timeout: 60_000 });
       }
     }
+    await this.closeNavigator();
     await this.page.waitForTimeout(5000);
     await this.waitForReady();
+
+    // Verify we landed on Element Entries page — look for the search field
+    const eeSearchField = this.page.locator(
+      '[id*="pglSearchByPersonNumberPersonNameA::content"], [id*="personName::content"], input[placeholder*="Person"], ' +
+      'input[aria-label*="Person"], input[aria-label*="Employee"], input[aria-label*="Worker"]'
+    ).first();
+    if (!await eeSearchField.isVisible({ timeout: 5000 }).catch(() => false)) {
+      // Try deep link to Element Entries
+      console.log('[Home] Element Entries page not loaded — trying deep link');
+      const baseUrl = process.env.ORACLE_HCM_URL || 'https://stafflife-icahjb-test.fa.ocs.oraclecloud.com';
+      await this.page.goto(`${baseUrl}/fscmUI/faces/deeplink?objType=ELEMENT_ENTRIES&action=NONE`, {
+        waitUntil: 'domcontentloaded',
+        timeout: 60_000,
+      }).catch(() => {});
+      await this.page.waitForTimeout(5000);
+      await this.waitForReady();
+    }
   }
 
   /** Navigate to an Oracle HCM page by its fndGlobalItemNodeId (direct URL bypass). */

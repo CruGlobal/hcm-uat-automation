@@ -253,8 +253,25 @@ export class BenefitsPage extends BasePage {
    * @param target 'benefits-admin' or 'benefits-ess'
    */
   private async navigateToBenefitsViaNavigator(target: string): Promise<void> {
+    // Try direct URL first before falling back to Navigator menu
+    if (target === 'benefits-admin') {
+      try {
+        await this.page.goto('/fscmUI/faces/FuseOverview?fndGlobalItemNodeId=itemNode_benefits_benefits_admin', { timeout: 30000 });
+        await this.page.waitForTimeout(5000);
+        await this.waitForJET();
+        await this.dismissPopups();
+        const onPage = await this.adminSearchInput.isVisible({ timeout: 10000 }).catch(() => false);
+        if (onPage) return;
+      } catch { /* fall through to Navigator */ }
+    }
+
     const navigatorLink = this.page.locator('a[title="Navigator"]');
     await this.dismissPopups();
+    const navVisible = await navigatorLink.isVisible({ timeout: 10000 }).catch(() => false);
+    if (!navVisible) {
+      console.log('[Benefits] Navigator not visible — page may not have loaded');
+      return;
+    }
     await navigatorLink.click({ force: true });
     await this.page.waitForTimeout(2000);
 

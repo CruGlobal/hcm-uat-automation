@@ -107,17 +107,48 @@ async function fetchTab(tabName: string, accessToken: string): Promise<string[][
 function parseTab(tabName: string, rows: string[][]): UATTestCase[] {
   if (rows.length < 2) return [];
 
-  // Find header row (contains "Test ID" in first column)
+  // Find header row — look for "Test ID" or similar across all columns in first 5 rows.
+  // Some tabs have "PR ID" in column B (not the test ID), and column A may have a
+  // non-standard header like a number ("9") but still contain test IDs (HR-001, etc.).
   let headerIdx = -1;
+  let testIdColOverride = -1;
   for (let i = 0; i < Math.min(rows.length, 5); i++) {
-    const cell = (rows[i][0] || '').toLowerCase();
-    if (cell.includes('test id') || cell === 'test id') {
-      headerIdx = i;
-      break;
+    for (let j = 0; j < (rows[i] || []).length; j++) {
+      const cell = (rows[i][j] || '').toLowerCase().trim();
+      if (cell === 'test id' || cell.includes('test id')) {
+        headerIdx = i;
+        testIdColOverride = j;
+        break;
+      }
+    }
+    if (headerIdx !== -1) break;
+  }
+
+  // Fallback: if no "Test ID" header found, check if a row has recognizable headers
+  // (Module, Business Process) and the first data row has test-ID-like values in column A.
+  if (headerIdx === -1) {
+    for (let i = 0; i < Math.min(rows.length, 5); i++) {
+      const rowLower = (rows[i] || []).map(c => (c || '').toLowerCase().trim());
+      const hasModule = rowLower.some(c => c === 'module');
+      const hasBP = rowLower.some(c => c.includes('business process'));
+      if (hasModule && hasBP) {
+        // Check if next row has test-ID-like value in column 0 (e.g., HR-001, PY-001, AB-001)
+        const nextRow = rows[i + 1];
+        if (nextRow) {
+          const firstCell = (nextRow[0] || '').trim();
+          if (/^[A-Z]{2,3}-\d{3}/.test(firstCell)) {
+            headerIdx = i;
+            testIdColOverride = 0; // Column A has test IDs despite non-standard header
+            console.log(`  Found header row ${i} with test IDs in column A (header: "${rows[i][0]}")`);
+            break;
+          }
+        }
+      }
     }
   }
+
   if (headerIdx === -1) {
-    console.warn(`  No "Test ID" header found in tab "${tabName}", skipping`);
+    console.warn(`  No header row found in tab "${tabName}", skipping`);
     return [];
   }
 
@@ -129,7 +160,8 @@ function parseTab(tabName: string, rows: string[][]): UATTestCase[] {
     return idx >= 0 ? idx : -1;
   };
 
-  const testIdCol = col('test id');
+  // Use the override from header detection (handles "PR ID" and shifted columns)
+  const testIdCol = testIdColOverride >= 0 ? testIdColOverride : col('test id');
   const moduleCol = col('module');
   const bpCol = col('business process');
   const scenarioCol = col('test scenario');
@@ -147,7 +179,7 @@ function parseTab(tabName: string, rows: string[][]): UATTestCase[] {
   const dateCol = col('test date');
 
   if (testIdCol === -1) {
-    console.warn(`  "Test ID" column not found in tab "${tabName}"`);
+    console.warn(`  "Test ID"/"PR ID" column not found in tab "${tabName}"`);
     return [];
   }
 

@@ -44,7 +44,7 @@ const trackingStatusFilter = args.includes('--tracking-status') ? args[args.inde
 const maxProcessesArg = args.includes('--max-processes') ? parseInt(args[args.indexOf('--max-processes') + 1] || '70', 10) : null;
 
 // ─── Hard cap on concurrent Playwright processes (system-wide) ───────────────
-const HARD_CAP = maxProcessesArg ?? 70;
+const HARD_CAP = maxProcessesArg ?? 50;
 
 function countExistingPlaywrightProcesses(): number {
   try {

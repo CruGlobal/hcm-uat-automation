@@ -23,7 +23,7 @@ export class PayrollProcessingPage extends BasePage {
 
   /** "Schedule New Process" button on the Scheduled Processes page. */
   private readonly scheduleNewProcessLink = this.page.locator(
-    'a[role="button"]:has-text("Schedule New Process"), button:has-text("Schedule New Process"), a:has-text("Schedule New Process"), [title="Schedule New Process"]'
+    'a[role="button"]:has-text("Schedule New Process"), button:has-text("Schedule New Process"), a:has-text("Schedule New Process")'
   ).first();
 
   /** "Resubmit" link button. */
@@ -175,6 +175,94 @@ export class PayrollProcessingPage extends BasePage {
   // --- Navigation methods ---
 
   /**
+   * If we're on the Payroll landing/tile page instead of a specific sub-page,
+   * click the relevant tile to navigate deeper.
+   */
+  private async clickPayrollTileIfNeeded(tileName: string): Promise<void> {
+    // Check if we're on the Payroll tile page by looking for the "What do you want" heading
+    const tileHeading = this.page.locator('h2:has-text("What do you want"), h1:has-text("Payroll")').first();
+    const isOnTilePage = await tileHeading.isVisible({ timeout: 5000 }).catch(() => false);
+
+    const url = this.page.url();
+    const onHomeLike = url.includes('AtkHomePageWelcome') || url.endsWith('/fscm') || url.endsWith('/fscm/');
+
+    if (!isOnTilePage && !onHomeLike) return;
+
+    console.log(`[Payroll] On tile/landing page, clicking "${tileName}" tile...`);
+
+    // Dismiss any overlaying popups/glass panes that may block tile clicks
+    await this.dismissPopups();
+    await this.clearGlassPane();
+
+    // Strategy 1: Use the "Search for tasks" textbox (most reliable for Redwood SPA)
+    const taskSearch = this.page.locator('input[placeholder*="Search for tasks"], textbox[name*="Search"]').first();
+    if (await taskSearch.isVisible({ timeout: 3000 }).catch(() => false)) {
+      console.log(`[Payroll] Using task search for "${tileName}"...`);
+      await taskSearch.click();
+      await taskSearch.fill(tileName);
+      await this.page.waitForTimeout(2000);
+      // Click the matching result
+      const searchResult = this.page.locator(`a:has-text("${tileName}")`).first();
+      if (await searchResult.isVisible({ timeout: 5000 }).catch(() => false)) {
+        await searchResult.click();
+        await this.page.waitForLoadState('networkidle', { timeout: 60_000 }).catch(() => {});
+        await this.page.waitForTimeout(5000);
+        await this.waitForJET();
+        const stillOnTiles = await tileHeading.isVisible({ timeout: 3000 }).catch(() => false);
+        if (!stillOnTiles) return;
+      }
+    }
+
+    // Strategy 2: Click the tile link directly (without force — lets Playwright do proper click)
+    const tileLink = this.page.getByRole('link', { name: tileName }).first();
+    if (await tileLink.isVisible({ timeout: 5000 }).catch(() => false)) {
+      console.log(`[Payroll] Clicking "${tileName}" tile link...`);
+      await tileLink.click();
+      await this.page.waitForLoadState('networkidle', { timeout: 60_000 }).catch(() => {});
+      await this.page.waitForTimeout(5000);
+      await this.waitForJET();
+      const stillOnTiles = await tileHeading.isVisible({ timeout: 3000 }).catch(() => false);
+      if (!stillOnTiles) return;
+
+      // Strategy 3: JS click (dispatchEvent) for SPA routing
+      console.log(`[Payroll] Regular click didn't navigate, trying JS click...`);
+      await tileLink.dispatchEvent('click');
+      await this.page.waitForTimeout(5000);
+      await this.waitForJET();
+      const stillOnTiles2 = await tileHeading.isVisible({ timeout: 3000 }).catch(() => false);
+      if (!stillOnTiles2) return;
+
+      // Strategy 4: Navigate via the link's href directly
+      console.log(`[Payroll] JS click didn't navigate, trying href navigation...`);
+      const href = await tileLink.getAttribute('href').catch(() => null);
+      if (href && href !== '#') {
+        await this.page.goto(href, { timeout: 60_000 }).catch(() => {});
+        await this.page.waitForTimeout(5000);
+        await this.waitForJET();
+        return;
+      }
+    }
+
+    // Strategy 5: Navigate to Payroll landing then try again
+    if (onHomeLike) {
+      console.log(`[Payroll] Navigating to Payroll landing for "${tileName}"...`);
+      await this.page.goto('/fscmUI/faces/FuseOverview?fndGlobalItemNodeId=itemNode_workforce_management_payroll', { timeout: 60_000 });
+      await this.page.waitForLoadState('networkidle', { timeout: 60_000 }).catch(() => {});
+      await this.page.waitForTimeout(5000);
+      await this.waitForJET();
+
+      const retryLink = this.page.getByRole('link', { name: tileName }).first();
+      if (await retryLink.isVisible({ timeout: 5000 }).catch(() => false)) {
+        await retryLink.click();
+        await this.page.waitForTimeout(5000);
+        await this.waitForJET();
+      }
+    }
+
+    console.log(`[Payroll] "${tileName}" tile navigation may have failed`);
+  }
+
+  /**
    * Navigate to the Scheduled Processes page via HomePage.
    * Navigator > Tools > Scheduled Processes
    */
@@ -204,60 +292,46 @@ export class PayrollProcessingPage extends BasePage {
     // Wait for Scheduled Processes page to fully render
     await this.page.waitForTimeout(3000);
     await this.waitForJET();
-
-    // Try multiple strategies to find the "Schedule New Process" button
     let found = await this.scheduleNewProcessLink.isVisible({ timeout: 10_000 }).catch(() => false);
-
     if (!found) {
-      // Strategy 2: Try getByRole
-      const roleBtn = this.page.getByRole('button', { name: 'Schedule New Process' });
-      const roleLink = this.page.getByRole('link', { name: 'Schedule New Process' });
-      found = await roleBtn.isVisible({ timeout: 3000 }).catch(() => false) ||
-              await roleLink.isVisible({ timeout: 3000 }).catch(() => false);
-    }
-
-    if (!found) {
-      // Strategy 3: Check if we're actually on Scheduled Processes page
-      const pageTitle = await this.page.title().catch(() => '');
-      const hasHeading = await this.page.locator('h1, [class*="page-title"]').first().textContent().catch(() => '');
-      console.log(`[Payroll] Page title: "${pageTitle}", heading: "${hasHeading?.substring(0, 60)}"`);
-
-      // Re-navigate to Scheduled Processes
-      console.log('[Payroll] "Schedule New Process" not visible, re-navigating...');
-      const home = new HomePage(this.page);
-      await home.goToScheduledProcesses();
-      await this.page.waitForTimeout(5000);
-      await this.waitForJET();
-      found = await this.scheduleNewProcessLink.isVisible({ timeout: 10_000 }).catch(() => false);
-    }
-
-    if (!found) {
-      // Strategy 4: Page reload as last resort
-      console.log('[Payroll] Re-navigation failed, reloading page...');
+      // Strategy 1: Refresh the page
+      console.log('[Payroll] "Schedule New Process" not visible, refreshing page...');
       await this.page.reload({ timeout: 60_000 });
       await this.page.waitForTimeout(5000);
       await this.waitForJET();
       found = await this.scheduleNewProcessLink.isVisible({ timeout: 10_000 }).catch(() => false);
     }
-
     if (!found) {
-      // Take screenshot and throw descriptive error
-      await this.page.screenshot({ path: 'test-results/schedule-new-process-not-found.png', fullPage: true }).catch(() => {});
-      const url = this.page.url();
-      const bodyText = await this.page.locator('body').textContent().catch(() => '');
-      throw new Error(`[Payroll] "Schedule New Process" button not found. URL: ${url}, page text: "${bodyText?.substring(0, 200)}"`);
+      // Strategy 2: Direct URL navigation with _fuse_plus suffix
+      console.log('[Payroll] "Schedule New Process" still not visible, trying direct URL...');
+      await this.page.goto('/fscmUI/faces/FuseOverview?fndGlobalItemNodeId=itemNode_tools_scheduled_processes_fuse_plus', { timeout: 60_000 });
+      await this.page.waitForLoadState('networkidle', { timeout: 60_000 }).catch(() => {});
+      await this.page.waitForTimeout(5000);
+      await this.waitForJET();
+      found = await this.scheduleNewProcessLink.isVisible({ timeout: 10_000 }).catch(() => false);
     }
-
-    // Click whichever variant is visible
-    const roleBtn = this.page.getByRole('button', { name: 'Schedule New Process' });
-    const roleLink = this.page.getByRole('link', { name: 'Schedule New Process' });
-    if (await roleBtn.isVisible({ timeout: 2000 }).catch(() => false)) {
-      await roleBtn.click();
-    } else if (await roleLink.isVisible({ timeout: 2000 }).catch(() => false)) {
-      await roleLink.click();
-    } else {
-      await this.scheduleNewProcessLink.click();
+    if (!found) {
+      // Strategy 3: Try without _fuse_plus suffix (older Oracle versions)
+      console.log('[Payroll] Trying alternate Scheduled Processes URL...');
+      await this.page.goto('/fscmUI/faces/FuseOverview?fndGlobalItemNodeId=itemNode_tools_scheduled_processes', { timeout: 60_000 });
+      await this.page.waitForLoadState('networkidle', { timeout: 60_000 }).catch(() => {});
+      await this.page.waitForTimeout(5000);
+      await this.waitForJET();
+      found = await this.scheduleNewProcessLink.isVisible({ timeout: 10_000 }).catch(() => false);
     }
+    if (!found) {
+      // Strategy 4: Reload the page — ADF may need a fresh render
+      console.log('[Payroll] Reloading page for "Schedule New Process"...');
+      await this.page.reload({ timeout: 60_000 }).catch(() => {});
+      await this.page.waitForLoadState('networkidle', { timeout: 60_000 }).catch(() => {});
+      await this.page.waitForTimeout(5000);
+      await this.waitForJET();
+      found = await this.scheduleNewProcessLink.isVisible({ timeout: 10_000 }).catch(() => false);
+    }
+    if (!found) {
+      throw new Error('"Schedule New Process" button not found after multiple navigation attempts');
+    }
+    await this.scheduleNewProcessLink.click();
     await this.page.waitForTimeout(3000);
     await this.waitForJET();
 
@@ -375,49 +449,6 @@ export class PayrollProcessingPage extends BasePage {
         }
         await this.page.waitForTimeout(5000);
         await this.waitForJET();
-
-        resultRowCount = await ssDialog.locator('[_afrrk]').count();
-      }
-
-      // If still 0 results, try %keyword% for each significant keyword
-      if (resultRowCount === 0) {
-        const keywords = processName.split(/[\s-]+/).filter(w => w.length > 3);
-        for (const kw of keywords) {
-          console.log(`[Payroll] Retrying with "%${kw}%"`);
-          await nameTextbox.click();
-          await nameTextbox.fill('');
-          await this.page.waitForTimeout(300);
-          await nameTextbox.pressSequentially('%' + kw + '%', { delay: 30 });
-          await this.page.waitForTimeout(500);
-
-          const kwBtn = ssDialog.getByRole('button', { name: 'Search', exact: true }).first();
-          if (await kwBtn.isVisible({ timeout: 2000 }).catch(() => false)) {
-            await kwBtn.click();
-          }
-          await this.page.waitForTimeout(5000);
-          await this.waitForJET();
-
-          resultRowCount = await ssDialog.locator('[_afrrk]').count();
-          if (resultRowCount > 0) break;
-        }
-      }
-
-      // If still 0 results, try blank search to list ALL processes
-      if (resultRowCount === 0) {
-        console.log('[Payroll] All searches failed, trying blank search to list all processes');
-        await nameTextbox.click();
-        await nameTextbox.fill('');
-        await this.page.waitForTimeout(300);
-
-        const blankBtn = ssDialog.getByRole('button', { name: 'Search', exact: true }).first();
-        if (await blankBtn.isVisible({ timeout: 2000 }).catch(() => false)) {
-          await blankBtn.click();
-        }
-        await this.page.waitForTimeout(5000);
-        await this.waitForJET();
-
-        resultRowCount = await ssDialog.locator('[_afrrk]').count();
-        console.log(`[Payroll] Blank search returned ${resultRowCount} rows`);
       }
     } else {
       // No textbox: try clicking Search without criteria to list all processes
@@ -493,11 +524,21 @@ export class PayrollProcessingPage extends BasePage {
       await this.page.waitForTimeout(3000);
       await this.waitForJET();
 
-      // If dialog still open after double-click, click OK
+      // If dialog still open after double-click, click OK via ADF
       if (await titleEl.isVisible({ timeout: 2000 }).catch(() => false)) {
         console.log('[Payroll] Dialog still open, clicking OK');
         const okBtn = ssDialog.getByRole('button', { name: 'OK' }).first();
-        await okBtn.click({ force: true });
+        const okId = await okBtn.getAttribute('id').catch(() => '');
+        if (okId) {
+          await this.page.evaluate((id: string) => {
+            const adfPage = (window as any).AdfPage?.PAGE;
+            if (!adfPage) return;
+            const comp = adfPage.findComponentByAbsoluteId(id);
+            if (comp) { new (window as any).AdfActionEvent(comp).queue(); }
+          }, okId);
+        } else {
+          await okBtn.click({ force: true });
+        }
         await this.page.waitForTimeout(2000);
       }
     } else {
@@ -716,14 +757,19 @@ export class PayrollProcessingPage extends BasePage {
   /** Navigate to Calculation Card (W-4 tax setup) via Navigator > Payroll. */
   async goToCalculationCard(): Promise<void> {
     const home = new HomePage(this.page);
-    await home.openNavigator();
-    const payrollLink = this.page.locator('a[title="Payroll"]').first();
-    if (await payrollLink.isVisible({ timeout: 5000 }).catch(() => false)) {
-      await payrollLink.click({ force: true });
+    try {
+      // Navigate to Payroll via Navigator — Calculation Cards is a sub-page of Payroll
+      await home.navigateVia('nv_itemNode_workforce_management_payroll', 'Payroll');
+    } catch {
+      console.log('[Payroll] Navigator failed for Payroll — trying direct URL');
+      await this.page.goto('/fscmUI/faces/FuseOverview?fndGlobalItemNodeId=itemNode_workforce_management_payroll', { timeout: 60_000 });
+      await this.page.waitForLoadState('networkidle', { timeout: 60_000 }).catch(() => {});
     }
-    await this.page.waitForLoadState('networkidle', { timeout: 60_000 });
     await this.page.waitForTimeout(3000);
     await this.waitForJET();
+
+    // Click through the Calculation Cards tile on the Payroll landing page
+    await this.clickPayrollTileIfNeeded('Calculation Cards');
   }
 
   /** Fill W-4 information. */
@@ -734,7 +780,14 @@ export class PayrollProcessingPage extends BasePage {
     additionalWithholding?: string;
   }): Promise<void> {
     if (params.employeeName) {
-      await this.fillCombobox(this.employeeSearchInput, params.employeeName);
+      // Try ADF-style employee search first
+      const adfVisible = await this.employeeSearchInput.isVisible({ timeout: 5000 }).catch(() => false);
+      if (adfVisible) {
+        await this.fillCombobox(this.employeeSearchInput, params.employeeName);
+      } else {
+        // Redwood "Search for a Person" combobox
+        await this.searchPersonOnRedwoodPage(params.employeeName);
+      }
     }
     if (params.filingStatus) {
       await this.fillCombobox(this.filingStatusDropdown, params.filingStatus);
@@ -750,21 +803,135 @@ export class PayrollProcessingPage extends BasePage {
     await this.waitForJET();
   }
 
+  /**
+   * Search for a person on a Redwood-style page (Calculation Cards, Costing, etc.).
+   * These pages have a "Search for a Person" combobox that loads the person's data.
+   */
+  /**
+   * Search for a person on a Redwood-style payroll page (Calculation Cards, Costing, etc.).
+   *
+   * These pages use an ADF inputComboboxListOfValues with Redwood faceted search:
+   * 1. Type name in LOV → Tab → "Advanced Search" dropdown appears
+   * 2. Click "Advanced Search" → faceted search page with Person Name filter
+   * 3. Fill Person Name filter → click search icon → results appear
+   * 4. Click person result → their data loads
+   */
+  private async searchPersonOnRedwoodPage(name: string): Promise<void> {
+    const searchInput = this.page.locator(
+      'input[placeholder*="Search for a Person"], input[placeholder*="Search for a person"]'
+    ).first();
+
+    if (!await searchInput.isVisible({ timeout: 8000 }).catch(() => false)) {
+      console.log('[Payroll] No person search combobox found on page');
+      return;
+    }
+
+    console.log(`[Payroll] Redwood person search: "${name}"`);
+
+    // Step 1: Type name and trigger LOV dropdown
+    await searchInput.click();
+    await searchInput.clear();
+    await searchInput.pressSequentially(name, { delay: 50 });
+    await searchInput.press('Tab');
+    await this.page.waitForTimeout(3000);
+
+    // Step 2: Click "Advanced Search:..." link in the LOV dropdown
+    const advancedSearchLink = this.page.locator('a:has-text("Advanced Search")').first();
+    if (await advancedSearchLink.isVisible({ timeout: 5000 }).catch(() => false)) {
+      console.log('[Payroll] Clicking Advanced Search link...');
+      await advancedSearchLink.click();
+      await this.page.waitForTimeout(8000);
+      await this.waitForJET();
+    } else {
+      // LOV may have auto-resolved — check if we're past the combobox
+      console.log('[Payroll] No Advanced Search link — LOV may have resolved or no match');
+      return;
+    }
+
+    // Step 3: On faceted search page — click the main search icon to execute search
+    // (the search bar at top already has the name from the LOV)
+    const searchIcon = this.page.locator('[class*="search-icon"], [aria-label*="Search"] button, a[title*="Search"]').first();
+    if (await searchIcon.isVisible({ timeout: 3000 }).catch(() => false)) {
+      await searchIcon.click();
+      await this.page.waitForTimeout(8000);
+      await this.waitForJET();
+    }
+
+    // Step 4: Check for results, if none try Person Name filter
+    const noResults = this.page.locator(':text("No results found")').first();
+    if (await noResults.isVisible({ timeout: 3000 }).catch(() => false)) {
+      console.log('[Payroll] No results — trying Person Name filter with last name...');
+      const lastName = name.includes(',') ? name.split(',')[0].trim() : name.split(' ').pop() || name;
+      // Find the Person Name filter input (near the "Person Name" label)
+      const filterInputs = this.page.locator('input[type="text"]');
+      const count = await filterInputs.count();
+      // Person Name filter is typically the 2nd input (after top search bar)
+      for (let i = 1; i < Math.min(count, 5); i++) {
+        const inp = filterInputs.nth(i);
+        const placeholder = await inp.getAttribute('placeholder').catch(() => '');
+        const nearby = (await inp.locator('..').textContent().catch(() => '')) || '';
+        if (nearby.includes('Person Name') || placeholder === '') {
+          await inp.clear();
+          await inp.fill(lastName);
+          // Click the search icon next to this filter
+          const icon = inp.locator('~ a, ~ button, + a, + button').first();
+          if (await icon.isVisible({ timeout: 2000 }).catch(() => false)) {
+            await icon.click();
+          } else {
+            await inp.press('Enter');
+          }
+          await this.page.waitForTimeout(8000);
+          await this.waitForJET();
+          break;
+        }
+      }
+    }
+
+    // Step 5: Click the first person result card
+    const personResult = this.page.locator(
+      '[class*="person-card"] a, [role="listitem"] a, [class*="oj-listview-item"] a, ' +
+      'a[class*="result"], [class*="card-content"] a'
+    ).first();
+    if (await personResult.isVisible({ timeout: 8000 }).catch(() => false)) {
+      console.log('[Payroll] Clicking person result...');
+      await personResult.click();
+      await this.page.waitForTimeout(5000);
+      await this.waitForJET();
+    } else {
+      console.log('[Payroll] No person results found in faceted search');
+    }
+
+    // After person is selected, look for calc card links to click into
+    const cardLink = this.page.locator(
+      'a:has-text("Tax Withholding"), a:has-text("Statutory Deductions"), ' +
+      'a:has-text("Calculation"), [role="link"]:has-text("Tax"), ' +
+      '[class*="card"] a, [role="listitem"] a'
+    ).first();
+    if (await cardLink.isVisible({ timeout: 8000 }).catch(() => false)) {
+      console.log('[Payroll] Opening calculation card...');
+      await cardLink.click();
+      await this.page.waitForTimeout(5000);
+      await this.waitForJET();
+    }
+  }
+
   // --- Direct Deposit ---
 
   /** Navigate to Direct Deposit / Payment Methods page via Navigator. */
   async goToDirectDeposit(): Promise<void> {
     const home = new HomePage(this.page);
-    await home.openNavigator();
-    const ddLink = this.page.locator(
-      'a[title="Payment Methods"], a:has-text("Payment Methods"), a:has-text("Direct Deposit")'
-    ).first();
-    if (await ddLink.isVisible({ timeout: 5000 }).catch(() => false)) {
-      await ddLink.click({ force: true });
+    try {
+      await home.navigateVia('nv_itemNode_workforce_management_payroll', 'Payroll');
+    } catch {
+      console.log('[Payroll] Navigator failed for Payroll — trying direct URL');
+      await this.page.goto('/fscmUI/faces/FuseOverview?fndGlobalItemNodeId=itemNode_workforce_management_payroll', { timeout: 60_000 });
+      await this.page.waitForLoadState('networkidle', { timeout: 60_000 }).catch(() => {});
     }
-    await this.page.waitForLoadState('networkidle', { timeout: 60_000 });
     await this.page.waitForTimeout(3000);
     await this.waitForJET();
+
+    // Click through the Personal Payment Methods tile on the Payroll landing page
+    await this.clickPayrollTileIfNeeded('Personal Payment Methods');
   }
 
   /** Fill direct deposit info. */
@@ -797,19 +964,21 @@ export class PayrollProcessingPage extends BasePage {
 
   // --- Costing ---
 
-  /** Navigate to Costing page via Navigator. */
+  /** Navigate to Costing page via Navigator > Payroll > Costing for Persons tile. */
   async goToCosting(): Promise<void> {
     const home = new HomePage(this.page);
-    await home.openNavigator();
-    const costingLink = this.page.locator(
-      'a[title="Costing"], a:has-text("Costing")'
-    ).first();
-    if (await costingLink.isVisible({ timeout: 5000 }).catch(() => false)) {
-      await costingLink.click({ force: true });
+    try {
+      await home.navigateVia('nv_itemNode_workforce_management_payroll', 'Payroll');
+    } catch {
+      console.log('[Payroll] Navigator failed for Payroll — trying direct URL');
+      await this.page.goto('/fscmUI/faces/FuseOverview?fndGlobalItemNodeId=itemNode_workforce_management_payroll', { timeout: 60_000 });
+      await this.page.waitForLoadState('networkidle', { timeout: 60_000 }).catch(() => {});
     }
-    await this.page.waitForLoadState('networkidle', { timeout: 60_000 });
     await this.page.waitForTimeout(3000);
     await this.waitForJET();
+
+    // Click through the Costing tile on the Payroll landing page
+    await this.clickPayrollTileIfNeeded('Costing for Persons');
   }
 
   /** Fill costing parameters. */
@@ -819,7 +988,12 @@ export class PayrollProcessingPage extends BasePage {
     costCenter?: string;
   }): Promise<void> {
     if (params.employeeName) {
-      await this.fillCombobox(this.employeeSearchInput, params.employeeName);
+      const adfVisible = await this.employeeSearchInput.isVisible({ timeout: 5000 }).catch(() => false);
+      if (adfVisible) {
+        await this.fillCombobox(this.employeeSearchInput, params.employeeName);
+      } else {
+        await this.searchPersonOnRedwoodPage(params.employeeName);
+      }
     }
     if (params.designation) {
       await this.fillCombobox(this.designationInput, params.designation);
@@ -916,43 +1090,49 @@ export class PayrollProcessingPage extends BasePage {
 
   /** Save current form. */
   async save(): Promise<void> {
-    // Try multiple selector strategies for Save button
-    const saveSelectors = [
+    // Try multiple Save button strategies
+    const strategies = [
       () => this.page.getByRole('button', { name: 'Save' }).first(),
-      () => this.page.locator('oj-button:has-text("Save")').first(),
-      () => this.page.locator('[role="button"]:has-text("Save")').first(),
-      () => this.page.locator('button[title="Save"]').first(),
+      () => this.page.locator('button:has-text("Save"), a[role="button"]:has-text("Save")').first(),
+      () => this.page.locator('[id*="save" i][id*="::content"], [id*="Save"][id$="::content"]').first(),
+      () => this.page.locator('oj-button:has-text("Save"), [role="button"]:has-text("Save")').first(),
+      () => this.page.getByRole('button', { name: 'Save and Close' }).first(),
     ];
-
-    for (const getSel of saveSelectors) {
-      const btn = getSel();
-      if (await btn.isVisible({ timeout: 2000 }).catch(() => false)) {
+    for (const getBtn of strategies) {
+      const btn = getBtn();
+      if (await btn.isVisible({ timeout: 3000 }).catch(() => false)) {
         await btn.click();
         await this.page.waitForTimeout(3000);
         await this.waitForJET();
         return;
       }
     }
-
-    // Try ADF button approach
+    // Final fallback: try clickAdfButton (Save, then Save and Close)
     try {
       await this.clickAdfButton('Save');
       await this.page.waitForTimeout(3000);
       await this.waitForJET();
       return;
     } catch {
-      // Fall through to Save and Close
+      // Save not found via ADF either — try Save and Close
     }
-
-    // Final fallback: Save and Close
-    const saveCloseBtn = this.page.getByRole('button', { name: 'Save and Close' }).first();
-    if (await saveCloseBtn.isVisible({ timeout: 3000 }).catch(() => false)) {
-      await saveCloseBtn.click();
+    try {
+      await this.clickAdfButton('Save and Close');
       await this.page.waitForTimeout(3000);
       await this.waitForJET();
       return;
+    } catch {
+      // Neither Save nor Save and Close found
     }
-
-    console.log('[Payroll] No Save button found');
+    // Last resort: try Submit (some payroll forms use Submit instead of Save)
+    try {
+      await this.clickAdfButton('Submit');
+      await this.page.waitForTimeout(3000);
+      await this.waitForJET();
+      return;
+    } catch {
+      console.log('[Payroll] No Save/Submit button found — page may not have loaded correctly');
+      throw new Error('No Save, Save and Close, or Submit button found on payroll page');
+    }
   }
 }

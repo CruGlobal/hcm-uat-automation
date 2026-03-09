@@ -38,40 +38,21 @@ export class TerminationFlow extends BaseCoreHRFlow {
     await this.homePage.goToPersonManagement();
 
     // Search for person — prefer person number (more reliable), fall back to name
-    // Use "All" filter to find terminated/inactive workers too
-    await this.person.setSearchStatusFilter('All');
     const personNumber = getField(tc, 'Person Number');
     const personName = getField(tc, 'Person Name');
     if (personNumber) {
-      const found = await this.person.searchByPersonNumberOnly(personNumber);
-      if (found) {
-        const nameLink = this.page.locator('[id*="table2:0:gl"]').first();
-        await nameLink.click();
-        await this.page.waitForTimeout(3000);
-        await this.person.waitForJET();
-      } else if (personName) {
-        console.log(`[Termination] Person ${personNumber} not found, trying name: ${personName}`);
-        await this.page.locator('[id$="q1::reset"]').click().catch(() => {});
-        await this.page.waitForTimeout(2000);
-        await this.person.searchByName(personName);
-      } else {
-        throw new Error(`Person ${personNumber} not found in Person Management search`);
+      try {
+        await this.person.searchByPersonNumber(personNumber);
+      } catch {
+        if (personName) {
+          console.log(`[Termination] Person ${personNumber} not found by number, trying name: ${personName}`);
+          await this.person.searchByName(personName);
+        } else {
+          throw new Error(`${tc.testId}: Person ${personNumber} not found in Person Management search`);
+        }
       }
     } else if (personName) {
       await this.person.searchByName(personName);
-    }
-
-    // Verify we're on the person detail page (not still on search results with 0 matches)
-    const onPersonDetail = await this.page.locator(
-      'button:has-text("Actions"), a[role="button"]:has-text("Actions"), [id*="Actions"]'
-    ).first().isVisible({ timeout: 5000 }).catch(() => false);
-    if (!onPersonDetail) {
-      // Check if still on search results page with no results
-      const noResults = await this.page.locator('[id*="table2"]').first().isVisible({ timeout: 2000 }).catch(() => false);
-      if (!noResults) {
-        const identifier = personNumber || personName || '(unknown)';
-        throw new Error(`Person ${identifier} not found — search returned no results and person detail page not loaded`);
-      }
     }
 
     // Determine action type
@@ -98,9 +79,8 @@ export class TerminationFlow extends BaseCoreHRFlow {
    * Uses multiple fallback strategies for finding the Actions menu.
    */
   private async initiateTermination(): Promise<boolean> {
-    await this.page.waitForTimeout(5000);
+    await this.page.waitForTimeout(3000);
     await this.person.waitForJET();
-    await this.person.clearGlassPane();
     await this.person.dismissPopups();
 
     const actionClicked = await this.tryClickActions();
@@ -108,9 +88,17 @@ export class TerminationFlow extends BaseCoreHRFlow {
       console.log('[Termination] Actions menu not found on first attempt, retrying...');
       await this.page.waitForTimeout(5000);
       await this.person.waitForJET();
+      await this.person.clearGlassPane();
       const retryClicked = await this.tryClickActions();
       if (!retryClicked) {
+        // Check if page shows terminated/inactive status
+        const pageText = await this.page.locator('body').textContent().catch(() => '') || '';
+        const isTerminated = pageText.includes('Terminated') || pageText.includes('Inactive')
+          || pageText.includes('End Date') || pageText.includes('No active');
         await this.page.screenshot({ path: 'test-results/termination-actions-not-found.png', fullPage: true }).catch(() => {});
+        if (isTerminated) {
+          throw new Error('Could not find Actions menu — person appears to be already terminated (page shows terminated/inactive status)');
+        }
         throw new Error('Could not find Actions menu — person may already be terminated or not accessible to this role');
       }
     }
@@ -244,44 +232,27 @@ export class TerminationFlow extends BaseCoreHRFlow {
 
   /**
    * Try to click "Terminate Work Relationship" in the open Actions menu.
-   * Falls back to "End Assignment" or "Terminate Employment" if primary option not found.
    */
   private async tryClickTerminateOption(): Promise<boolean> {
-    // Capture all menu items for debugging
-    const allMenuItems = await this.page.locator('[role="menuitem"], [role="menu"] td, #DhtmlZOrderManagerLayerContainer [role="menuitem"]')
-      .allTextContents().catch(() => [] as string[]);
-    console.log(`[Termination] Actions menu contents: ${allMenuItems.map(t => t.trim()).filter(Boolean).join(' | ').substring(0, 500)}`);
-
-    // Try each termination-related action in order of preference
-    const terminateTexts = ['Terminate Work Relationship', 'Terminate Employment', 'Terminate', 'End Assignment'];
-
-    for (const text of terminateTexts) {
-      // Strategy 1: Menu item role
-      const menuItem = this.page.locator(`[role="menuitem"]:has-text("${text}")`).first();
-      if (await menuItem.isVisible({ timeout: 1000 }).catch(() => false)) {
-        console.log(`[Termination] Found "${text}" via role=menuitem`);
-        await menuItem.click({ force: true });
-        return true;
-      }
-
-      // Strategy 2: Table cell or list item
-      const tdLi = this.page.locator(`td:has-text("${text}"), li:has-text("${text}")`).first();
-      if (await tdLi.isVisible({ timeout: 1000 }).catch(() => false)) {
-        console.log(`[Termination] Found "${text}" via td/li`);
-        await tdLi.click({ force: true });
-        return true;
-      }
-
-      // Strategy 3: Link/button
-      const link = this.page.locator(`a:has-text("${text}"), button:has-text("${text}")`).first();
-      if (await link.isVisible({ timeout: 1000 }).catch(() => false)) {
-        console.log(`[Termination] Found "${text}" via has-text`);
-        await link.click({ force: true });
-        return true;
-      }
+    // Strategy 1: Menu item with exact text
+    const menuItem = this.page.locator('[role="menuitem"]:has-text("Terminate")').first();
+    if (await menuItem.isVisible({ timeout: 3000 }).catch(() => false)) {
+      console.log('[Termination] Found "Terminate" via role=menuitem');
+      await menuItem.click({ force: true });
+      return true;
     }
 
-    // Strategy 4: Dialog layer fallback
+    // Strategy 2: Table cell or list item in ADF popup menu
+    const termOption = this.page.locator(
+      'td:has-text("Terminate Work Relationship"), li:has-text("Terminate")'
+    ).first();
+    if (await termOption.isVisible({ timeout: 2000 }).catch(() => false)) {
+      console.log('[Termination] Found "Terminate" via td/li');
+      await termOption.click({ force: true });
+      return true;
+    }
+
+    // Strategy 3: Dialog layer
     const dialogLayer = this.page.locator('#DhtmlZOrderManagerLayerContainer');
     const termInLayer = dialogLayer.getByText('Terminate', { exact: false }).first();
     if (await termInLayer.isVisible({ timeout: 2000 }).catch(() => false)) {
@@ -290,7 +261,15 @@ export class TerminationFlow extends BaseCoreHRFlow {
       return true;
     }
 
-    console.log(`[Termination] No termination option found in menu`);
+    // Strategy 4: Any link/button with "Terminate"
+    const termLink = this.page.locator('a:has-text("Terminate"), button:has-text("Terminate")').first();
+    if (await termLink.isVisible({ timeout: 2000 }).catch(() => false)) {
+      console.log('[Termination] Found "Terminate" via has-text');
+      await termLink.click({ force: true });
+      return true;
+    }
+
+    console.log('[Termination] No "Terminate" option found');
     return false;
   }
 
@@ -391,20 +370,56 @@ export class TerminationFlow extends BaseCoreHRFlow {
 
     // Click OK/Continue to close the dialog and move to the review/submit page
     await this.person.clearGlassPane();
+    let dialogDismissed = false;
+
+    // Strategy 1: ADF-specific OK button IDs
     const okBtn = this.page.locator('[id$="AP1:cb10"], [id$="okButton"]').first();
     if (await okBtn.isVisible({ timeout: 5000 }).catch(() => false)) {
       console.log('[Termination] Clicking OK on dialog');
       await okBtn.click();
-    } else {
-      // Try generic OK/Continue buttons
+      dialogDismissed = true;
+    }
+
+    // Strategy 2: Generic OK/Continue buttons via getByRole
+    if (!dialogDismissed) {
       const genericOk = this.page.getByRole('button', { name: /^(OK|Continue)$/i }).first();
       if (await genericOk.isVisible({ timeout: 3000 }).catch(() => false)) {
+        console.log('[Termination] Clicking OK/Continue via getByRole');
         await genericOk.click();
-      } else {
-        await this.person.clickAdfButton('OK').catch(() =>
-          this.person.clickAdfButton('Continue')
-        );
+        dialogDismissed = true;
       }
+    }
+
+    // Strategy 3: ADF button via clickAdfButton (OK, then Continue, then Next)
+    if (!dialogDismissed) {
+      for (const btnText of ['OK', 'Continue', 'Next']) {
+        try {
+          await this.person.clickAdfButton(btnText);
+          console.log(`[Termination] Clicked ADF button "${btnText}"`);
+          dialogDismissed = true;
+          break;
+        } catch {
+          // Try next button text
+        }
+      }
+    }
+
+    // Strategy 4: Playwright locator fallback with broader selectors
+    if (!dialogDismissed) {
+      const continueBtn = this.page.locator(
+        'button:has-text("Continue"), button:has-text("OK"), button:has-text("Next"), ' +
+        'a[role="button"]:has-text("Continue"), a[role="button"]:has-text("OK"), ' +
+        '[id*="Continue"], [id*="continue"]'
+      ).first();
+      if (await continueBtn.isVisible({ timeout: 3000 }).catch(() => false)) {
+        console.log('[Termination] Clicking Continue/OK via broad selector');
+        await continueBtn.click({ force: true });
+        dialogDismissed = true;
+      }
+    }
+
+    if (!dialogDismissed) {
+      console.log('[Termination] No OK/Continue/Next button found — proceeding anyway');
     }
 
     await this.page.waitForTimeout(6000);

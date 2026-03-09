@@ -159,13 +159,31 @@ export class CompensationPage extends BasePage {
     await this.waitForJET();
 
     // Verify we landed on a compensation page
-    const onCompPage = await this.page.locator(
-      'h1:has-text("Compensation"), input[aria-label*="Search"], [id*="apPlnDtl"]'
-    ).first().isVisible({ timeout: 10_000 }).catch(() => false);
+    const compIndicator = this.page.locator(
+      'h1:has-text("Compensation"), h2:has-text("Compensation"), input[aria-label*="Search"], [id*="apPlnDtl"], ' +
+      ':text("Workforce Compensation"), :text("Base Pay"), :text("Merit")'
+    ).first();
+    const onCompPage = await compIndicator.isVisible({ timeout: 10_000 }).catch(() => false);
 
     if (!onCompPage) {
-      console.log(`[Compensation] Warning: Navigation may not have reached compensation page. URL: ${this.page.url()}`);
-      await this.page.screenshot({ path: `.screenshots/comp-nav-verify-${Date.now()}.png` }).catch(() => {});
+      // Retry: navigate via direct URL
+      console.log(`[Compensation] Not on compensation page, retrying via direct URL. URL: ${this.page.url()}`);
+      await this.page.goto('/fscmUI/faces/FuseOverview?fndGlobalItemNodeId=itemNode_manager_resources_workforce_compensation', {
+        timeout: 60_000,
+      }).catch(() => {});
+      await this.page.waitForLoadState('networkidle', { timeout: 60_000 }).catch(() => {});
+      await this.page.waitForTimeout(5000);
+      await this.waitForJET();
+
+      const retryOk = await compIndicator.isVisible({ timeout: 10_000 }).catch(() => false);
+      if (!retryOk) {
+        // Final retry: reload
+        console.log('[Compensation] Still not on comp page after direct URL, reloading...');
+        await this.page.reload({ timeout: 60_000 }).catch(() => {});
+        await this.page.waitForLoadState('networkidle', { timeout: 30_000 }).catch(() => {});
+        await this.page.waitForTimeout(5000);
+        await this.waitForJET();
+      }
     }
   }
 

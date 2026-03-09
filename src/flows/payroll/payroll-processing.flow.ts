@@ -262,32 +262,24 @@ export class PayrollProcessingFlow extends BaseFlow {
   /** Off-cycle payroll (bonus, additional salary) via Scheduled Processes. */
   private async executeOffCyclePayroll(tc: UATTestCase): Promise<void> {
     await this.payroll.goToScheduledProcesses();
-    // Oracle HCM uses "Calculate QuickPay" for off-cycle payroll runs.
-    // Try multiple process names in case the environment uses a different name.
-    const processNames = [
-      'Calculate QuickPay',
-      'US Calculate QuickPay',
-      'Calculate QuickPay for US',
-      'Run US QuickPay',
-      'Run QuickPay',
-      'QuickPay',
-      'Off-Cycle Payroll',
-      'Off Cycle',
-      'Calculate Payroll',
-    ];
+    // Try "Calculate QuickPay" first (Oracle HCM off-cycle process name).
+    // Fall back to "Calculate Payroll" which handles both regular and off-cycle runs.
     let scheduled = false;
-    for (const name of processNames) {
-      try {
-        await this.payroll.scheduleNewProcess(name);
-        scheduled = true;
-        console.log(`[Payroll] Scheduled off-cycle process: ${name}`);
-        break;
-      } catch (err) {
-        console.log(`[Payroll] Process "${name}" not found, trying next...`);
-      }
+    try {
+      await this.payroll.scheduleNewProcess('Calculate QuickPay');
+      scheduled = true;
+      console.log('[Payroll] Scheduled off-cycle process: Calculate QuickPay');
+    } catch {
+      console.log('[Payroll] "Calculate QuickPay" not found, falling back to "Calculate Payroll"');
     }
     if (!scheduled) {
-      throw new Error('Off-cycle payroll process not found (tried: ' + processNames.join(', ') + ')');
+      try {
+        await this.payroll.scheduleNewProcess('Calculate Payroll');
+        scheduled = true;
+        console.log('[Payroll] Scheduled off-cycle via Calculate Payroll');
+      } catch {
+        throw new Error('Off-cycle payroll process not found (tried: Calculate QuickPay, Calculate Payroll)');
+      }
     }
     await this.payroll.fillOffCycleParams({
       employeeName: tc.testData || undefined,

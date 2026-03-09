@@ -623,9 +623,14 @@ export class OutcomeValidator {
       'wage range', 'wage structure', 'update wage', 'merit planning', 'merit calc',
       'job code', 'creating job', 'minimum wage', 'individual compensation', 'workforce compensation',
       'total compensation', 'bonus', 'statement', 'salary basis', 'salary range',
-      'grade rate', 'comp element', 'allowance',
+      'grade rate', 'comp element', 'allowance', 'base pay',
+      'salary change', 'salary adjustment', 'compensation change',
     ];
     if (adminBPs.some(term => bp.includes(term))) return true;
+
+    // Transaction category keywords
+    const cat = (tc.transactionCategory || '').toLowerCase();
+    if (cat.includes('comp') && (cat.includes('specialist') || cat.includes('admin') || cat.includes('manager'))) return true;
 
     // Scenario keywords for admin/config operations
     const adminScenarios = [

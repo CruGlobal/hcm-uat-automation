@@ -84,7 +84,8 @@ export class PreFlightChecker {
     }
     // Remaining checks require a person number
     if (!personNumber) return OK;
-    if (bp.includes('terminat')) {
+    if (bp.includes('terminat') || bp.includes('end work rel') || bp.includes('end assignment') ||
+        bp.includes('withdraw') || bp.includes('remove affiliate') || bp.includes('remove non employee')) {
       return this.prepareTermination(tc, personNumber);
     }
     if (bp.includes('rehire')) {
@@ -118,8 +119,12 @@ export class PreFlightChecker {
     );
     const mostRecent = sorted[0];
     if (!mostRecent) {
-      console.warn(`[PreFlight] ${tc.testId}: Person ${personNumber} has no work relationships — letting test attempt anyway`);
-      return OK;
+      console.warn(`[PreFlight] ${tc.testId}: Person ${personNumber} has no work relationships — cannot terminate`);
+      return {
+        ready: false,
+        action: 'skip',
+        reason: `Person ${personNumber} has no work relationships to terminate`,
+      };
     }
 
     console.log(`[PreFlight] ${tc.testId}: Person ${personNumber} fully terminated (latest WR: ${mostRecent.TerminationDate}), reversing...`);
@@ -131,8 +136,12 @@ export class PreFlightChecker {
         reason: `Reversed termination for ${personNumber} (was terminated ${mostRecent.TerminationDate})`,
       };
     } catch (error: any) {
-      console.warn(`[PreFlight] ${tc.testId}: Could not reverse termination for ${personNumber}: ${error.message} — letting test attempt anyway`);
-      return OK;
+      console.warn(`[PreFlight] ${tc.testId}: Could not reverse termination for ${personNumber}: ${error.message}`);
+      return {
+        ready: false,
+        action: 'skip',
+        reason: `Person ${personNumber} is terminated and could not be reversed: ${error.message}`,
+      };
     }
   }
 

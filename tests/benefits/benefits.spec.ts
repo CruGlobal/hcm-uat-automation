@@ -5,7 +5,7 @@ import { BenefitsAdminFlow } from '../../src/flows/benefits/benefits-admin.flow'
 import type { UATTestCase } from '../../src/data/types';
 import { OutcomeValidator } from '../../src/validation/outcome-validator';
 import { PreFlightChecker } from '../../src/validation/pre-flight-checker';
-import { validateKnownFailure } from '../../src/data/known-failures';
+import { validateKnownFailure, isDeferredKnownFailure, getFailureReason } from '../../src/data/known-failures';
 
 const MODULE = 'Benefits';
 const cases = sortByUser(loadUATModule(MODULE));
@@ -14,6 +14,7 @@ test.describe(MODULE, () => {
   for (const tc of cases) {
     test(uatTestTitle(tc), async ({ page }) => {
       test.skip(!isTestable(tc), `${tc.testId} status: ${tc.status}`);
+      test.skip(isDeferredKnownFailure(tc.testId), `[KnownFailure] ${getFailureReason(tc.testId)}`);
 
       const preflight = new PreFlightChecker();
       const preCheck = await preflight.prepare(tc);

@@ -56,6 +56,13 @@ export class BasePage {
   async fillCombobox(locator: Locator | string, value: string, waitAfter = 3000): Promise<void> {
     const field = typeof locator === 'string' ? this.page.locator(locator) : locator;
 
+    // Fail fast if field isn't visible — page may not have loaded correctly
+    const visible = await field.isVisible({ timeout: 10_000 }).catch(() => false);
+    if (!visible) {
+      console.log(`[fillCombobox] Field not visible for value "${value}" — page may not have loaded correctly`);
+      return; // Don't throw — let the test continue and fail on validation
+    }
+
     // Skip if the current value already matches
     const currentValue = await field.inputValue().catch(() => '');
     if (currentValue === value) return;

@@ -47,6 +47,7 @@ const CROSS_MODULE_ROLES = [
   'Compensation Specialist',
   'Line Manager',
   'Time and Labor Manager',
+  'Application Implementation Consultant',  // Grants Navigator > Tools > Scheduled Processes
 ];
 
 /**

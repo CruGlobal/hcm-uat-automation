@@ -1,8 +1,13 @@
 /**
- * Mark tests as "Deferred" in the UAT Automation Tracking Sheet
- * for any test that is marked "Deferred" in the UAT Plan.
+ * Mark tests as "Deferred" in the UAT Automation Tracking Sheet.
  *
- * Usage: npx tsx scripts/mark-deferred-tests.ts [--dry-run]
+ * Two modes:
+ *   1. By UAT Plan status: marks tests that are "Deferred" in the UAT Plan
+ *   2. By module: marks ALL tests in specified modules as "Deferred"
+ *
+ * Usage:
+ *   npx tsx scripts/mark-deferred-tests.ts [--dry-run]
+ *   npx tsx scripts/mark-deferred-tests.ts --modules "MPDX,SAA,Journeys,OneApp" [--dry-run]
  */
 import * as dotenv from 'dotenv';
 import * as fs from 'fs';
@@ -20,22 +25,34 @@ const TRACKING_SHEET_ID = '1oJmPmQJbJPt61PLow6bPSmHmGOPZnS2edTHIICIKLo8';
 const UAT_PLAN_CACHE = '.cache/uat-plan.json';
 const DRY_RUN = process.argv.includes('--dry-run');
 
+// Parse --modules flag
+const modulesArgIdx = process.argv.indexOf('--modules');
+const deferModules: Set<string> | null = modulesArgIdx >= 0 && process.argv[modulesArgIdx + 1]
+  ? new Set(process.argv[modulesArgIdx + 1].split(',').map(m => m.trim()))
+  : null;
+
 async function main() {
-  // Load UAT Plan and find all Deferred test IDs (deduplicated)
-  const plan: any[] = JSON.parse(fs.readFileSync(UAT_PLAN_CACHE, 'utf-8'));
-  const seen = new Set<string>();
+  // Build set of test IDs to defer — either from UAT Plan status or by module tabs
   const deferredIds = new Set<string>();
-  for (const tc of plan) {
-    const id = tc.testId?.trim();
-    if (!id) continue;
-    if (!seen.has(id)) {
-      seen.add(id);
-      if ((tc.status || '').trim().toLowerCase() === 'deferred') {
-        deferredIds.add(id);
+
+  if (!deferModules) {
+    // Mode 1: Load UAT Plan and find all Deferred test IDs
+    const plan: any[] = JSON.parse(fs.readFileSync(UAT_PLAN_CACHE, 'utf-8'));
+    const seen = new Set<string>();
+    for (const tc of plan) {
+      const id = tc.testId?.trim();
+      if (!id) continue;
+      if (!seen.has(id)) {
+        seen.add(id);
+        if ((tc.status || '').trim().toLowerCase() === 'deferred') {
+          deferredIds.add(id);
+        }
       }
     }
+    console.log(`Found ${deferredIds.size} deferred test IDs in UAT Plan`);
+  } else {
+    console.log(`Deferring entire modules: ${[...deferModules].join(', ')}`);
   }
-  console.log(`Found ${deferredIds.size} deferred test IDs in UAT Plan`);
 
   const token = await getAccessToken();
   const tabs = await getSheetTabs(token, TRACKING_SHEET_ID);
@@ -43,10 +60,12 @@ async function main() {
 
   const updates: CellUpdate[] = [];
   let alreadyDeferred = 0;
-  let notInTracking = 0;
 
   for (const tab of tabs) {
-    if (tab === 'Summary' || tab === 'Instructions and Index' || tab === 'UAT_DATA') continue;
+    if (tab === 'Summary' || tab === 'Instructions and Index' || tab === 'UAT_DATA' || tab === 'Sheet1') continue;
+
+    // In module mode, only process matching tabs
+    if (deferModules && !deferModules.has(tab)) continue;
 
     const rows = await readSheetTab(token, TRACKING_SHEET_ID, tab);
     if (rows.length < 2) continue;
@@ -60,7 +79,10 @@ async function main() {
 
     for (let r = 1; r < rows.length; r++) {
       const testId = (rows[r][testIdCol] || '').trim();
-      if (!testId || !deferredIds.has(testId)) continue;
+      if (!testId) continue;
+
+      // In ID mode, only defer matching IDs; in module mode, defer all rows in the tab
+      if (!deferModules && !deferredIds.has(testId)) continue;
 
       const currentStatus = (rows[r][statusCol] || '').trim();
       if (currentStatus === 'Deferred') {

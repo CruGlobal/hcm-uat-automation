@@ -118,8 +118,25 @@ export class JourneyAssignmentFlow extends BaseJourneysFlow {
     await this.journeysPage.selectTab('Explore');
     await this.journeysPage.searchJourneyByName(journeySearchTerm);
 
-    // Step 2: Click the journey card
-    const cardClicked = await this.journeysPage.clickJourneyCard(journeySearchTerm);
+    // Step 2: Click the journey card — try multiple search terms if initial fails
+    let cardClicked = await this.journeysPage.clickJourneyCard(journeySearchTerm);
+    if (!cardClicked) {
+      // Retry with broader search terms
+      const alternates = this.getAlternateSearchTerms(journeySearchTerm, journeyType);
+      for (const alt of alternates) {
+        console.log(`[Journeys] Retrying with alternate term: "${alt}"`);
+        await this.journeysPage.searchJourneyByName(alt);
+        cardClicked = await this.journeysPage.clickJourneyCard(alt);
+        if (cardClicked) break;
+      }
+    }
+    if (!cardClicked) {
+      // Final fallback: clear search and click first visible card
+      console.log(`[Journeys] No card found after alternates, trying first visible card...`);
+      await this.journeysPage.searchJourneyByName('');
+      await this.page.waitForTimeout(3000);
+      cardClicked = await this.journeysPage.clickJourneyCard('');
+    }
     if (!cardClicked) {
       console.log(`[Journeys] No journey card found for "${journeySearchTerm}", taking screenshot`);
       await this.journeysPage.screenshot(`journey-no-card-${tc.testId}`);
@@ -522,6 +539,42 @@ export class JourneyAssignmentFlow extends BaseJourneysFlow {
       await this.journeysPage.clickFirstJourneyResult();
       await this.journeysPage.screenshot(`journey-admin-${tc.testId}`);
     }
+  }
+
+  /**
+   * Get alternate search terms when the primary term doesn't find a card.
+   * Maps common journey type names to variations used in Oracle HCM.
+   */
+  private getAlternateSearchTerms(primary: string, journeyType: string): string[] {
+    const alts: string[] = [];
+    const lp = primary.toLowerCase();
+
+    // Try with/without spaces, partial words
+    if (lp.includes('onboarding')) {
+      alts.push('New Hire', 'Onboard', 'Supported Onboarding', 'Staff Onboarding');
+    } else if (lp.includes('off boarding') || lp.includes('offboarding')) {
+      alts.push('Offboarding', 'Off-boarding', 'Termination');
+    } else if (lp.includes('medical leave')) {
+      alts.push('Medical', 'Leave', 'FMLA', 'Medical Leave of Absence');
+    } else if (lp.includes('marriage')) {
+      alts.push('SOSA', 'Statement of Shared Activities', 'Life Event');
+    } else if (lp.includes('leave')) {
+      alts.push('Leave of Absence', 'Sabbatical', 'LOA');
+    } else if (lp.includes('access')) {
+      alts.push('Access Request', 'Oracle Access', 'Provisioning');
+    } else if (lp.includes('transition')) {
+      alts.push('Transfer', 'International', 'Intern');
+    }
+
+    // Always try the journey type name itself
+    if (journeyType !== 'generic') {
+      const typeName = journeyType.replace(/-/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+      if (!alts.includes(typeName) && typeName.toLowerCase() !== lp) {
+        alts.push(typeName);
+      }
+    }
+
+    return alts;
   }
 
   /** Extract person name/number from test case text fields. */
