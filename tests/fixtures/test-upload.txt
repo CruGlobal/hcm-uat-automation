@@ -1,0 +1,2 @@
+UAT Automation Test Document
+This file is used by automated tests to verify document upload functionality.
