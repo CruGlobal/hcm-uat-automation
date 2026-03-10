@@ -689,6 +689,11 @@ export class PayrollProcessingPage extends BasePage {
     effectiveDate?: string;
     consolidationGroup?: string;
   }): Promise<void> {
+    // Wait for the parameters page to render — may take 20s+ under load
+    // after the "Schedule New Process" dialog closes
+    await this.effectiveDateInput.waitFor({ state: 'visible', timeout: 30_000 }).catch(() => {
+      console.log('[Payroll] Parameters page fields not visible after 30s');
+    });
     if (params.payrollName) {
       await this.fillCombobox(this.payrollNameInput, params.payrollName);
     }
@@ -707,7 +712,7 @@ export class PayrollProcessingPage extends BasePage {
   /** Submit the payroll flow / scheduled process. */
   async submitFlow(): Promise<void> {
     const submitBtn = this.page.getByRole('button', { name: 'Submit' }).first();
-    if (await submitBtn.isVisible({ timeout: 5000 }).catch(() => false)) {
+    if (await submitBtn.isVisible({ timeout: 15000 }).catch(() => false)) {
       await submitBtn.click();
     } else {
       await this.clickAdfButton('Submit');
