@@ -60,43 +60,43 @@ export class ElementEntryFlow extends BaseFlow {
    * Strategy 3: ADF Payroll landing page
    */
   private async navigateToElementEntries(): Promise<void> {
+    // Person search field — the main indicator we're on the Element Entries page
+    const personField = this.page.locator(
+      'input[aria-label*="Person"], input[aria-label*="Employee"], input[aria-label*="Worker"], ' +
+      'input[placeholder*="Search for a Person"], input[placeholder*="Person"]'
+    ).first();
+
     try {
       await this.homePage.goToElementEntries();
       await this.elementEntry.waitForJET();
-      // Verify we're on a page with element entry content
-      const hasContent = await this.page.locator(
-        'input[aria-label*="Search"], input[role="searchbox"], a:has-text("Element Entries"), [id*="elementEntr"]'
-      ).first().isVisible({ timeout: 10_000 }).catch(() => false);
+      const hasContent = await personField.isVisible({ timeout: 20_000 }).catch(() => false);
       if (hasContent) return;
-      console.log('[ElementEntry] Navigator succeeded but no element entry content, trying fallbacks...');
-    } catch (err) {
+      console.log('[ElementEntry] Navigator succeeded but no person search field, trying fallbacks...');
+    } catch {
       console.log('[ElementEntry] Primary navigation failed, trying fallbacks...');
     }
 
-    // Fallback: try My Client Groups > Payroll landing
-    try {
-      await this.page.goto('/fscmUI/faces/FuseOverview?fndGlobalItemNodeId=itemNode_workforce_management_payroll', { timeout: 60_000 });
-      await this.page.waitForLoadState('networkidle', { timeout: 60_000 });
-      await this.page.waitForTimeout(5000);
-      await this.elementEntry.waitForJET();
-      // Click Element Entries task link on the payroll landing page
-      const eeLink = this.page.locator('a:has-text("Element Entries")').first();
-      if (await eeLink.isVisible({ timeout: 10_000 }).catch(() => false)) {
-        await eeLink.click({ force: true });
-        await this.page.waitForTimeout(5000);
-        await this.elementEntry.waitForJET();
-        return;
-      }
-    } catch {
-      console.log('[ElementEntry] ADF payroll landing failed...');
-    }
-
-    // Final fallback: try direct Redwood URL (may not exist in all environments)
-    console.log('[ElementEntry] Trying direct Redwood URL...');
-    await this.page.goto('/fscmUI/redwood/payroll/element-entries', { timeout: 60_000 });
-    await this.page.waitForLoadState('networkidle', { timeout: 60_000 });
+    // Fallback: navigate to Payroll tile page and click Element Entries
+    console.log('[ElementEntry] Navigating via Payroll tile page...');
+    await this.homePage.navigateVia('nv_itemNode_workforce_management_payroll', 'Payroll').catch(async () => {
+      await this.page.goto('/fscmUI/faces/FuseOverview?fndGlobalItemNodeId=itemNode_workforce_management_payroll', { timeout: 60_000 }).catch(() => {});
+      await this.page.waitForLoadState('networkidle', { timeout: 60_000 }).catch(() => {});
+    });
     await this.page.waitForTimeout(5000);
     await this.elementEntry.waitForJET();
+
+    // Click "Element Entries" tile on the Payroll landing page
+    const eeLink = this.page.getByRole('link', { name: 'Element Entries' }).first();
+    if (await eeLink.isVisible({ timeout: 15_000 }).catch(() => false)) {
+      await eeLink.click();
+      await this.page.waitForLoadState('networkidle', { timeout: 60_000 }).catch(() => {});
+      await this.page.waitForTimeout(5000);
+      await this.elementEntry.waitForJET();
+      const hasContent = await personField.isVisible({ timeout: 20_000 }).catch(() => false);
+      if (hasContent) return;
+    }
+
+    console.log('[ElementEntry] Element Entries tile not found or did not navigate');
   }
 
   /** Verify element entry was created successfully. */
