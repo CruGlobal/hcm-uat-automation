@@ -282,6 +282,11 @@ export class HomePage extends BasePage {
       console.log('[Home] Navigator fallback: direct URL for Person Management');
       await this.gotoDirectUrl('itemNode_workforce_management_person_management');
     }
+    // Verify the search panel rendered — wait up to 30s for ADF under concurrent load
+    const searchPanel = this.page.locator('[id*="q1:"]').first();
+    await searchPanel.waitFor({ state: 'visible', timeout: 30_000 }).catch(() => {
+      console.log('[Home] Person Management search panel did not render within 30s');
+    });
   }
 
   /** Navigate to Absence Administration (My Client Groups). */

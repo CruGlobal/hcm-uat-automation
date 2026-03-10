@@ -169,71 +169,46 @@ export class PersonManagementPage extends BasePage {
 
   /** Fill a search field using click → clear → pressSequentially to trigger ADF binding events. */
   private async fillSearchField(locator: ReturnType<typeof this.page.locator>, value: string): Promise<void> {
-    // Wait for the search field to become visible, with retry via direct navigation
-    const visible = await locator.isVisible({ timeout: 10000 }).catch(() => false);
+    // Wait for the search field — under concurrent load ADF can take 30s+ to render
+    const visible = await locator.isVisible({ timeout: 30_000 }).catch(() => false);
     if (!visible) {
-      // Check if we're even on an Oracle HCM page (blank page = session dead)
       const currentUrl = this.page.url();
-      const pageContent = await this.page.content().catch(() => '');
-      const isBlankOrDead = !currentUrl.includes('fscmUI') || pageContent.length < 500;
 
-      if (isBlankOrDead) {
-        console.log(`[PersonMgmt] Page appears blank/dead (url: ${currentUrl}, content length: ${pageContent.length})`);
-        // Use ensureSessionAlive to recover (handles re-login if needed)
-        const home = new HomePage(this.page);
-        await home.ensureSessionAlive();
+      // Dead session or login page — re-login
+      if (!currentUrl.includes('fscmUI') || currentUrl.includes('login') || currentUrl.includes('signin')) {
+        console.log(`[PersonMgmt] Not on HCM page (${currentUrl}), re-authenticating...`);
+        const login = new LoginPage(this.page);
+        await login.fullLogin();
       }
 
-      // Navigate via FuseOverview (same as goToPersonManagement direct fallback)
+      // Navigate to Person Management and wait generously for ADF to render
       console.log('[PersonMgmt] Search field not visible — navigating to Person Management');
       await this.page.goto(
         '/fscmUI/faces/FuseOverview?fndGlobalItemNodeId=itemNode_workforce_management_person_management',
         { timeout: 60_000 },
       ).catch(() => {});
-      await this.page.waitForLoadState('networkidle', { timeout: 30_000 }).catch(() => {});
-      await this.page.waitForTimeout(5000);
-
-      // Check if we got redirected to a login page (session truly dead)
-      const postNavUrl = this.page.url();
-      if (postNavUrl.includes('login') || postNavUrl.includes('okta') || postNavUrl.includes('signin') || postNavUrl.includes('auth_cred_submit')) {
-        console.log(`[PersonMgmt] Redirected to login page (${postNavUrl}), re-authenticating...`);
-        const login = new LoginPage(this.page);
-        await login.fullLogin();
-        // Re-navigate to Person Management after login
-        await this.page.goto(
-          '/fscmUI/faces/FuseOverview?fndGlobalItemNodeId=itemNode_workforce_management_person_management',
-          { timeout: 60_000 },
-        ).catch(() => {});
-        await this.page.waitForLoadState('networkidle', { timeout: 30_000 }).catch(() => {});
-        await this.page.waitForTimeout(5000);
-      }
-
+      await this.page.waitForLoadState('networkidle', { timeout: 60_000 }).catch(() => {});
       await this.waitForJET();
       await this.dismissPopups();
 
-      let retryVisible = await locator.isVisible({ timeout: 15000 }).catch(() => false);
+      // Poll for the search field with a generous timeout — ADF renders lazily under load
+      let retryVisible = await locator.isVisible({ timeout: 30_000 }).catch(() => false);
       if (!retryVisible) {
-        // ADF may be stuck — navigate to home first to reset state, then back to Person Management
-        console.log('[PersonMgmt] Search field still not visible — resetting via home page...');
+        // One more attempt: go home first then back (forces clean ADF transition)
+        console.log('[PersonMgmt] Search panel did not render — resetting via home...');
         await this.page.goto('/fscmUI/faces/AtkHomePageWelcome', { timeout: 60_000 }).catch(() => {});
-        await this.page.waitForLoadState('networkidle', { timeout: 30_000 }).catch(() => {});
         await this.page.waitForTimeout(3000);
-        // Now navigate to Person Management (fresh ADF page transition)
         await this.page.goto(
           '/fscmUI/faces/FuseOverview?fndGlobalItemNodeId=itemNode_workforce_management_person_management',
           { timeout: 60_000 },
         ).catch(() => {});
-        await this.page.waitForLoadState('networkidle', { timeout: 30_000 }).catch(() => {});
-        await this.page.waitForTimeout(8000);
+        await this.page.waitForLoadState('networkidle', { timeout: 60_000 }).catch(() => {});
         await this.waitForJET();
-        await this.dismissPopups();
-        retryVisible = await locator.isVisible({ timeout: 15000 }).catch(() => false);
+        retryVisible = await locator.isVisible({ timeout: 30_000 }).catch(() => false);
       }
       if (!retryVisible) {
-        const retryUrl = this.page.url();
-        const retryContent = await this.page.content().catch(() => '');
         await this.page.screenshot({ path: `test-results/person-search-not-visible.png`, fullPage: true }).catch(() => {});
-        throw new Error(`Person Management search field not visible after navigation retry (url: ${retryUrl}, content: ${retryContent.length} chars)`);
+        throw new Error(`Person Management search field not visible after navigation retry (url: ${this.page.url()})`);
       }
     }
     await locator.click();
@@ -250,7 +225,8 @@ export class PersonManagementPage extends BasePage {
    */
   private async ensureOnPersonManagement(): Promise<void> {
     const anySearchField = this.page.locator('[id*="q1:"]').first();
-    const isOnPage = await anySearchField.isVisible({ timeout: 5000 }).catch(() => false);
+    // Give ADF 20s to render under load (was 5s — too aggressive for concurrent runs)
+    const isOnPage = await anySearchField.isVisible({ timeout: 20_000 }).catch(() => false);
     if (isOnPage) return;
 
     console.log('[PersonMgmt] Search panel not found — navigating via FuseOverview URL');
@@ -258,10 +234,13 @@ export class PersonManagementPage extends BasePage {
       '/fscmUI/faces/FuseOverview?fndGlobalItemNodeId=itemNode_workforce_management_person_management',
       { timeout: 60_000 },
     ).catch(() => {});
-    await this.page.waitForLoadState('networkidle', { timeout: 30_000 }).catch(() => {});
-    await this.page.waitForTimeout(3000);
+    await this.page.waitForLoadState('networkidle', { timeout: 60_000 }).catch(() => {});
     await this.waitForJET();
     await this.dismissPopups();
+    // Wait for the search panel to render — generous timeout for concurrent load
+    await anySearchField.waitFor({ state: 'visible', timeout: 30_000 }).catch(() => {
+      console.log('[PersonMgmt] Search panel still not visible after FuseOverview nav');
+    });
   }
 
   /** Search by person name and click the first result. */
