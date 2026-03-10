@@ -340,17 +340,15 @@ export class PayrollProcessingPage extends BasePage {
     await nameField.click();
     await nameField.clear();
     await nameField.pressSequentially(processName, { delay: 50 });
-    await this.page.waitForTimeout(2000);
-
-    // Tab to trigger autocomplete resolution
-    await nameField.press('Tab');
     await this.page.waitForTimeout(3000);
 
+    // Tab to trigger autocomplete resolution — give LOV time to resolve under load
+    await nameField.press('Tab');
+    await this.page.waitForTimeout(5000);
+
     // Check if a "Search and Select" dialog appeared (stacked on top).
-    // Don't rely on AFModalGlassPane (may not exist for all dialog types) —
-    // instead check for the actual dialog title "Search and Select: Name".
     const searchAndSelect = this.page.getByText('Search and Select', { exact: false }).first();
-    if (await searchAndSelect.isVisible({ timeout: 3000 }).catch(() => false)) {
+    if (await searchAndSelect.isVisible({ timeout: 5000 }).catch(() => false)) {
       console.log('[Payroll] Search and Select dialog detected');
       await this.handleProcessSearchDialog(processName);
     }
@@ -358,15 +356,22 @@ export class PayrollProcessingPage extends BasePage {
     // Click OK on the "Schedule New Process" dialog to proceed to parameters
     await this.page.waitForTimeout(2000);
     const okButton = this.page.getByRole('button', { name: 'OK' }).first();
-    if (await okButton.isVisible({ timeout: 5000 }).catch(() => false)) {
-      const isDisabled = await okButton.isDisabled().catch(() => true);
-      if (!isDisabled) {
+    if (await okButton.isVisible({ timeout: 8000 }).catch(() => false)) {
+      // Wait for OK to become enabled — LOV resolution may still be in progress
+      let enabled = false;
+      for (let attempt = 0; attempt < 6; attempt++) {
+        const isDisabled = await okButton.isDisabled().catch(() => true);
+        if (!isDisabled) { enabled = true; break; }
+        console.log(`[Payroll] OK still disabled (attempt ${attempt + 1}/6), waiting for LOV resolution...`);
+        await this.page.waitForTimeout(3000);
+      }
+      if (enabled) {
         await okButton.click({ force: true });
         await this.page.waitForTimeout(3000);
         await this.clearGlassPane();
         await this.waitForJET();
       } else {
-        console.log(`[Payroll] Process "${processName}" not selected, OK disabled — cancelling`);
+        console.log(`[Payroll] Process "${processName}" not selected after waiting, OK still disabled — cancelling`);
         const cancelBtn = this.page.getByRole('button', { name: 'Cancel' }).first();
         await cancelBtn.click({ force: true }).catch(() => {});
         await this.page.waitForTimeout(2000);
