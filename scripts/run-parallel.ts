@@ -553,11 +553,32 @@ async function main() {
   }
   if (processes.length > availableSlots) {
     console.log(`\n  ⚠️  Capping processes: ${processes.length} planned but only ${availableSlots} slots available (${existingProcesses} already running, cap: ${HARD_CAP})`);
-    // Sort by test count descending so we keep the most impactful processes
-    processes.sort((a, b) => b.tests.length - a.tests.length);
-    const dropped = processes.splice(availableSlots);
-    const droppedTests = dropped.reduce((sum, p) => sum + p.tests.length, 0);
-    console.log(`  Dropped ${dropped.length} processes (${droppedTests} tests) to stay within cap.\n`);
+    // Ensure every base bot gets at least 1 process, then fill remaining with clones
+    const baseBotProcesses = new Map<string, typeof processes>();
+    for (const p of processes) {
+      if (!baseBotProcesses.has(p.baseBotName)) baseBotProcesses.set(p.baseBotName, []);
+      baseBotProcesses.get(p.baseBotName)!.push(p);
+    }
+    // First pass: take 1 process per base bot (the one with most tests)
+    const kept: typeof processes = [];
+    for (const [_bot, procs] of baseBotProcesses) {
+      procs.sort((a, b) => b.tests.length - a.tests.length);
+      kept.push(procs[0]); // Keep the biggest process for each bot
+    }
+    // Second pass: fill remaining slots with clone processes (most tests first)
+    const remaining = processes.filter(p => !kept.includes(p));
+    remaining.sort((a, b) => b.tests.length - a.tests.length);
+    let slotsLeft = availableSlots - kept.length;
+    for (const p of remaining) {
+      if (slotsLeft <= 0) break;
+      kept.push(p);
+      slotsLeft--;
+    }
+    const droppedCount = processes.length - kept.length;
+    const droppedTests = processes.reduce((s, p) => s + p.tests.length, 0) - kept.reduce((s, p) => s + p.tests.length, 0);
+    processes.length = 0;
+    processes.push(...kept);
+    console.log(`  Kept ${kept.length} processes (${baseBotProcesses.size} base bots guaranteed). Dropped ${droppedCount} clone processes (${droppedTests} tests).\n`);
   } else if (existingProcesses > 0) {
     console.log(`  [Process cap] ${existingProcesses} existing + ${processes.length} new = ${existingProcesses + processes.length} / ${HARD_CAP} max`);
   }
