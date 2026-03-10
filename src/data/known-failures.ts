@@ -852,10 +852,7 @@ export function getFailureReason(testId: string): string | undefined {
  * and the test should be skipped rather than attempting execution.
  * These are known failures whose validate() unconditionally throws.
  */
-export function isDeferredKnownFailure(testId: string): boolean {
-  const failure = KNOWN_FAILURES[testId];
-  if (!failure) return false;
-  // Check if the reason indicates the flow is unreliable, not implemented, or deferred
-  const r = failure.reason.toLowerCase();
-  return r.includes('unreliable') || r.includes('not yet implemented') || r.includes('not implemented');
+export function isDeferredKnownFailure(_testId: string): boolean {
+  // All tests must be attempted — no deferring. Tests run and either pass or fail with real errors.
+  return false;
 }
