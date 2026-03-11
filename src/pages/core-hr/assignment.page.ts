@@ -246,38 +246,43 @@ export class AssignmentPage extends BasePage {
 
   /** Fill People Group flex field segments */
   private async fillPeopleGroup(tc: TestCase): Promise<void> {
-    // Click the People Group field to open the key flex dialog
-    const pgField = this.peopleGroup;
-    const isVisible = await pgField.isVisible({ timeout: 3000 }).catch(() => false);
+    // Locators confirmed via Playwright Inspector on HR-019:
+    const lookupLink = this.page.getByRole('link', { name: 'Select: People Group' });
+    const isVisible = await lookupLink.isVisible({ timeout: 3000 }).catch(() => false);
     if (!isVisible) return;
 
-    // The People Group field opens a dialog with segment fields
-    // For now, we'll try to click and fill
     const supportType = getField(tc, 'Support Type') || getField(tc, 'PeopleGroup - Support Type');
-    const secaStatus = getField(tc, 'Seca Status') || getField(tc, 'PeopleGroup - Seca Status');
+    // Oracle label is "Tax Status" (field data uses "Seca Status" key)
+    const taxStatus = getField(tc, 'Tax Status') || getField(tc, 'Seca Status') || getField(tc, 'PeopleGroup - Seca Status');
 
-    if (supportType || secaStatus) {
-      await pgField.click();
+    if (supportType || taxStatus) {
+      // Click the "Select: People Group" link to open the dialog
+      await lookupLink.click();
       await this.page.waitForTimeout(2000);
 
-      // The dialog should open with segment fields
-      // These are typically in a popup/dialog
       if (supportType) {
-        const supportField = this.page.locator('[id*="kf2"][id*="supportType"], [id*="kf2"][id*="segment1"]').first();
-        if (await supportField.isVisible({ timeout: 3000 }).catch(() => false)) {
+        const supportField = this.page.getByRole('combobox', { name: 'Support Type' });
+        if (await supportField.isVisible({ timeout: 5000 }).catch(() => false)) {
           await this.fillCombobox(supportField, supportType);
+          console.log(`[PeopleGroup] Support Type set to "${supportType}"`);
+        } else {
+          console.log('[PeopleGroup] Support Type field not visible in dialog');
         }
       }
-      if (secaStatus) {
-        const secaField = this.page.locator('[id*="kf2"][id*="secaStatus"], [id*="kf2"][id*="segment2"]').first();
-        if (await secaField.isVisible({ timeout: 3000 }).catch(() => false)) {
-          await this.fillCombobox(secaField, secaStatus);
+      if (taxStatus) {
+        const taxField = this.page.getByRole('combobox', { name: 'Tax Status' });
+        if (await taxField.isVisible({ timeout: 3000 }).catch(() => false)) {
+          await this.fillCombobox(taxField, taxStatus);
+          console.log(`[PeopleGroup] Tax Status set to "${taxStatus}"`);
+        } else {
+          console.log('[PeopleGroup] Tax Status field not visible in dialog');
         }
       }
 
-      // Click OK to close the flex field dialog
+      // Click OK to close the dialog
       try {
         await this.clickAdfButton('OK');
+        await this.page.waitForTimeout(1000);
       } catch {
         // Dialog may auto-close
       }

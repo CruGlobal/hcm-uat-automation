@@ -58,11 +58,12 @@ const EDUCATION_MAP: Record<string, string> = {
   BACHELOR: 'Bachelor', MASTERS: 'Masters', DOCTORAL: 'Doctoral',
   CA_10: 'Some High School', CA_20: 'High School Diploma', CA_80: 'Some College',
 };
-// PEOPLE_GROUP values from DB map to Support Type display names from Common Lookups
+// PEOPLE_GROUP values from DB map to Support Type values shown in Oracle HCM autocomplete
+// Values confirmed by DOM inspection: Oracle shows DB codes (SUPPORTED_RMO, SUPPORTED_NOT_RMO etc.)
 const PEOPLE_GROUP_MAP: Record<string, string> = {
-  FICA: 'None', SECA: 'Supported RMO', OPTOUT: 'None',
-  SUPPORTED_RMO: 'Supported RMO', SUPPORTED_NOT_RMO: 'Supported - non-RMO',
-  DESIGNATION: 'Designation', NONE: 'None',
+  FICA: 'NONE', SECA: 'SUPPORTED_RMO', OPTOUT: 'NONE',
+  SUPPORTED_RMO: 'SUPPORTED_RMO', SUPPORTED_NOT_RMO: 'SUPPORTED_NOT_RMO',
+  DESIGNATION: 'DESIGNATION', NONE: 'NONE',
 };
 const ACTION_MAP: Record<string, string> = {
   HIRE: 'Hire', ADD_PEN_WKR: 'Add Pending Worker', TERMINATION: 'Termination',
@@ -1007,6 +1008,15 @@ function buildHireFields(
     fields['Payroll Details > Payroll Frequency'] = 'Biweekly Salaried';
   }
 
+  // Staff Designation EIT — required when SupportType is SUPPORTED_RMO, SUPPORTED_NOT_RMO, or DESIGNATION
+  const needsDesignation = ['SECA', 'SUPPORTED_RMO', 'SUPPORTED_NOT_RMO', 'DESIGNATION'].includes(asg.PEOPLE_GROUP);
+  if (needsDesignation) {
+    fields['Staff and Designation > Effective Date'] = 'todays date';
+    fields['Staff and Designation > Staff Account Number'] = person.STAFF_ACCOUNT_NUMBER || 'New';
+    fields['Staff and Designation > Designation'] = person.DESIGNATION_NUMBER || 'New';
+    fields['Staff and Designation > Primary'] = 'Yes';
+  }
+
   return { testId, tab: 'Core - Hires', scenario, fields, columnIndex: index + 2 };
 }
 
@@ -1106,6 +1116,7 @@ function buildRehireFields(
   const fields: Record<string, string> = {
     'Use Person > Last Name': person.LAST_NAME,
     'Use Person > First Name': person.FIRST_NAME,
+    'Use Person > Person Number': person.PERSON_NUM,
     'Use Person > Worker Type': WORKER_TYPE_MAP[asg.WORKER_TYPE] || 'Employee',
     'Use Person > When': futureDate(30 + index),
     'Use Person > Legal Employer': asg.LEGAL_EMPLOYER || 'Campus Crusade for Christ, Inc.',
