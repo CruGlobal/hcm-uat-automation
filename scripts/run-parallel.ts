@@ -574,34 +574,11 @@ async function main() {
       kept.push(p);
       slotsLeft--;
     }
-    // Redistribute dropped clone tests back to their base bot's process
-    const dropped = processes.filter(p => !kept.includes(p));
-    const keptByBot = new Map<string, typeof processes[0]>();
-    for (const p of kept) {
-      // Keep track of the base bot process (the one with most tests)
-      if (!keptByBot.has(p.baseBotName) || p.tests.length > keptByBot.get(p.baseBotName)!.tests.length) {
-        keptByBot.set(p.baseBotName, p);
-      }
-    }
-    let redistributed = 0;
-    for (const dp of dropped) {
-      const baseProc = keptByBot.get(dp.baseBotName);
-      if (baseProc) {
-        // Add dropped tests to the base bot's kept process (avoiding duplicates)
-        const existingIds = new Set(baseProc.tests.map(t => t.testId));
-        for (const t of dp.tests) {
-          if (!existingIds.has(t.testId)) {
-            baseProc.tests.push(t);
-            existingIds.add(t.testId);
-            redistributed++;
-          }
-        }
-      }
-    }
-    const droppedCount = dropped.length;
+    const droppedCount = processes.length - kept.length;
+    const droppedTests = processes.filter(p => !kept.includes(p)).reduce((s, p) => s + p.tests.length, 0);
     processes.length = 0;
     processes.push(...kept);
-    console.log(`  Kept ${kept.length} processes (${baseBotProcesses.size} base bots guaranteed). Dropped ${droppedCount} clone processes, redistributed ${redistributed} tests to base bots.\n`);
+    console.log(`  Kept ${kept.length} processes (${baseBotProcesses.size} base bots guaranteed). Dropped ${droppedCount} clone processes (${droppedTests} tests — run a second pass to cover them).\n`);
   } else if (existingProcesses > 0) {
     console.log(`  [Process cap] ${existingProcesses} existing + ${processes.length} new = ${existingProcesses + processes.length} / ${HARD_CAP} max`);
   }
