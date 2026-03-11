@@ -251,7 +251,19 @@ export class PayrollProcessingFlow extends BaseFlow {
   /** Semi-monthly payroll run via Scheduled Processes. */
   private async executePayrollRun(tc: UATTestCase): Promise<void> {
     await this.payroll.goToScheduledProcesses();
-    await this.payroll.scheduleNewProcess('Calculate Payroll');
+    // Try multiple process names — Oracle HCM may use different names
+    let scheduled = false;
+    for (const name of ['Calculate Payroll', 'Run Payroll', 'Payroll Calculation']) {
+      try {
+        await this.payroll.scheduleNewProcess(name);
+        scheduled = true;
+        console.log(`[Payroll] Scheduled: ${name}`);
+        break;
+      } catch {
+        console.log(`[Payroll] "${name}" not available, trying next...`);
+      }
+    }
+    if (!scheduled) throw new Error('Payroll run process not found');
     await this.payroll.fillPayrollRunParams({
       effectiveDate: tc.testDate || undefined,
     });

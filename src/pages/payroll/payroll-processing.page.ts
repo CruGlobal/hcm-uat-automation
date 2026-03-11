@@ -496,17 +496,24 @@ export class PayrollProcessingPage extends BasePage {
       let targetRow = matchRow;
       let matched = await matchRow.isVisible({ timeout: 2000 }).catch(() => false);
 
-      // If no exact match, try matching by significant keywords from the process name
+      // If no exact match, try progressively broader keyword matching.
+      // First try ALL significant keywords together, then drop one at a time.
       if (!matched) {
         const keywords = processName.split(/[\s-]+/).filter(w => w.length > 3);
-        for (const kw of keywords) {
-          const kwRow = rows.filter({ hasText: new RegExp(kw, 'i') }).first();
-          if (await kwRow.isVisible({ timeout: 1000 }).catch(() => false)) {
-            const text = await kwRow.textContent().catch(() => '');
-            console.log(`[Payroll] Found keyword "${kw}" match: "${text?.trim().substring(0, 60)}"`);
-            targetRow = kwRow;
-            matched = true;
-            break;
+        // Try matching ALL keywords in one row first (most specific)
+        for (let dropCount = 0; dropCount < keywords.length && !matched; dropCount++) {
+          const tryKeywords = keywords.slice(0, keywords.length - dropCount);
+          const rowCount = await rows.count();
+          for (let ri = 0; ri < rowCount; ri++) {
+            const row = rows.nth(ri);
+            const text = (await row.textContent().catch(() => '')) || '';
+            const allMatch = tryKeywords.every(kw => text.toLowerCase().includes(kw.toLowerCase()));
+            if (allMatch) {
+              console.log(`[Payroll] Found ${tryKeywords.length}-keyword match: "${text.trim().substring(0, 80)}"`);
+              targetRow = row;
+              matched = true;
+              break;
+            }
           }
         }
       }
