@@ -127,7 +127,9 @@ export class TimecardEntryFlow extends BaseTimeLaborFlow {
     if (hasAdd) {
       await this.timecardPage.clickAddTimeCard();
     } else {
+      // clickCurrentTimeCard() is navigation-only if tile not visible
       await this.timecardPage.clickCurrentTimeCard();
+      // If neither tile was found, page may still be on ESS landing — that's OK
     }
 
     // Fill timecard from test case data — don't let field errors block submission

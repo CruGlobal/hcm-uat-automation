@@ -118,9 +118,9 @@ const TEST_ID_BOT_OVERRIDES: Record<string, string> = {
   // Absence tests needing plan enrollment → bot_payroll_admin
   'AB-054.00': 'bot_payroll_admin',
   'AB-056.00': 'bot_payroll_admin',
-  'AB.021.00': 'bot_payroll_admin',
-  'AB.022.00': 'bot_payroll_admin',
-  'AB.027.00': 'bot_payroll_admin',
+  'AB-021.00': 'bot_payroll_admin',
+  'AB-022.00': 'bot_payroll_admin',
+  'AB-027.00': 'bot_payroll_admin',
   // T&L HR Specialist tests → bot_time_admin (needs Time and Labor Manager role)
   'TL-001': 'bot_time_admin',
   'TL-003': 'bot_time_admin',

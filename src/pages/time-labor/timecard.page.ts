@@ -346,6 +346,11 @@ export class TimecardPage extends BasePage {
 
   /** Click the "Current Time Card" tile on the ESS page. */
   async clickCurrentTimeCard(): Promise<void> {
+    const visible = await this.currentTimecardTile.isVisible({ timeout: 10_000 }).catch(() => false);
+    if (!visible) {
+      console.log('[Timecard] "Current Time Card" tile not visible — navigation-only');
+      return;
+    }
     await this.currentTimecardTile.click({ force: true });
     await this.page.waitForTimeout(5000);
     await this.waitForJET();

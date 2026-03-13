@@ -73,18 +73,13 @@ export class PreFlightChecker {
 
     const personNumber = getField(fieldData, 'person number') || getField(fieldData, 'personnumber');
 
-    // Assignment changes are safe — skip before "hire" check to avoid false positive
-    // (e.g. BP "NSO enrollee-Long Hire" contains "hire" but is actually an assignment change)
-    if (bp.includes('assignment change') || bp.includes('status change')) {
-      return OK;
-    }
     // Hire checks work even without a person number (looks up by name)
     if (bp.includes('hire') || bp.includes('pending') || bp.includes('nonworker') || bp.includes('non worker')) {
       return this.prepareHire(tc, personNumber);
     }
     // Remaining checks require a person number
     if (!personNumber) return OK;
-    if (bp.includes('terminat') || bp.includes('end work rel') || bp.includes('end assignment') ||
+    if (bp.includes('terminat') || bp.includes('end work rel') ||
         bp.includes('withdraw') || bp.includes('remove affiliate') || bp.includes('remove non employee')) {
       return this.prepareTermination(tc, personNumber);
     }
@@ -94,7 +89,36 @@ export class PreFlightChecker {
     if (bp.includes('create work rel')) {
       return this.prepareCreateWorkRelationship(tc, personNumber);
     }
-    return OK;
+    // Most remaining tests require the person to be ACTIVE (not terminated).
+    // This covers: assignment changes, transfers, LOC changes, pay changes,
+    // leave of absence, document management, approvals, additional jobs, etc.
+    // Only exclude tests that explicitly target terminated persons or don't need a person.
+    return this.prepareAssignmentChange(tc, personNumber);
+  }
+
+  /** Assignment Change: person must have an active work relationship. Reverse termination if needed. */
+  private async prepareAssignmentChange(tc: UATTestCase, personNumber: string): Promise<PreFlightResult> {
+    const worker = await getWorkerFull(null, this.baseUrl, personNumber, this.creds);
+    if (!worker) {
+      console.warn(`[PreFlight] ${tc.testId}: Person ${personNumber} not found — letting assignment change attempt anyway`);
+      return OK;
+    }
+    const activeRel = (worker.workRelationships || []).find(wr => wr.TerminationDate === null);
+    if (activeRel) return OK; // Person is active — ready
+    // Person is terminated — reverse to restore active status
+    const sorted = [...(worker.workRelationships || [])].sort((a, b) =>
+      (b.StartDate || '').localeCompare(a.StartDate || ''),
+    );
+    const mostRecent = sorted[0];
+    if (!mostRecent) return OK;
+    console.log(`[PreFlight] ${tc.testId}: Person ${personNumber} is terminated — reversing for assignment change`);
+    try {
+      await reverseTermination(this.baseUrl, worker.PersonId, mostRecent.PeriodOfServiceId, this.creds);
+      return { ready: true, action: 'reversed-termination', reason: `Reversed termination for ${personNumber}` };
+    } catch (error: any) {
+      console.warn(`[PreFlight] ${tc.testId}: Could not reverse termination for ${personNumber}: ${error.message}`);
+      return OK; // Let the test attempt anyway
+    }
   }
 
   /** Termination: person must have an active (non-terminated) work relationship. */
@@ -250,7 +274,9 @@ export class PreFlightChecker {
     }
 
     // View/edit/withdraw tests need existing absences — check and skip if none exist
-    if (bp.includes('view') || bp.includes('edit') || bp.includes('withdraw')) {
+    // Exclude accrual/balance operations — those are admin actions, not viewing a specific absence
+    if ((bp.includes('view') || bp.includes('edit') || bp.includes('withdraw')) &&
+        !bp.includes('accrual') && !bp.includes('balance')) {
       return this.prepareAbsenceViewEditWithdraw(tc);
     }
 
@@ -386,12 +412,17 @@ export class PreFlightChecker {
     if (!personNumber) return OK;
 
     const absences = await lookupAbsencesByNumber(null, this.baseUrl, personNumber, this.creds);
-    if (absences.length === 0) {
-      console.log(`[PreFlight] ${tc.testId}: No existing absences for ${personNumber} — skipping view/edit/withdraw test`);
-      return { ready: false, action: 'skip', reason: `No existing absences for ${personNumber}` };
+    // Only count non-withdrawn, non-cancelled absences — those are the ones viewable/editable/withdrawable in UI
+    const activeAbsences = absences.filter(a => {
+      const status = (a.absenceStatusCd || '').toUpperCase();
+      return status !== 'WITHDRAWN' && status !== 'CANCELLED' && status !== 'ORA_CANCELLED';
+    });
+    if (activeAbsences.length === 0) {
+      console.log(`[PreFlight] ${tc.testId}: No active absences for ${personNumber} (${absences.length} total, all withdrawn/cancelled) — skipping view/edit/withdraw test`);
+      return { ready: false, action: 'skip', reason: `No active absences for ${personNumber}` };
     }
 
-    console.log(`[PreFlight] ${tc.testId}: ${absences.length} absence(s) found for ${personNumber} — ready for view/edit/withdraw`);
+    console.log(`[PreFlight] ${tc.testId}: ${activeAbsences.length} active absence(s) found for ${personNumber} — ready for view/edit/withdraw`);
     return OK;
   }
 
