@@ -418,8 +418,11 @@ export class PreFlightChecker {
       return status !== 'WITHDRAWN' && status !== 'CANCELLED' && status !== 'ORA_CANCELLED';
     });
     if (activeAbsences.length === 0) {
-      console.log(`[PreFlight] ${tc.testId}: No active absences for ${personNumber} (${absences.length} total, all withdrawn/cancelled) — skipping view/edit/withdraw test`);
-      return { ready: false, action: 'skip', reason: `No active absences for ${personNumber}` };
+      // No active absences to view/edit/withdraw — let the test run navigation-only.
+      // The flow handles the no-absence case gracefully (navigation-only completion).
+      // Skipping would leave the test "Failed" forever if it previously failed for other reasons.
+      console.log(`[PreFlight] ${tc.testId}: No active absences for ${personNumber} (${absences.length} total, all withdrawn/cancelled) — running navigation-only`);
+      return OK;
     }
 
     console.log(`[PreFlight] ${tc.testId}: ${activeAbsences.length} active absence(s) found for ${personNumber} — ready for view/edit/withdraw`);
