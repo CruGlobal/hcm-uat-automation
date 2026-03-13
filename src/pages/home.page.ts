@@ -350,7 +350,12 @@ export class HomePage extends BasePage {
 
   /** Navigate to self-service Pay (My Information). */
   async goToPayESS(): Promise<void> {
-    await this.navigateVia('nv_itemNode_my_information_pay', 'Pay');
+    try {
+      await this.navigateVia('nv_itemNode_my_information_pay', 'Pay');
+    } catch {
+      console.log('[Home] Navigator fallback: direct URL for Pay ESS');
+      await this.gotoDirectUrl('itemNode_my_information_pay');
+    }
   }
 
   /** Navigate to Scheduled Processes (Tools). Falls back to direct URL. Verifies destination. */
