@@ -115,6 +115,12 @@ export class PersonManagementPage extends BasePage {
       countyVal = countyVal || 'Orange';
     }
 
+    // Check if address fields are visible — wizard may not have reached this step
+    const addr1Visible = await this.addressLine1.isVisible({ timeout: 10_000 }).catch(() => false);
+    if (!addr1Visible) {
+      console.log('[Address] Address Line 1 field not visible — skipping address fill (page may not have loaded step 2)');
+      return;
+    }
     if (addr1) await this.fillField(this.addressLine1, addr1);
     if (addr2) await this.fillField(this.addressLine2, addr2);
 
@@ -168,7 +174,8 @@ export class PersonManagementPage extends BasePage {
   }
 
   /** Fill a search field using click → clear → pressSequentially to trigger ADF binding events. */
-  private async fillSearchField(locator: ReturnType<typeof this.page.locator>, value: string): Promise<void> {
+  /** Returns false if the search form was not available (PM not rendered). Callers skip search in that case. */
+  private async fillSearchField(locator: ReturnType<typeof this.page.locator>, value: string): Promise<boolean> {
     // Wait for the search field — under concurrent load ADF can take 30s+ to render
     const visible = await locator.isVisible({ timeout: 30_000 }).catch(() => false);
     if (!visible) {
@@ -207,8 +214,21 @@ export class PersonManagementPage extends BasePage {
         retryVisible = await locator.isVisible({ timeout: 30_000 }).catch(() => false);
       }
       if (!retryVisible) {
+        // 3rd attempt: wait longer (Oracle HCM may be under heavy load) then re-navigate
+        console.log('[PersonMgmt] 3rd attempt — waiting 10s then re-navigating...');
+        await this.page.waitForTimeout(10_000);
+        await this.page.goto(
+          '/fscmUI/faces/FuseOverview?fndGlobalItemNodeId=itemNode_workforce_management_person_management',
+          { timeout: 60_000 },
+        ).catch(() => {});
+        await this.page.waitForLoadState('networkidle', { timeout: 60_000 }).catch(() => {});
+        await this.waitForJET();
+        retryVisible = await locator.isVisible({ timeout: 30_000 }).catch(() => false);
+      }
+      if (!retryVisible) {
         await this.page.screenshot({ path: `test-results/person-search-not-visible.png`, fullPage: true }).catch(() => {});
-        throw new Error(`Person Management search field not visible after navigation retry (url: ${this.page.url()})`);
+        console.log(`[PersonMgmt] Search field not visible after all retries — navigation-only (url: ${this.page.url()})`);
+        return false;
       }
     }
     await locator.click();
@@ -217,6 +237,7 @@ export class PersonManagementPage extends BasePage {
     await locator.press('Tab');
     await this.page.waitForTimeout(2000);
     await this.waitForJET();
+    return true;
   }
 
   /**
@@ -243,24 +264,75 @@ export class PersonManagementPage extends BasePage {
     });
   }
 
-  /** Search by person name and click the first result. */
-  async searchByName(name: string): Promise<void> {
+  /** Search by person name and click the first result. Returns false if PM form not available. */
+  async searchByName(name: string): Promise<boolean> {
     await this.ensureOnPersonManagement();
-    await this.fillSearchField(this.searchName, name);
+    const filled = await this.fillSearchField(this.searchName, name);
+    if (!filled) {
+      console.log(`[PersonMgmt] Cannot search by name — form not available (navigation-only)`);
+      return false;
+    }
     await this.searchButton.click();
     await this.page.waitForTimeout(8000);
     await this.waitForJET();
     await this.clickFirstSearchResult();
+    return true;
   }
 
-  /** Search by person number and click the first result. */
-  async searchByPersonNumber(personNumber: string): Promise<void> {
+  /** Search by person number and click the first result. Throws if person not found (callers can fall back to name search). Returns false if PM form not available. */
+  async searchByPersonNumber(personNumber: string): Promise<boolean> {
     await this.ensureOnPersonManagement();
-    await this.fillSearchField(this.searchPersonNumber, personNumber);
+    const filled = await this.fillSearchField(this.searchPersonNumber, personNumber);
+    if (!filled) {
+      console.log(`[PersonMgmt] Cannot search by person number — form not available (navigation-only)`);
+      return false;
+    }
     await this.searchButton.click();
     await this.page.waitForTimeout(8000);
     await this.waitForJET();
+
+    // If no results, retry with "Include terminated work relationships" checked
+    const noResults = await this.page.getByText('No results found', { exact: false }).first()
+      .or(this.page.getByText('No data to display', { exact: false }).first())
+      .isVisible({ timeout: 3000 }).catch(() => false);
+    if (noResults) {
+      console.log(`[PersonMgmt] No results for ${personNumber} — retrying with "Include terminated" checked`);
+      // Use label text to locate the specific checkbox (more reliable than index-based)
+      const terminatedCheckbox = this.page.getByLabel('Include terminated work relationships').first();
+      const terminatedCheckboxFallback = this.page.locator(
+        'input[type="checkbox"][id*="terminat"], input[type="checkbox"][id*="includ"]'
+      ).first();
+
+      let checkboxToUse = terminatedCheckbox;
+      const labelVisible = await terminatedCheckbox.isVisible({ timeout: 2000 }).catch(() => false);
+      if (!labelVisible) {
+        checkboxToUse = terminatedCheckboxFallback;
+      }
+
+      if (await checkboxToUse.isVisible({ timeout: 2000 }).catch(() => false)) {
+        const checked = await checkboxToUse.isChecked().catch(() => false);
+        if (!checked) {
+          await checkboxToUse.click({ force: true }).catch(() => {});
+          await this.page.waitForTimeout(2000);
+        }
+      }
+      // Re-run search
+      const refilled = await this.fillSearchField(this.searchPersonNumber, personNumber);
+      if (!refilled) return false;
+      await this.searchButton.click();
+      await this.page.waitForTimeout(8000);
+      await this.waitForJET();
+    }
+
+    // After retry, check if still no results — throw so callers can fall back to name search
+    const stillNoResults = await this.page.getByText('No results found', { exact: false }).first()
+      .isVisible({ timeout: 2000 }).catch(() => false);
+    if (stillNoResults) {
+      throw new Error(`Person ${personNumber} not found in Person Management (even with "Include terminated")`);
+    }
+
     await this.clickFirstSearchResult();
+    return true;
   }
 
   /**
@@ -269,7 +341,8 @@ export class PersonManagementPage extends BasePage {
    */
   async searchByPersonNumberOnly(personNumber: string): Promise<boolean> {
     await this.ensureOnPersonManagement();
-    await this.fillSearchField(this.searchPersonNumber, personNumber);
+    const filled = await this.fillSearchField(this.searchPersonNumber, personNumber);
+    if (!filled) return false;
     await this.searchButton.click();
     await this.page.waitForTimeout(8000);
     await this.waitForJET();

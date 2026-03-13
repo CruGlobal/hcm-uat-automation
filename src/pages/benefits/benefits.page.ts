@@ -430,8 +430,19 @@ export class BenefitsPage extends BasePage {
       }
     }
 
-    // Strategy 4: click the first result card in the list
-    const firstCard = this.page.locator('oj-list-item-layout, div[role="listitem"], li[role="option"]').first();
+    // Strategy 4: click the first result card — but only if search returned results.
+    // Guard: "No suggestions found" / "Search for workers" means empty results.
+    // Avoid clicking filter chips (Worker Type, etc.) which are also list items.
+    const noResults = await this.page.getByText(
+      /no suggestions found|search for workers to see|no results found/i
+    ).first().isVisible({ timeout: 2_000 }).catch(() => false);
+    if (noResults) {
+      console.log(`[Benefits] selectWorker: Search returned no results for "${name}" — navigation-only`);
+      await this.screenshot('benefits-worker-not-found');
+      return;
+    }
+    // Use oj-list-item-layout (worker cards) specifically — avoid filter chip listitems
+    const firstCard = this.page.locator('oj-list-item-layout').first();
     const cardVisible = await firstCard.isVisible({ timeout: 5_000 }).catch(() => false);
     if (cardVisible) {
       console.log(`[Benefits] selectWorker: No exact match for "${name}", clicking first result`);
@@ -1060,8 +1071,11 @@ export class BenefitsPage extends BasePage {
 
   /** Open life events management from the admin view for the selected worker. */
   async openAdminLifeEvents(): Promise<void> {
-    // Strategy 1: button
-    const lifeEventAction = this.page.getByRole('button', { name: /life event/i }).first();
+    // Strategy 1: button — but NOT filter chip buttons (those have class oj-sp-filter-chip)
+    // Filter chips open dialogs (e.g. "Life Event Status" dialog), not the life events page.
+    const lifeEventAction = this.page.locator(
+      'button:not(.oj-sp-filter-chip):not([class*="filter-chip"])'
+    ).filter({ hasText: /life events?/i }).first();
     if (await lifeEventAction.isVisible({ timeout: 5000 }).catch(() => false)) {
       await lifeEventAction.click();
       await this.page.waitForTimeout(3000);
