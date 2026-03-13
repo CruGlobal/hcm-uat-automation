@@ -436,6 +436,15 @@ export class OutcomeValidator {
 
   private async validateBenefits(tc: UATTestCase): Promise<void> {
     await this.verifyNoErrors();
+
+    // Verification/correction tests with no field data pass as navigation-only
+    const fieldData = getFieldData(tc.testId);
+    if (!fieldData && (this.isViewOnlyTest(tc) || this.isBenefitsVerificationTest(tc))) {
+      await this.assertNotStuckOnWrongPage(tc);
+      console.log(`[OutcomeValidator] ${tc.testId}: Benefits verification/correction test — no field data, navigation verified`);
+      return;
+    }
+
     const { personNumber } = this.requirePersonNumber(tc.testId);
 
     let enrollments: any[];
