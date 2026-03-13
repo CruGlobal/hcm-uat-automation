@@ -9,3 +9,6 @@ blob-report/
 *.tsbuildinfo
 .auth/
 .config/bot-credentials.json
+.screenshots/
+test-*.log
+.claude/ralph-loop.local.md
