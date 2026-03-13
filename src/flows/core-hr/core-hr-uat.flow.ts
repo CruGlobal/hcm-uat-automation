@@ -237,6 +237,18 @@ export class CoreHRUATFlow extends BaseFlow {
   private async executeHire(tc: UATTestCase): Promise<void> {
     const fieldData = getFieldData(tc.testId);
     const process = tc.businessProcess.toLowerCase();
+    const scenario = (tc.testScenario || '').toLowerCase();
+
+    // HR-573: "check pages for fields" — navigate to Add Pending Worker wizard
+    // and STOP without filling. validateKnownFailure() will check the form fields.
+    if (scenario.includes('check pages') || tc.testId === 'HR-573') {
+      if (process.includes('pending')) {
+        await this.homePage.goToAddPendingWorker();
+      } else {
+        await this.homePage.goHome();
+      }
+      return;
+    }
 
     if (fieldData) {
       // Delegate to tab-specific flow which fills all form fields.
