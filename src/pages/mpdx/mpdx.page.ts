@@ -83,21 +83,147 @@ export class MPDXPage extends BasePage {
 
   /**
    * Schedule a new process by name via the Scheduled Processes page.
-   * Clicks "Schedule New Process", enters the name, and clicks OK.
+   * Clicks "Schedule New Process", types the name with pressSequentially to
+   * trigger ADF autocomplete, selects from suggestions, waits for OK to be
+   * enabled, then clicks OK.
+   */
+  /**
+   * Schedule a process by name via the "Schedule New Process" dialog.
+   * Uses the same pattern as PayrollProcessingPage.scheduleNewProcess():
+   *   1. Click "Schedule New Process"
+   *   2. Type name with pressSequentially to trigger ADF autocomplete
+   *   3. Press Tab → may open "Search and Select: Name" dialog
+   *   4. If dialog opens, search by name, select matching row via double-click
+   *   5. Click OK in main dialog (wait for LOV to resolve and enable it)
    */
   private async scheduleProcess(processName: string): Promise<void> {
     await this.scheduleNewProcessLink.click();
     await this.page.waitForTimeout(3000);
     await this.waitForJET();
 
-    await this.fillCombobox(this.processNameInput, processName);
-    await this.page.waitForTimeout(2000);
+    const nameField = this.page.getByRole('combobox', { name: 'Name' }).first();
+    await nameField.click();
+    await nameField.clear();
+    await nameField.pressSequentially(processName, { delay: 50 });
+    await this.page.waitForTimeout(3000);
 
+    // Tab to trigger LOV resolution — may open "Search and Select: Name" dialog
+    await nameField.press('Tab');
+    await this.page.waitForTimeout(5000);
+
+    // Handle "Search and Select: Name" dialog (same pattern as payroll page)
+    const searchAndSelect = this.page.getByText('Search and Select', { exact: false }).first();
+    if (await searchAndSelect.isVisible({ timeout: 3000 }).catch(() => false)) {
+      console.log(`[MPDX] "Search and Select" dialog opened for "${processName}"`);
+      await this.handleSearchAndSelectDialog(processName);
+    }
+
+    // Click OK on the main "Schedule New Process" dialog
+    await this.page.waitForTimeout(2000);
     const okButton = this.page.getByRole('button', { name: 'OK' }).first();
-    if (await okButton.isVisible({ timeout: 5000 }).catch((e) => { console.warn(`Schedule process OK button visibility check failed: ${e.message}`); return false; })) {
-      await okButton.click();
-      await this.page.waitForTimeout(3000);
+    if (await okButton.isVisible({ timeout: 8000 }).catch(() => false)) {
+      let enabled = false;
+      for (let attempt = 0; attempt < 6; attempt++) {
+        const isDisabled = await okButton.isDisabled().catch(() => true);
+        if (!isDisabled) { enabled = true; break; }
+        console.log(`[MPDX] OK button still disabled (attempt ${attempt + 1}/6), waiting...`);
+        await this.page.waitForTimeout(3000);
+      }
+      if (enabled) {
+        await okButton.click({ force: true });
+        await this.page.waitForTimeout(3000);
+        await this.waitForJET();
+      } else {
+        console.log(`[MPDX] OK button never enabled for "${processName}" — process may not exist or bot lacks access`);
+        const cancelBtn = this.page.getByRole('button', { name: 'Cancel' }).first();
+        await cancelBtn.click({ force: true }).catch(() => {});
+        await this.page.waitForTimeout(2000);
+      }
+    } else {
+      console.log(`[MPDX] OK button not visible after scheduling "${processName}"`);
+    }
+  }
+
+  /**
+   * Handle the "Search and Select: Name" dialog for process name LOV.
+   * Mirrors PayrollProcessingPage.handleProcessSearchDialog() logic.
+   */
+  private async handleSearchAndSelectDialog(processName: string): Promise<void> {
+    const titleEl = this.page.getByText('Search and Select: Name', { exact: true }).first();
+    const ssDialog = titleEl.locator('xpath=ancestor::div[1]');
+
+    // Expand search section if collapsed
+    const expandBtn = ssDialog.getByRole('button', { name: 'Expand Search' }).first();
+    if (await expandBtn.isVisible({ timeout: 3000 }).catch(() => false)) {
+      await expandBtn.click();
+      await this.page.waitForTimeout(2000);
       await this.waitForJET();
+    }
+
+    // Fill Name textbox and click Search
+    const nameTextbox = ssDialog.getByRole('textbox', { name: 'Name' }).first();
+    if (await nameTextbox.isVisible({ timeout: 3000 }).catch(() => false)) {
+      await nameTextbox.click();
+      await nameTextbox.fill('');
+      await nameTextbox.pressSequentially(processName, { delay: 30 });
+      await this.page.waitForTimeout(500);
+
+      const searchBtn = ssDialog.getByRole('button', { name: 'Search', exact: true }).first();
+      if (await searchBtn.isVisible({ timeout: 2000 }).catch(() => false)) {
+        await searchBtn.click();
+      } else {
+        await nameTextbox.press('Enter');
+      }
+      await this.page.waitForTimeout(5000);
+      await this.waitForJET();
+    }
+
+    // Look for result rows — try ADF rows ([_afrrk]) then regular table rows
+    let resultRows = ssDialog.locator('[_afrrk]');
+    let rowCount = await resultRows.count();
+    if (rowCount === 0) {
+      const altRows = ssDialog.locator('table tbody tr')
+        .filter({ hasNotText: 'No rows to display' })
+        .filter({ hasNotText: 'column headers' });
+      rowCount = await altRows.count();
+      if (rowCount > 0) resultRows = altRows as any;
+    }
+    console.log(`[MPDX] Search dialog results: ${rowCount} rows`);
+
+    if (rowCount === 0) {
+      console.log(`[MPDX] No results for "${processName}" — closing dialog`);
+      const cancelBtn = ssDialog.getByRole('button', { name: 'Cancel' }).first();
+      await cancelBtn.click({ force: true }).catch(() => {});
+      await this.page.waitForTimeout(2000);
+      return;
+    }
+
+    // Find matching row and double-click (ADF convention: dblclick = select + close)
+    const keywords = processName.split(/[\s-]+/).filter(w => w.length > 2);
+    let targetRow = resultRows.first();
+    let matched = false;
+    for (let ri = 0; ri < rowCount && !matched; ri++) {
+      const row = resultRows.nth(ri);
+      const text = (await row.textContent().catch(() => '')) || '';
+      if (keywords.every(kw => text.toLowerCase().includes(kw.toLowerCase()))) {
+        console.log(`[MPDX] Found matching row: "${text.trim().substring(0, 80)}"`);
+        targetRow = row;
+        matched = true;
+      }
+    }
+
+    await targetRow.dblclick({ force: true });
+    await this.page.waitForTimeout(3000);
+    await this.waitForJET();
+
+    // If dialog still open, click OK in dialog
+    const stillOpen = await titleEl.isVisible({ timeout: 1000 }).catch(() => false);
+    if (stillOpen) {
+      const dialogOk = ssDialog.getByRole('button', { name: 'OK' }).first();
+      if (await dialogOk.isVisible({ timeout: 2000 }).catch(() => false)) {
+        await dialogOk.click({ force: true });
+        await this.page.waitForTimeout(2000);
+      }
     }
   }
 
@@ -130,10 +256,16 @@ export class MPDXPage extends BasePage {
 
   // --- Salary Calculation ---
 
-  /** Navigate to salary calculation via Scheduled Processes. Returns false if no access. */
+  /** Navigate to salary calculation via Scheduled Processes. Returns false if no access or process not found. */
   async goToSalaryCalculation(): Promise<boolean> {
     if (!await this.goToScheduledProcesses()) return false;
     await this.scheduleProcess('Salary Calculation');
+    // If still on overview page (Schedule New Process button visible), the process wasn't scheduled
+    const stillOnOverview = await this.page.locator('a[role="button"]:has-text("Schedule New Process")').isVisible({ timeout: 2000 }).catch(() => false);
+    if (stillOnOverview) {
+      console.log('[MPDX] Salary Calculation process not scheduled — bot may lack access to this process');
+      return false;
+    }
     return true;
   }
 
@@ -170,9 +302,18 @@ export class MPDXPage extends BasePage {
 
   /** Run calculation by clicking Calculate/Run/Submit button. */
   async runCalculation(): Promise<void> {
-    const calcBtn = this.page.getByRole('button', { name: /Calculate|Run|Submit/i }).first();
+    // Check if we're still on the Scheduled Processes overview page (process selection failed)
+    const onOverview = await this.page.locator('a[role="button"]:has-text("Schedule New Process")').isVisible({ timeout: 2000 }).catch(() => false);
+    if (onOverview) {
+      throw new Error('[MPDX] runCalculation: still on Scheduled Processes overview — process was not scheduled successfully');
+    }
+
+    // Use a selector that excludes "Resubmit" (which appears on the overview page)
+    const calcBtn = this.page.locator(
+      'button:not([aria-label*="Resubmit"]):not([title*="Resubmit"])'
+    ).getByText(/^(Calculate|Run|Submit)$/, { exact: false }).first();
     if (await calcBtn.isVisible({ timeout: 5000 }).catch((e) => { console.warn(`Calculate/Run/Submit button visibility check failed: ${e.message}`); return false; })) {
-      await calcBtn.click();
+      await calcBtn.click({ force: true });
     } else {
       await this.clickAdfButton('Submit');
     }
@@ -190,10 +331,15 @@ export class MPDXPage extends BasePage {
 
   // --- MPD Goal Calculation ---
 
-  /** Navigate to MPD goal calculation via Scheduled Processes. Returns false if no access. */
+  /** Navigate to MPD goal calculation via Scheduled Processes. Returns false if no access or process not found. */
   async goToMPDGoalCalculation(): Promise<boolean> {
     if (!await this.goToScheduledProcesses()) return false;
     await this.scheduleProcess('Senior Staff MPD Goal');
+    const stillOnOverview = await this.page.locator('a[role="button"]:has-text("Schedule New Process")').isVisible({ timeout: 2000 }).catch(() => false);
+    if (stillOnOverview) {
+      console.log('[MPDX] MPD Goal Calculation process not scheduled — bot may lack access to this process');
+      return false;
+    }
     return true;
   }
 
@@ -219,10 +365,15 @@ export class MPDXPage extends BasePage {
 
   // --- MHA Calculation ---
 
-  /** Navigate to MHA calculation via Scheduled Processes. Returns false if no access. */
+  /** Navigate to MHA calculation via Scheduled Processes. Returns false if no access or process not found. */
   async goToMHACalculation(): Promise<boolean> {
     if (!await this.goToScheduledProcesses()) return false;
     await this.scheduleProcess('MHA Calculation');
+    const stillOnOverview = await this.page.locator('a[role="button"]:has-text("Schedule New Process")').isVisible({ timeout: 2000 }).catch(() => false);
+    if (stillOnOverview) {
+      console.log('[MPDX] MHA Calculation process not scheduled — bot may lack access to this process');
+      return false;
+    }
     return true;
   }
 
@@ -282,10 +433,15 @@ export class MPDXPage extends BasePage {
 
   // --- Reports ---
 
-  /** Navigate to savings funds transfer via Scheduled Processes. Returns false if no access. */
+  /** Navigate to savings funds transfer via Scheduled Processes. Returns false if no access or process not found. */
   async goToSavingsFundsTransfer(): Promise<boolean> {
     if (!await this.goToScheduledProcesses()) return false;
     await this.scheduleProcess('Savings Funds Transfer');
+    const stillOnOverview = await this.page.locator('a[role="button"]:has-text("Schedule New Process")').isVisible({ timeout: 2000 }).catch(() => false);
+    if (stillOnOverview) {
+      console.log('[MPDX] Savings Funds Transfer process not scheduled — bot may lack access');
+      return false;
+    }
     return true;
   }
 
@@ -302,10 +458,15 @@ export class MPDXPage extends BasePage {
     await this.waitForJET();
   }
 
-  /** Navigate to MPGA income/expense report via Scheduled Processes. Returns false if no access. */
+  /** Navigate to MPGA income/expense report via Scheduled Processes. Returns false if no access or process not found. */
   async goToMPGAReport(): Promise<boolean> {
     if (!await this.goToScheduledProcesses()) return false;
     await this.scheduleProcess('MPGA Income Expense');
+    const stillOnOverview = await this.page.locator('a[role="button"]:has-text("Schedule New Process")').isVisible({ timeout: 2000 }).catch(() => false);
+    if (stillOnOverview) {
+      console.log('[MPDX] MPGA Income Expense process not scheduled — bot may lack access');
+      return false;
+    }
     return true;
   }
 

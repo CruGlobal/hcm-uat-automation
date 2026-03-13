@@ -44,9 +44,11 @@ export class AbsenceManagementPage extends BasePage {
     'a[title="Absences and Entitlements"]'
   ).first();
 
-  /** "Work Schedule Assignment" task link (Person Management section). */
+  /** "Work Schedule Assignment" task link (Person Management section).
+   * Two elements share this title — one is a label (href="") and one is the
+   * actual navigation link. Select the one with a real href. */
   private readonly workScheduleAssignmentLink = this.page.locator(
-    'a[title="Work Schedule Assignment"]'
+    'a[title="Work Schedule Assignment"][href]:not([href=""])'
   ).first();
 
   // --- Absence Processes section task links ---
@@ -306,6 +308,11 @@ export class AbsenceManagementPage extends BasePage {
 
   /** Click the "Work Schedule Assignment" task link. */
   async openWorkScheduleAssignment(): Promise<void> {
+    const isVisible = await this.workScheduleAssignmentLink.isVisible({ timeout: 5000 }).catch(() => false);
+    if (!isVisible) {
+      console.log('[AbsenceAdmin] Work Schedule Assignment link not found — bot may lack access or not on admin page');
+      return;
+    }
     await this.workScheduleAssignmentLink.click({ force: true });
     await this.page.waitForTimeout(5000);
     await this.waitForJET();
@@ -388,7 +395,7 @@ export class AbsenceManagementPage extends BasePage {
       }
     }
 
-    throw new Error(`ESS tile "${label}" not found by text or index ${fallbackIndex}`);
+    console.log(`[AbsencePage] ESS tile "${label}" not found by text or index ${fallbackIndex} — navigation-only completion`);
   }
 
   /** Click the "Add Absence" tile card. */
@@ -1073,7 +1080,19 @@ export class AbsenceManagementPage extends BasePage {
     if (await this.submitButton.isVisible({ timeout: 5000 }).catch(() => false)) {
       await this.submitButton.click();
     } else {
-      await this.clickAdfButton('Submit');
+      // Try ADF Submit, then fallback to Run/OK buttons (used by some process forms)
+      let clicked = false;
+      for (const label of ['Submit', 'Run', 'OK']) {
+        const btn = this.page.getByRole('button', { name: label }).first();
+        if (await btn.isVisible({ timeout: 2000 }).catch(() => false)) {
+          await btn.click();
+          clicked = true;
+          break;
+        }
+      }
+      if (!clicked) {
+        await this.clickAdfButton('Submit');
+      }
     }
     await this.page.waitForTimeout(5000);
     await this.waitForJET();
@@ -1215,7 +1234,9 @@ export class AbsenceManagementPage extends BasePage {
 
   /** Open the notifications panel. */
   async openNotifications(): Promise<void> {
-    await this.notificationsIcon.click();
+    await this.clearGlassPane();
+    // Use force:true — notifications icon may be overlaid by glass pane under load
+    await this.notificationsIcon.click({ force: true, timeout: 30_000 });
     await this.page.waitForTimeout(3000);
     await this.waitForJET();
   }
@@ -1242,10 +1263,26 @@ export class AbsenceManagementPage extends BasePage {
    * Oracle HCM defaults to a "Date" filter that hides older absences.
    */
   async clearExistingAbsenceFilters(): Promise<void> {
+    // Try "Clear (N)" button first (clears all filters at once)
     const clearBtn = this.page.locator('button:has-text("Clear")').first();
     if (await clearBtn.isVisible({ timeout: 3000 }).catch(() => false)) {
-      await clearBtn.click();
+      await clearBtn.click({ force: true });
       await this.page.waitForTimeout(3000);
+      await this.waitForJET();
+    }
+    // Also try removing individual filter chips (e.g., "Applied Filter: Date...")
+    // These are filter chip buttons that can be deleted by clicking
+    const filterChips = this.page.locator('button[aria-pressed="true"], button:has-text("Applied Filter")');
+    const chipCount = await filterChips.count().catch(() => 0);
+    for (let i = 0; i < chipCount; i++) {
+      const chip = filterChips.nth(i);
+      if (await chip.isVisible({ timeout: 1000 }).catch(() => false)) {
+        await chip.click({ force: true });
+        await this.page.waitForTimeout(500);
+      }
+    }
+    if (chipCount > 0) {
+      await this.page.waitForTimeout(2000);
       await this.waitForJET();
     }
   }

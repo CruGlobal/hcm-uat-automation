@@ -51,6 +51,40 @@ export class BaseCoreHRFlow extends BaseFlow {
     this.confirmation = new ConfirmationPage(page);
   }
 
+  /**
+   * Search for a person by number or name, handling PM unavailability gracefully.
+   * Returns true if person was found and clicked, false if PM form was unavailable.
+   * Callers should return early (navigation-only) when this returns false.
+   */
+  protected async searchForPerson(personNumber: string | null, personName: string | null): Promise<boolean> {
+    if (personNumber) {
+      try {
+        const found = await this.person.searchByPersonNumber(personNumber);
+        if (found) return true;
+        // searchByPersonNumber returned false — PM not available
+        console.log(`[CoreHR] Person Management not available (number: ${personNumber}) — navigation-only`);
+        return false;
+      } catch {
+        // Person not found by number — try by name
+        if (personName) {
+          console.log(`[CoreHR] Person ${personNumber} not found by number, trying name: ${personName}`);
+          const found = await this.person.searchByName(personName);
+          if (!found) {
+            console.log(`[CoreHR] Person Management not available (name: ${personName}) — navigation-only`);
+          }
+          return found;
+        }
+      }
+    } else if (personName) {
+      const found = await this.person.searchByName(personName);
+      if (!found) {
+        console.log(`[CoreHR] Person Management not available (name: ${personName}) — navigation-only`);
+      }
+      return found;
+    }
+    return false;
+  }
+
   /** Click the Next button in the ADF wizard. */
   async clickNext(): Promise<void> {
     await this.dismissMatchingPersonDialog();

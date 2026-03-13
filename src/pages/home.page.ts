@@ -213,16 +213,25 @@ export class HomePage extends BasePage {
           await link.click({ timeout: 10_000 }).catch(() => link.click({ force: true }));
         }
       } else {
-        // Broader fallback selector
+        // Broader fallback selector — wait up to 15s for the page to render
         const byText = this.page.locator(`a:has-text("${linkText}")`).first();
-        await byText.dispatchEvent('click');
+        const byTextVisible = await byText.isVisible({ timeout: 15_000 }).catch(() => false);
+        if (byTextVisible) {
+          await byText.dispatchEvent('click');
+        } else {
+          console.log(`[Home] "${linkText}" tile link not found after 15s (attempt ${attempt}) — page may not have loaded`);
+          // Navigate back to New Person and retry
+          await this.goToNewPerson().catch(() => {});
+          await this.page.waitForTimeout(3000);
+        }
       }
 
       // Wait for the ADF wizard form to start loading
       await this.page.waitForTimeout(3000);
 
       // Check if navigation happened by looking for known ADF wizard elements
-      const wizardLoaded = await this.page.locator('[id*="SP1:inputDate1"]').isVisible({ timeout: 8000 })
+      // AP1: prefix is used by Add Nonworker wizard (SP1: is used by Hire/Add Pending Worker)
+      const wizardLoaded = await this.page.locator('[id*="SP1:inputDate1"], [id*="AP1:inputDate1"]').isVisible({ timeout: 8000 })
         .catch(() => false);
       if (wizardLoaded) {
         console.log(`[Home] Tile "${linkText}" navigation succeeded (attempt ${attempt})`);
@@ -231,7 +240,7 @@ export class HomePage extends BasePage {
       }
 
       // Maybe wizard uses a different date field or takes longer — check for any ADF wizard indicator
-      const anyWizardEl = await this.page.locator('[id*="SP1:"], [id*="AddPw1:"], [id*="AddNw1:"]').first()
+      const anyWizardEl = await this.page.locator('[id*="SP1:"], [id*="AddPw1:"], [id*="AddNw1:"], [id*="AP1:"]').first()
         .isVisible({ timeout: 5000 }).catch(() => false);
       if (anyWizardEl) {
         console.log(`[Home] Tile "${linkText}" navigation succeeded via wizard indicator (attempt ${attempt})`);

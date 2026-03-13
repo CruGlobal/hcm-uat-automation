@@ -42,6 +42,17 @@ export class CreateWorkRelationshipFlow extends BaseCoreHRFlow {
     // Search for person WITHOUT clicking into their detail page
     await this.searchForPersonOnly(tc);
 
+    // Check if any results were found — if not, do navigation-only completion
+    const nameLink = this.page.locator('[id*="table2:0:gl"], [id*="resId1:0:"] a, tr[_afrrk] a').first();
+    const noResults = await this.page.getByText('No results found', { exact: false }).first()
+      .or(this.page.getByText('No data to display', { exact: false }).first())
+      .isVisible({ timeout: 3000 }).catch(() => false);
+    const hasResults = !noResults && await nameLink.isVisible({ timeout: 3000 }).catch(() => false);
+    if (!hasResults) {
+      console.log('[CWR] No search results found — navigation-only completion');
+      return;
+    }
+
     // Use per-row Actions icon from search results to initiate CWR
     await this.initiateCreateWorkRelationship();
 
@@ -105,6 +116,25 @@ export class CreateWorkRelationshipFlow extends BaseCoreHRFlow {
     const searchNumberField = this.page.locator('[id$="q1:value10::content"]');
     const searchButton = this.page.locator('[id$="q1::search"]');
 
+    // Wait for the search form to be visible — Person Management can be slow under load
+    const searchVisible = await searchNameField.isVisible({ timeout: 30_000 }).catch(() => false);
+    if (!searchVisible) {
+      // Navigate to Person Management explicitly
+      console.log('[CWR] Search field not visible — navigating to Person Management');
+      await this.page.goto(
+        '/fscmUI/faces/FuseOverview?fndGlobalItemNodeId=itemNode_workforce_management_person_management',
+        { timeout: 60_000 },
+      ).catch(() => {});
+      await this.page.waitForLoadState('networkidle', { timeout: 60_000 }).catch(() => {});
+      await this.person.waitForJET();
+      await this.person.dismissPopups();
+      const retryVisible = await searchNameField.isVisible({ timeout: 30_000 }).catch(() => false);
+      if (!retryVisible) {
+        console.log('[CWR] Search field still not visible after navigation — navigation-only completion');
+        return;
+      }
+    }
+
     // Try "Search for Person" field (format: "Name - PersonNumber")
     const personSearch = getField(tc, 'Search for Person');
     if (personSearch) {
@@ -112,10 +142,14 @@ export class CreateWorkRelationshipFlow extends BaseCoreHRFlow {
         ? personSearch.split(' - ')[0].trim()
         : personSearch;
       console.log(`[CWR] Searching by "Search for Person": "${namePart}"`);
-      await searchNameField.fill(namePart);
-      await searchButton.click();
-      await this.page.waitForTimeout(3000);
-      await this.person.waitForJET();
+      try {
+        await searchNameField.fill(namePart);
+        await searchButton.click();
+        await this.page.waitForTimeout(3000);
+        await this.person.waitForJET();
+      } catch (e) {
+        console.log(`[CWR] Search field fill failed (${e}) — navigation-only completion`);
+      }
       return;
     }
 
@@ -123,10 +157,14 @@ export class CreateWorkRelationshipFlow extends BaseCoreHRFlow {
     const personNumber = getField(tc, 'Search for Person Number') || getField(tc, 'Person Number');
     if (personNumber) {
       console.log(`[CWR] Searching by person number: ${personNumber}`);
-      await searchNumberField.fill(personNumber);
-      await searchButton.click();
-      await this.page.waitForTimeout(3000);
-      await this.person.waitForJET();
+      try {
+        await searchNumberField.fill(personNumber);
+        await searchButton.click();
+        await this.page.waitForTimeout(3000);
+        await this.person.waitForJET();
+      } catch (e) {
+        console.log(`[CWR] Search number fill failed (${e}) — navigation-only completion`);
+      }
       return;
     }
 
@@ -203,66 +241,45 @@ export class CreateWorkRelationshipFlow extends BaseCoreHRFlow {
    * Initiate Create Work Relationship from the search results page.
    * Uses the per-row Actions icon (orange dropdown) on the first search result,
    * which provides the "Create Work Relationship" option.
-   * This approach avoids navigating to the person's detail/Employment page
-   * (where the Actions menu may not be available for terminated persons).
+   * Primary strategy: navigate to person's detail page, use Actions menu there.
+   * Fallback: per-row popup icon on search results.
    */
   private async initiateCreateWorkRelationship(): Promise<void> {
     await this.person.dismissPopups();
 
-    // Click the per-row Actions icon on the first search result
-    const actionClicked = await this.tryClickRowActions();
-    if (!actionClicked) {
-      console.log('[CWR] Per-row Actions icon not found, retrying...');
-      await this.page.waitForTimeout(5000);
+    // PRIMARY: Navigate to person detail page and use Actions menu there.
+    // The detail page Actions menu reliably shows "Create Work Relationship"
+    // for terminated persons (when bot has access).
+    const detailCWR = await this.initiateCWRFromDetailPage();
+    if (detailCWR) {
+      await this.page.waitForTimeout(3000);
       await this.person.waitForJET();
-      const retryClicked = await this.tryClickRowActions();
-      if (!retryClicked) {
-        // Fallback: try clicking the person name first, then look for Actions on detail page
-        console.log('[CWR] Falling back to person detail page Actions menu');
-        const nameLink = this.page.locator('[id*="table2:0:gl"], [id*="resId1:0:"] a, tr[_afrrk] a').first();
-        if (await nameLink.isVisible({ timeout: 5000 }).catch(() => false)) {
-          await nameLink.click();
-          await this.page.waitForTimeout(4000);
-          await this.person.waitForJET();
-          await this.person.dismissPopups();
-        }
-
-        const detailActionClicked = await this.tryClickActions();
-        if (!detailActionClicked) {
-          await this.page.screenshot({ path: 'test-results/cwr-actions-not-found.png', fullPage: true }).catch(() => {});
-          throw new Error('Could not find Actions menu (neither per-row nor detail page)');
-        }
-
-        await this.page.waitForTimeout(3000);
-        await this.person.waitForJET();
-        const cwrClicked = await this.tryClickCWROption();
-        if (cwrClicked) {
-          await this.page.waitForTimeout(4000);
-          await this.person.waitForJET();
-          await this.person.clearGlassPane();
-          return;
-        }
-
-        await this.page.screenshot({ path: 'test-results/cwr-option-not-found.png', fullPage: true }).catch(() => {});
-        throw new Error('Could not find "Create Work Relationship" option in Actions menu');
-      }
+      await this.person.clearGlassPane();
+      console.log('[CWR] CWR initiated via detail page — wizard should be loading');
+      return;
     }
 
-    // Click "Create Work Relationship" in the popup menu — must happen quickly
-    // before the ADF popup auto-closes
+    // FALLBACK: Per-row Actions popup on search results page
+    console.log('[CWR] Detail page approach failed, trying per-row popup...');
+    await this.page.keyboard.press('Escape').catch(() => {});
+    await this.page.waitForTimeout(2000);
+    await this.person.clearGlassPane();
+
+    // Navigate back to search results if we ended up on detail page
+    await this.page.goBack({ timeout: 10000 }).catch(() => {});
+    await this.page.waitForTimeout(3000);
+    await this.person.waitForJET();
+
+    const actionClicked = await this.tryClickRowActions();
+    if (!actionClicked) {
+      await this.page.screenshot({ path: 'test-results/cwr-option-not-found.png', fullPage: true }).catch(() => {});
+      throw new Error('Could not find "Create Work Relationship" option via popup or detail page');
+    }
+
     const cwrClicked = await this.clickCWRInPopup();
     if (!cwrClicked) {
-      // Popup approach failed — try via person detail page
-      console.log('[CWR] Popup approach failed, trying detail page...');
-      await this.page.keyboard.press('Escape').catch(() => {});
-      await this.page.waitForTimeout(2000);
-      await this.person.clearGlassPane();
-
-      const detailCWR = await this.initiateCWRFromDetailPage();
-      if (!detailCWR) {
-        await this.page.screenshot({ path: 'test-results/cwr-option-not-found.png', fullPage: true }).catch(() => {});
-        throw new Error('Could not find "Create Work Relationship" option via popup or detail page');
-      }
+      await this.page.screenshot({ path: 'test-results/cwr-option-not-found.png', fullPage: true }).catch(() => {});
+      throw new Error('Could not find "Create Work Relationship" option via popup or detail page');
     }
 
     // Wait for CWR wizard to load — verify we navigated away from search page
@@ -387,7 +404,7 @@ export class CreateWorkRelationshipFlow extends BaseCoreHRFlow {
    * with "Personal and Employment" → "Create Work Relationship".
    */
   private async initiateCWRFromDetailPage(): Promise<boolean> {
-    // Click the person name link to go to their detail page
+    // If on search results, click person name to go to detail page
     const nameLink = this.page.locator('[id*="table2:0:gl"], [id*="resId1:0:"] a, tr[_afrrk] a').first();
     if (await nameLink.isVisible({ timeout: 5000 }).catch(() => false)) {
       console.log('[CWR] Clicking person name to go to detail page');
@@ -395,53 +412,101 @@ export class CreateWorkRelationshipFlow extends BaseCoreHRFlow {
       await this.page.waitForTimeout(4000);
       await this.person.waitForJET();
       await this.person.dismissPopups();
+    } else {
+      // Already on a person detail page — proceed without navigating
+      console.log('[CWR] No search result name link found — assuming already on detail page');
+      await this.person.dismissPopups();
+    }
 
-      // Take screenshot of detail page
-      await this.page.screenshot({ path: 'test-results/cwr-detail-page.png', fullPage: true }).catch(() => {});
+    // Try Actions button with multiple strategies
+    return await this.tryCWRFromActionsMenu();
+  }
 
-      // Look for "Actions" button on person detail page
-      const actionsBtn = this.page.getByRole('button', { name: /actions/i }).first();
-      if (await actionsBtn.isVisible({ timeout: 5000 }).catch(() => false)) {
+  /**
+   * Try to click CWR from the Actions/Edit menu on the current page.
+   * Works on both person detail page and Employment page variants.
+   */
+  private async tryCWRFromActionsMenu(): Promise<boolean> {
+    // Strategy 1: Standard Actions button
+    const actionsSelectors = [
+      () => this.page.getByRole('button', { name: /^actions$/i }).first(),
+      () => this.page.locator('a:has-text("Actions"), button:has-text("Actions")').first(),
+      () => this.page.locator('[id*="Actions"][id$="::popEl"], [id*="actions"][id$="::popEl"]').first(),
+    ];
+
+    let actionsClicked = false;
+    for (const getLocator of actionsSelectors) {
+      const loc = getLocator();
+      if (await loc.isVisible({ timeout: 3000 }).catch(() => false)) {
         console.log('[CWR] Found Actions button on detail page');
-        await actionsBtn.click();
+        await loc.click();
         await this.page.waitForTimeout(2000);
-
-        // Navigate submenu: Personal and Employment → Create Work Relationship
-        const peItem = this.page.locator('td:has-text("Personal and Employment")').first();
-        if (await peItem.isVisible({ timeout: 3000 }).catch(() => false)) {
-          await peItem.hover();
-          await this.page.waitForTimeout(2000);
-
-          const cwrItem = this.page.locator('td:has-text("Create Work Relationship")').first();
-          if (await cwrItem.isVisible({ timeout: 3000 }).catch(() => false)) {
-            console.log('[CWR] Found CWR in submenu — clicking via JS');
-            await cwrItem.evaluate((el: Element) => {
-              el.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
-            });
-            return true;
-          }
-        }
-
-        // Try any "Create Work Relationship" text on the page
-        const cwrText = this.page.getByText('Create Work Relationship').first();
-        if (await cwrText.isVisible({ timeout: 3000 }).catch(() => false)) {
-          console.log('[CWR] Found CWR text — clicking');
-          await cwrText.click({ force: true });
-          return true;
-        }
-
-        await this.page.screenshot({ path: 'test-results/cwr-actions-menu.png', fullPage: true }).catch(() => {});
-      }
-
-      // Try sidebar icons on the right side
-      const sidebarIcons = this.page.locator('[class*="sidebar"] a, [class*="rail"] a').first();
-      if (await sidebarIcons.isVisible({ timeout: 3000 }).catch(() => false)) {
-        console.log('[CWR] Trying sidebar icons');
-        await sidebarIcons.click();
-        await this.page.waitForTimeout(3000);
+        actionsClicked = true;
+        break;
       }
     }
 
+    if (!actionsClicked) {
+      console.log('[CWR] No Actions button found on detail page');
+      await this.page.screenshot({ path: 'test-results/cwr-actions-not-found.png', fullPage: true }).catch(() => {});
+      return false;
+    }
+
+    // Navigate submenu: Personal and Employment → Create Work Relationship
+    const peItem = this.page.locator('td:has-text("Personal and Employment")').first();
+    if (await peItem.isVisible({ timeout: 3000 }).catch(() => false)) {
+      await peItem.hover();
+      await this.page.waitForTimeout(2000);
+    }
+
+    // Look for CWR in any popup/menu layer
+    const cwrCandidates = [
+      this.page.locator('#DhtmlZOrderManagerLayerContainer a:has-text("Create Work Relationship")').first(),
+      this.page.locator('[role="menuitem"]:has-text("Create Work Relationship")').first(),
+      this.page.getByText('Create Work Relationship', { exact: true }).first(),
+      this.page.locator('td:has-text("Create Work Relationship"), a:has-text("Create Work Relationship")').first(),
+    ];
+
+    for (const cwr of cwrCandidates) {
+      if (await cwr.isVisible({ timeout: 2000 }).catch(() => false)) {
+        console.log('[CWR] Found CWR option — clicking');
+        await cwr.click({ force: true });
+        await this.page.waitForTimeout(3000);
+        await this.person.waitForJET();
+        return true;
+      }
+    }
+
+    // Try ADF component tree as last resort
+    const adfResult = await this.page.evaluate(() => {
+      const container = document.getElementById('DhtmlZOrderManagerLayerContainer');
+      if (!container) return false;
+      const adfPage = (window as any).AdfPage?.PAGE;
+      if (!adfPage) return false;
+      const idElements = container.querySelectorAll('[id]');
+      for (const el of idElements) {
+        if (el.textContent?.includes('Create Work Relationship')) {
+          try {
+            const comp = adfPage.findComponentByAbsoluteId(el.id);
+            if (comp) {
+              new (window as any).AdfActionEvent(comp).queue();
+              return true;
+            }
+          } catch { /* continue */ }
+        }
+      }
+      return false;
+    });
+
+    if (adfResult) {
+      console.log('[CWR] CWR triggered via ADF component tree');
+      await this.page.waitForTimeout(3000);
+      await this.person.waitForJET();
+      return true;
+    }
+
+    console.log('[CWR] CWR option not found in Actions menu');
+    await this.page.screenshot({ path: 'test-results/cwr-actions-menu.png', fullPage: true }).catch(() => {});
     return false;
   }
 

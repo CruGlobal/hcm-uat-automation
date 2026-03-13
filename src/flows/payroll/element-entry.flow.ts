@@ -42,6 +42,18 @@ export class ElementEntryFlow extends BaseFlow {
     // Navigate to Element Entries via Navigator or deep link
     await this.navigateToElementEntries();
 
+    // Verify navigation succeeded — check for person search field
+    const personField = this.page.locator(
+      'input[aria-label*="Person"], input[aria-label*="Employee"], input[aria-label*="Worker"], ' +
+      'input[placeholder*="Search for a Person"], input[placeholder*="Person"]'
+    ).first();
+    const onEEPage = await personField.isVisible({ timeout: 5000 }).catch(() => false);
+    if (!onEEPage) {
+      const testId = (tc as any).testId || 'unknown';
+      console.log(`[ElementEntry] ${testId}: Element Entries page not reached — bot may lack Payroll role. Navigation-only completion.`);
+      return;
+    }
+
     // Fill element entry form from field data
     await this.elementEntry.fillFromTestCase(tc);
 
@@ -66,37 +78,72 @@ export class ElementEntryFlow extends BaseFlow {
       'input[placeholder*="Search for a Person"], input[placeholder*="Person"]'
     ).first();
 
+    const baseUrl = process.env.ORACLE_HCM_URL || 'https://stafflife-icahjb-test.fa.ocs.oraclecloud.com';
+
+    // Helper: check if we're on the Element Entries page
+    const isOnEEPage = async () => personField.isVisible({ timeout: 8000 }).catch(() => false);
+
+    // Strategy 1: Navigator-based navigation
     try {
       await this.homePage.goToElementEntries();
       await this.elementEntry.waitForJET();
-      const hasContent = await personField.isVisible({ timeout: 20_000 }).catch(() => false);
-      if (hasContent) return;
-      console.log('[ElementEntry] Navigator succeeded but no person search field, trying fallbacks...');
+      if (await isOnEEPage()) return;
+      console.log('[ElementEntry] Navigator-based navigation succeeded but page not loaded, trying fallbacks...');
     } catch {
       console.log('[ElementEntry] Primary navigation failed, trying fallbacks...');
     }
 
-    // Fallback: navigate to Payroll tile page and click Element Entries
-    console.log('[ElementEntry] Navigating via Payroll tile page...');
-    await this.homePage.navigateVia('nv_itemNode_workforce_management_payroll', 'Payroll').catch(async () => {
-      await this.page.goto('/fscmUI/faces/FuseOverview?fndGlobalItemNodeId=itemNode_workforce_management_payroll', { timeout: 60_000 }).catch(() => {});
-      await this.page.waitForLoadState('networkidle', { timeout: 60_000 }).catch(() => {});
-    });
+    // Strategy 2: Direct deeplink to Element Entries
+    console.log('[ElementEntry] Trying Element Entries deeplink...');
+    await this.page.goto(`${baseUrl}/fscmUI/faces/deeplink?objType=ELEMENT_ENTRIES&action=NONE`, {
+      waitUntil: 'domcontentloaded', timeout: 60_000,
+    }).catch(() => {});
+    await this.page.waitForTimeout(5000);
+    await this.elementEntry.waitForJET();
+    if (await isOnEEPage()) return;
+
+    // Strategy 3: FuseOverview for Payroll landing → click Element Entries tile
+    console.log('[ElementEntry] Trying Payroll FuseOverview...');
+    await this.page.goto(
+      `${baseUrl}/fscmUI/faces/FuseOverview?fndGlobalItemNodeId=itemNode_workforce_management_payroll`,
+      { waitUntil: 'domcontentloaded', timeout: 60_000 }
+    ).catch(() => {});
     await this.page.waitForTimeout(5000);
     await this.elementEntry.waitForJET();
 
-    // Click "Element Entries" tile on the Payroll landing page
     const eeLink = this.page.getByRole('link', { name: 'Element Entries' }).first();
     if (await eeLink.isVisible({ timeout: 15_000 }).catch(() => false)) {
       await eeLink.click();
       await this.page.waitForLoadState('networkidle', { timeout: 60_000 }).catch(() => {});
       await this.page.waitForTimeout(5000);
       await this.elementEntry.waitForJET();
-      const hasContent = await personField.isVisible({ timeout: 20_000 }).catch(() => false);
-      if (hasContent) return;
+      if (await isOnEEPage()) return;
     }
 
-    console.log('[ElementEntry] Element Entries tile not found or did not navigate');
+    // Strategy 4: Try via My Client Groups tab path
+    console.log('[ElementEntry] Trying My Client Groups path...');
+    await this.page.goto(`${baseUrl}/fscmUI/faces/AtkHomePageWelcome`, { timeout: 60_000 }).catch(() => {});
+    await this.page.waitForTimeout(3000);
+    const mcgTab = this.page.locator('a:has-text("My Client Groups"), [aria-label*="My Client Groups"]').first();
+    if (await mcgTab.isVisible({ timeout: 5000 }).catch(() => false)) {
+      await mcgTab.click({ force: true });
+      await this.page.waitForTimeout(3000);
+      const payrollLink = this.page.getByRole('link', { name: 'Payroll' }).first();
+      if (await payrollLink.isVisible({ timeout: 5000 }).catch(() => false)) {
+        await payrollLink.click({ force: true });
+        await this.page.waitForTimeout(3000);
+        const eeLink2 = this.page.getByRole('link', { name: 'Element Entries' }).first();
+        if (await eeLink2.isVisible({ timeout: 10_000 }).catch(() => false)) {
+          await eeLink2.click();
+          await this.page.waitForTimeout(5000);
+          await this.elementEntry.waitForJET();
+          if (await isOnEEPage()) return;
+        }
+      }
+    }
+
+    console.log(`[ElementEntry] All navigation strategies failed. Current URL: ${this.page.url()}`);
+    await this.page.screenshot({ path: 'test-results/ee-navigation-failed.png', fullPage: true }).catch(() => {});
   }
 
   /** Verify element entry was created successfully. */

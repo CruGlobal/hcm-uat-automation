@@ -105,7 +105,9 @@ export class BaseBenefitsFlow extends BaseFlow {
    * Returns true if the message is detected.
    */
   async checkNoBenefitsRelationship(testId: string): Promise<boolean> {
-    const noBenefits = this.page.getByText(/no benefits|not eligible|no relationship|no enrollment/i).first();
+    const noBenefits = this.page.getByText(
+      /no benefits|not eligible|no relationship|no enrollment|nothing here|define a benefits relationship|no enrollment opportunities/i
+    ).first();
     const detected = await noBenefits.isVisible({ timeout: 5000 }).catch(() => false);
     if (detected) {
       console.log(`[Benefits] ${testId}: No benefits relationship detected`);

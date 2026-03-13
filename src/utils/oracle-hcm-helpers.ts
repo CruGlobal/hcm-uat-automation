@@ -45,6 +45,15 @@ export async function dismissPopups(page: Page): Promise<void> {
     await page.waitForTimeout(1000);
   }
 
+  // Handle "You have a new home page!" home page notification with "Remove" link
+  const newHomePageNotif = page.getByRole('link', { name: 'You have a new home page!' }).first();
+  if (await newHomePageNotif.isVisible({ timeout: 1000 }).catch(() => false)) {
+    console.log('[Popups] Dismissing "new home page" notification');
+    const removeLink = page.getByRole('link', { name: 'Remove' }).first();
+    await removeLink.click().catch(() => {});
+    await page.waitForTimeout(500);
+  }
+
   const dismissSelectors = [
     '.walkme-click-and-hover',
     '.walkme-custom-balloon-close-button',

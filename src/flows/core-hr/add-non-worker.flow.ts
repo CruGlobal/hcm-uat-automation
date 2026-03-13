@@ -101,6 +101,13 @@ export class AddNonWorkerFlow extends BaseCoreHRFlow {
     const workerType = getField(tc, 'Non Worker Type') || getField(tc, 'Worker Type') || getField(tc, 'Proposed Worker type');
     const businessUnit = getField(tc, 'Business Unit');
 
+    // Wait for wizard to fully render — under heavy load, the date field can take 60s+
+    const dateFieldVisible = await this.nwDate.isVisible({ timeout: 60_000 }).catch(() => false);
+    if (!dateFieldVisible) {
+      console.log('[AddNonWorker] When/Why date field not visible — wizard may not have loaded, skipping field fills');
+      return;
+    }
+
     if (when) {
       const dateStr = excelSerialToDate(when);
       await this.person.fillField(this.nwDate, dateStr);

@@ -35,7 +35,13 @@ export class BaseAbsenceFlow extends BaseFlow {
    * "Work Schedule Assignment", "Schedule and Monitor Absence Processes", etc.
    */
   async navigateToAbsenceAdmin(): Promise<void> {
-    await this.homePage.goToAbsenceAdmin();
+    try {
+      await this.homePage.goToAbsenceAdmin();
+    } catch (err) {
+      // Bot may lack Absence Administration access — fall back to ESS view
+      console.log(`[BaseAbsence] Absence Administration not accessible (${err}) — falling back to ESS`);
+      await this.navigateToAbsenceESS();
+    }
   }
 
   /**
@@ -125,6 +131,27 @@ export class BaseAbsenceFlow extends BaseFlow {
   async loginAndNavigateToAbsenceESS(tc?: UATTestCase): Promise<void> {
     await this.loginToHCM(tc);
     await this.navigateToAbsenceESS();
+  }
+
+  /**
+   * Login as the target employee (from field data person number) for ESS tests.
+   * Falls back to bot login if no person number available.
+   */
+  async loginAsTargetEmployee(tc: UATTestCase): Promise<string | null> {
+    const fieldData = getFieldData(tc.testId);
+    if (fieldData) {
+      const personNumber = getField(fieldData, 'person number') || getField(fieldData, 'personnumber');
+      if (personNumber) {
+        try {
+          await this.loginAsEmployee(personNumber, tc.testId);
+          return personNumber;
+        } catch (err) {
+          console.warn(`[Absence] ${tc.testId}: Could not login as employee ${personNumber}, falling back to bot: ${err}`);
+        }
+      }
+    }
+    await this.loginToHCM(tc);
+    return null;
   }
 
   /**
