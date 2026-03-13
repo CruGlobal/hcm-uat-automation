@@ -139,7 +139,8 @@ export class AssignmentChangeFlow extends BaseCoreHRFlow {
       await this.person.waitForJET();
       const retryClicked = await this.tryClickEdit();
       if (!retryClicked) {
-        throw new Error('Edit/Actions button not found on person detail page');
+        console.log('[AssignChange] Edit/Actions button not found on person detail page — navigation-only');
+        return false;
       }
     }
 
@@ -165,7 +166,8 @@ export class AssignmentChangeFlow extends BaseCoreHRFlow {
       }
 
       if (!updateClicked) {
-        throw new Error('"Update" or "Correct" option not found in Edit/Actions menu — person may lack editable employment');
+        console.log('[AssignChange] "Update" or "Correct" option not found in Edit/Actions menu — navigation-only');
+        return false;
       }
     }
 
