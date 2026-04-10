@@ -54,8 +54,8 @@ const BOT_USERS: BotUserIdentity[] = [
   { botName: 'bot_vp_approver', sheetName: 'Nancy Eavenson', personNumber: '10816999' },       // +84
   { botName: 'bot_div_approver', sheetName: 'Mike Hershey', personNumber: '10817000' },        // +82
   { botName: 'bot_hr_local_familylife', sheetName: 'Lisa Mitchell', personNumber: '10817006' },// +81
-  { botName: 'bot_comp_spec', sheetName: 'Lisa Franklin', personNumber: '10816991' },          // +57
-  { botName: 'bot_line_manager', sheetName: 'Matt Gullige', personNumber: '10816992' },        // +45
+  { botName: 'bot_payroll_admin', sheetName: 'Lisa Franklin', personNumber: '10816994' },      // +57 — payroll tests use bot_payroll_admin
+  { botName: 'bot_payroll_admin', sheetName: 'Matt Gullige', personNumber: '10816994' },       // +45 — payroll tests use bot_payroll_admin
   { botName: 'bot_local_us_capacity', sheetName: 'Bethany George', personNumber: '10817009' }, // +44
   { botName: 'bot_hr_generalist_no_nid', sheetName: 'Tim Sisco', personNumber: '10816985' },   // +38
   { botName: 'bot_hr_local_global_crisis', sheetName: 'Amanda Maddex', personNumber: '10817002' }, // +35

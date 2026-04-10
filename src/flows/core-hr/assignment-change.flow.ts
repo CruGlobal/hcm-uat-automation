@@ -97,16 +97,18 @@ export class AssignmentChangeFlow extends BaseCoreHRFlow {
       return;
     }
 
-    // Open Edit → Update → fill dialog
+    // Open Edit → Update (or Change Assignment / Transfer) → fill dialog
     const updateInitiated = await this.initiateUpdate();
     if (!updateInitiated) {
       console.log(`[AssignChange] ${tc.testId}: Edit/Update not available — navigation-only completion`);
       return;
     }
-    const dialogFilled = await this.fillUpdateDialog(tc);
+    // fillUpdateDialog returns false if no dialog appeared — this is OK when
+    // "Change Assignment" or "Transfer" was clicked directly (skips the dialog
+    // and goes straight to the assignment edit page).
+    const dialogFilled = await this.fillUpdateDialog(tc).catch(() => false);
     if (!dialogFilled) {
-      console.log(`[AssignChange] ${tc.testId}: Update Employment dialog did not appear — navigation-only completion`);
-      return;
+      console.log(`[AssignChange] ${tc.testId}: Update Employment dialog skipped — may have gone directly to edit page`);
     }
 
     // Fill editable assignment fields
@@ -321,10 +323,34 @@ export class AssignmentChangeFlow extends BaseCoreHRFlow {
       return true;
     }
 
+    // Strategy 9: "Change Assignment" menu item — some roles have this instead of "Update"
+    const changeAssignItem = this.page.locator('[role="menuitem"]:has-text("Change Assignment")').first();
+    if (await changeAssignItem.isVisible({ timeout: 2000 }).catch(() => false)) {
+      console.log('[AssignChange] Found "Change Assignment" menu item (role lacks Update)');
+      await changeAssignItem.click({ force: true });
+      return true;
+    }
+
+    // Strategy 10: "Local and Global Transfer" menu item — for transfer tests
+    const transferItem = this.page.locator('[role="menuitem"]:has-text("Local and Global Transfer")').first();
+    if (await transferItem.isVisible({ timeout: 2000 }).catch(() => false)) {
+      console.log('[AssignChange] Found "Local and Global Transfer" menu item');
+      await transferItem.click({ force: true });
+      return true;
+    }
+
+    // Strategy 11: "Transfer" menu item — broader match
+    const transferItemBroad = this.page.locator('[role="menuitem"]:has-text("Transfer")').first();
+    if (await transferItemBroad.isVisible({ timeout: 2000 }).catch(() => false)) {
+      console.log('[AssignChange] Found "Transfer" menu item');
+      await transferItemBroad.click({ force: true });
+      return true;
+    }
+
     // Capture what IS visible in any open menu for debugging
     const menuItems = await this.page.locator('[role="menuitem"]').allTextContents().catch(() => []);
     const dialogContent = await this.page.locator('#DhtmlZOrderManagerLayerContainer').textContent().catch(() => '');
-    console.log(`[AssignChange] No Update or Correct found. Menu items: [${menuItems.join(', ')}]`);
+    console.log(`[AssignChange] No Update/Correct/ChangeAssignment/Transfer found. Menu items: [${menuItems.join(', ')}]`);
     if (dialogContent) console.log(`[AssignChange] Dialog layer content: ${dialogContent.substring(0, 200)}`);
     await this.page.screenshot({ path: 'test-results/update-correct-not-found.png', fullPage: true }).catch(() => {});
     return false;

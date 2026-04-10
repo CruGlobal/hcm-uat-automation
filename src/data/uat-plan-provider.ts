@@ -2,6 +2,7 @@ import fs from 'fs';
 import path from 'path';
 import type { UATTestCase, TestCase } from './types';
 import { getBotForTester } from '../config/bot-users';
+import { pickEmployeeFromPool, PAYROLL_ELEMENT_OVERRIDES } from './payroll-employee-pools';
 
 const CACHE_FILE = path.resolve(process.cwd(), '.cache', 'uat-plan.json');
 const FIELD_DATA_FILE = path.resolve(process.cwd(), '.cache-generated', 'field-data.json');
@@ -145,6 +146,17 @@ export function getFieldData(testId: string): TestCase | undefined {
   if (runCounter > 0 && isCreatePersonTest(tc)) {
     return applyRunUniqueMutations(tc, runCounter);
   }
+
+  // Rotating employee pool + element override for off-cycle payroll tests.
+  const poolEmployee = pickEmployeeFromPool(testId, runCounter);
+  const elementOverride = PAYROLL_ELEMENT_OVERRIDES[testId];
+  if (poolEmployee || elementOverride) {
+    const fields = { ...tc.fields };
+    if (poolEmployee) fields['Search For'] = poolEmployee;
+    if (elementOverride) fields['Element name'] = elementOverride;
+    return { ...tc, fields };
+  }
+
   return tc;
 }
 

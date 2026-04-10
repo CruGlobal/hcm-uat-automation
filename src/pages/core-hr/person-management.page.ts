@@ -235,7 +235,17 @@ export class PersonManagementPage extends BasePage {
     await locator.clear();
     await locator.pressSequentially(value, { delay: 30 });
     await locator.press('Tab');
-    await this.page.waitForTimeout(2000);
+    await this.page.waitForTimeout(1000);
+    // Tab may land on Effective As-of Date field, auto-opening the calendar picker.
+    // Click the search panel header to defocus the date field and close any calendar.
+    const searchHeader = this.page.locator('[id$="q1"] .x2h, [id$="q1::head"]').first();
+    if (await searchHeader.isVisible({ timeout: 1000 }).catch(() => false)) {
+      await searchHeader.click({ force: true });
+    } else {
+      // Fallback: click the page title area to defocus
+      await this.page.locator('h1, .x16m').first().click({ force: true }).catch(() => {});
+    }
+    await this.page.waitForTimeout(1000);
     await this.waitForJET();
     return true;
   }
@@ -272,6 +282,9 @@ export class PersonManagementPage extends BasePage {
       console.log(`[PersonMgmt] Cannot search by name — form not available (navigation-only)`);
       return false;
     }
+    // Dismiss any calendar popup that Tab may have opened
+    await this.page.mouse.click(400, 550);
+    await this.page.waitForTimeout(500);
     await this.searchButton.click();
     await this.page.waitForTimeout(8000);
     await this.waitForJET();
@@ -279,56 +292,30 @@ export class PersonManagementPage extends BasePage {
     return true;
   }
 
-  /** Search by person number and click the first result. Throws if person not found (callers can fall back to name search). Returns false if PM form not available. */
+  /** Search by person number and click the first result. Retries if no results (Oracle indexing delay). */
   async searchByPersonNumber(personNumber: string): Promise<boolean> {
     await this.ensureOnPersonManagement();
-    const filled = await this.fillSearchField(this.searchPersonNumber, personNumber);
-    if (!filled) {
-      console.log(`[PersonMgmt] Cannot search by person number — form not available (navigation-only)`);
-      return false;
-    }
-    await this.searchButton.click();
-    await this.page.waitForTimeout(8000);
-    await this.waitForJET();
 
-    // If no results, retry with "Include terminated work relationships" checked
-    const noResults = await this.page.getByText('No results found', { exact: false }).first()
-      .or(this.page.getByText('No data to display', { exact: false }).first())
-      .isVisible({ timeout: 3000 }).catch(() => false);
-    if (noResults) {
-      console.log(`[PersonMgmt] No results for ${personNumber} — retrying with "Include terminated" checked`);
-      // Use label text to locate the specific checkbox (more reliable than index-based)
-      const terminatedCheckbox = this.page.getByLabel('Include terminated work relationships').first();
-      const terminatedCheckboxFallback = this.page.locator(
-        'input[type="checkbox"][id*="terminat"], input[type="checkbox"][id*="includ"]'
-      ).first();
-
-      let checkboxToUse = terminatedCheckbox;
-      const labelVisible = await terminatedCheckbox.isVisible({ timeout: 2000 }).catch(() => false);
-      if (!labelVisible) {
-        checkboxToUse = terminatedCheckboxFallback;
-      }
-
-      if (await checkboxToUse.isVisible({ timeout: 2000 }).catch(() => false)) {
-        const checked = await checkboxToUse.isChecked().catch(() => false);
-        if (!checked) {
-          await checkboxToUse.click({ force: true }).catch(() => {});
-          await this.page.waitForTimeout(2000);
-        }
-      }
-      // Re-run search
-      const refilled = await this.fillSearchField(this.searchPersonNumber, personNumber);
-      if (!refilled) return false;
+    // Retry up to 3 times — freshly created persons may take time to be indexed
+    for (let attempt = 1; attempt <= 3; attempt++) {
+      await this.fillSearchField(this.searchPersonNumber, personNumber);
+      // Dismiss calendar popup that Tab may open
+      await this.page.keyboard.press('Escape');
+      await this.page.waitForTimeout(500);
       await this.searchButton.click();
       await this.page.waitForTimeout(8000);
       await this.waitForJET();
-    }
 
-    // After retry, check if still no results — throw so callers can fall back to name search
-    const stillNoResults = await this.page.getByText('No results found', { exact: false }).first()
-      .isVisible({ timeout: 2000 }).catch(() => false);
-    if (stillNoResults) {
-      throw new Error(`Person ${personNumber} not found in Person Management (even with "Include terminated")`);
+      const noResults = await this.page.locator('td:has-text("No results found.")').isVisible({ timeout: 3000 }).catch(() => false);
+      if (!noResults) break;
+
+      if (attempt < 3) {
+        console.log(`[PersonMgmt] No results for ${personNumber} (attempt ${attempt}) — retrying in 10s`);
+        await this.page.waitForTimeout(10000);
+      } else {
+        console.log(`[PersonMgmt] No results for ${personNumber} after 3 attempts`);
+        return false;
+      }
     }
 
     await this.clickFirstSearchResult();
@@ -343,6 +330,9 @@ export class PersonManagementPage extends BasePage {
     await this.ensureOnPersonManagement();
     const filled = await this.fillSearchField(this.searchPersonNumber, personNumber);
     if (!filled) return false;
+    // Dismiss any calendar popup that Tab may have opened
+    await this.page.mouse.click(400, 550);
+    await this.page.waitForTimeout(500);
     await this.searchButton.click();
     await this.page.waitForTimeout(8000);
     await this.waitForJET();
@@ -456,6 +446,7 @@ export class PersonManagementPage extends BasePage {
       await sp3Link.click({ force: true });
       await this.page.waitForTimeout(8000);
       await this.waitForJET();
+      console.log('[PersonMgmt] Post-click URL:', this.page.url());
       return;
     }
 

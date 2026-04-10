@@ -225,6 +225,29 @@ Some tests perform one-time operations that prevent re-execution with the same d
 - `scripts/run-parallel.ts` — Increments and passes `RUN_COUNTER`
 - `.cache/run-counter.json` — Persisted run counter
 
+## Payroll Module Notes
+
+### Bot
+All payroll tests (`tests/payroll/payroll-processing.spec.ts`) run under `bot_payroll_admin`.
+- Tester names mapped: Lisa Franklin, Matt Gullige → `bot_payroll_admin`
+- Run: `PARALLEL_BOT=bot_payroll_admin HEADLESS=false npx playwright test tests/payroll/ --config playwright.parallel.config.ts`
+
+### PY-009 Series: Off-Cycle Element Entry + Quick Pay
+Two-step flow per test:
+1. **Element Entry** (`ElementEntryFlow`) — Redwood `/hcmUI/` — search employee, set effective date (today, must fall within current payroll period), create "Additional Salary" element
+2. **Quick Pay** (being built) — run quick pay for the employee after element entry
+
+**Batch processing** (`submitCruOffcycleFlow` / `waitForPayrollChecklistCompletion`) is kept in the repo but **NOT used in automated tests** — HR runs batch payroll manually.
+
+### Employee Pools (`src/data/payroll-employee-pools.ts`)
+Rotating pools prevent duplicate element entry conflicts across runs (`RUN_COUNTER % pool.length`):
+- `PY-009-01` — CCC (Campus Crusade for Christ) — non-leadership salaried only
+- `PY-009-02` — GCE (Global Coastal Enterprises) — Semimonthly Supported staff
+- `PY-009-03` — RCE (Resources for Intercultural Exchange) — Semimonthly Supported staff
+
+### Effective Date Rule
+Always use **today's date**. Must fall within the current semimonthly payroll period (1st–15th or 16th–end of month). Oracle validates this — if out of range, the test will fail with a clear error. **Never use a fallback date or pick a row blindly from the period dropdown.**
+
 ## Adding a New Module
 
 1. Create page objects in `src/pages/<module>/`

@@ -242,11 +242,14 @@ export class StaffDesignationPage extends BasePage {
 
       // searchByPersonNumber clicks the first result, landing on Employment detail.
       // Navigate: More Information → Personal and Employment → Person
+      console.log('[StaffDesignation-EIT] Post-search URL:', this.page.url());
+      await this.page.screenshot({ path: `test-results/eit-debug-before-${personNumber}.png` });
       await this.navigateToPersonDetail();
+      await this.page.screenshot({ path: `test-results/eit-debug-after-${personNumber}.png` });
 
-      // Click "Extra Information" tab
-      const extraInfoTab = this.page.locator('a, [role="tab"]').filter({ hasText: /^Extra Information$/ }).first();
-      const tabVisible = await extraInfoTab.isVisible({ timeout: 8000 }).catch(() => false);
+      // Click "Extra Information" tab (label varies: "Extra Information" / "Extra Information Types")
+      const extraInfoTab = this.page.locator('a, [role="tab"]').filter({ hasText: /extra information/i }).first();
+      const tabVisible = await extraInfoTab.isVisible({ timeout: 12000 }).catch(() => false);
       if (!tabVisible) {
         console.log('[StaffDesignation-EIT] Extra Information tab not found');
         return false;
@@ -366,46 +369,77 @@ export class StaffDesignationPage extends BasePage {
    * Path: More Information → Personal and Employment → Person
    */
   private async navigateToPersonDetail(): Promise<void> {
-    const moreInfoLink = this.page.locator('a[title="More Information"]').first();
-    const hasMoreInfo = await moreInfoLink.isVisible({ timeout: 5000 }).catch(() => false);
-    if (!hasMoreInfo) {
-      // May already be on Person detail page (Extra Information tab visible)
+    // Check if Extra Information tab is already visible (already on Person detail page)
+    const alreadyOnPerson = await this.page.locator('a, [role="tab"]')
+      .filter({ hasText: /extra information/i }).first()
+      .isVisible({ timeout: 3000 }).catch(() => false);
+    if (alreadyOnPerson) {
+      console.log('[StaffDesignation-EIT] Already on Person detail page');
       return;
     }
 
-    await this.clearGlassPane();
-    await moreInfoLink.click({ force: true });
-    await this.page.waitForTimeout(3000);
+    // Try "More Information" link (classic ADF Employment detail page)
+    const moreInfoLink = this.page.locator('a[title="More Information"]').first();
+    const hasMoreInfo = await moreInfoLink.isVisible({ timeout: 10000 }).catch(() => false);
+    if (hasMoreInfo) {
+      console.log('[StaffDesignation-EIT] Clicking More Information');
+      await this.clearGlassPane();
+      await moreInfoLink.click({ force: true });
+      await this.page.waitForTimeout(3000);
 
-    const personalEmpLink = this.page.locator('a:has-text("Personal and Employment")').first();
-    if (await personalEmpLink.isVisible({ timeout: 5000 }).catch(() => false)) {
-      await personalEmpLink.click({ force: true });
-      await this.page.waitForTimeout(2000);
-    }
-
-    // Click "Person" quick action — try known ADF ID first, fallback to text
-    const personAction = this.page.locator('[id$="dci12:16:cml13"]').first();
-    if (await personAction.isVisible({ timeout: 5000 }).catch(() => false)) {
-      await personAction.click({ force: true });
-    } else {
-      // Broader fallback: look for "Person" link in the popup
-      const personLinks = this.page.locator('a').filter({ hasText: /^Person$/ });
-      const count = await personLinks.count();
-      for (let i = 0; i < count; i++) {
-        const link = personLinks.nth(i);
-        const rect = await link.boundingBox().catch(() => null);
-        // Pick links that are in a popup/dropdown area (not the top header)
-        if (rect && rect.y > 200) {
-          await link.click({ force: true });
-          break;
-        }
+      const personalEmpLink = this.page.locator('a:has-text("Personal and Employment")').first();
+      if (await personalEmpLink.isVisible({ timeout: 5000 }).catch(() => false)) {
+        console.log('[StaffDesignation-EIT] Clicking Personal and Employment');
+        await personalEmpLink.click({ force: true });
+        await this.page.waitForTimeout(2000);
       }
+
+      // Click "Person" quick action — try known ADF ID first, then text fallback
+      const personAction = this.page.locator('[id$="dci12:16:cml13"]').first();
+      if (await personAction.isVisible({ timeout: 5000 }).catch(() => false)) {
+        console.log('[StaffDesignation-EIT] Clicking Person quick action (ADF ID)');
+        await personAction.click({ force: true });
+      } else {
+        // Broader fallback: look for "Person" link in the popup (y > 200 excludes header)
+        const personLinks = this.page.locator('a').filter({ hasText: /^Person$/ });
+        const count = await personLinks.count();
+        let clicked = false;
+        for (let i = 0; i < count; i++) {
+          const link = personLinks.nth(i);
+          const rect = await link.boundingBox().catch(() => null);
+          if (rect && rect.y > 200) {
+            console.log('[StaffDesignation-EIT] Clicking Person link (text fallback)');
+            await link.click({ force: true });
+            clicked = true;
+            break;
+          }
+        }
+        if (!clicked) console.log('[StaffDesignation-EIT] Person quick action not found');
+      }
+
+      await this.page.waitForLoadState('networkidle', { timeout: 60_000 }).catch(() => {});
+      await this.page.waitForTimeout(10000);
+      await this.waitForJET();
+      await this.clearGlassPane();
+      return;
     }
 
-    await this.page.waitForLoadState('networkidle', { timeout: 60_000 }).catch(() => {});
-    await this.page.waitForTimeout(10000);
-    await this.waitForJET();
-    await this.clearGlassPane();
+    // Redwood fallback: look for "Personal Info" or "Person" task link on the page
+    console.log('[StaffDesignation-EIT] More Information not found — trying Redwood navigation');
+    const redwoodPersonLink = this.page.locator(
+      'a:has-text("Personal Info"), a:has-text("Manage Person"), ' +
+      'button:has-text("Personal Info"), [title="Personal Info"]'
+    ).first();
+    if (await redwoodPersonLink.isVisible({ timeout: 5000 }).catch(() => false)) {
+      console.log('[StaffDesignation-EIT] Clicking Redwood Personal Info link');
+      await redwoodPersonLink.click({ force: true });
+      await this.page.waitForLoadState('networkidle', { timeout: 60_000 }).catch(() => {});
+      await this.page.waitForTimeout(8000);
+      await this.waitForJET();
+      await this.clearGlassPane();
+    } else {
+      console.log('[StaffDesignation-EIT] Could not navigate to Person detail — page may already be correct');
+    }
   }
 
   /**

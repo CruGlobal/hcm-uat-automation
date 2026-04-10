@@ -2,9 +2,18 @@ import { type Page } from '@playwright/test';
 import { BaseFlow } from '../base.flow';
 import { PayrollProcessingPage } from '../../pages/payroll/payroll-processing.page';
 import { ElementEntryFlow } from './element-entry.flow';
+import { QuickPayPage } from '../../pages/payroll/quick-pay.page';
 import { getFieldData } from '../../data/uat-plan-provider';
 import { getField } from '../../data/test-data-provider';
 import type { UATTestCase, TestCase } from '../../data/types';
+
+/** Returns today's date as MM/DD/YYYY — used for all payroll effective dates. */
+function todayDate(): string {
+  const d = new Date();
+  const mm = String(d.getMonth() + 1).padStart(2, '0');
+  const dd = String(d.getDate()).padStart(2, '0');
+  return `${mm}/${dd}/${d.getFullYear()}`;
+}
 
 /**
  * Flow for Payroll Processing operations from the UAT Plan.
@@ -43,6 +52,21 @@ import type { UATTestCase, TestCase } from '../../data/types';
  */
 export class PayrollProcessingFlow extends BaseFlow {
   /**
+   * Test IDs that ARE element entry tests despite having a payroll processing
+   * script ID (e.g., PAY.103/PAY.106). These override isPayrollProcessingScript
+   * and route through ElementEntryFlow.
+   */
+  private static readonly ELEMENT_ENTRY_OVERRIDE_IDS = new Set([
+    // Bonus element entries — script says PAY.103/PAY.106 but actual test is
+    // creating a Bonus element entry on the Element Entries page
+    'PY-001-01', 'PY-001-02', 'PY-001-03',
+    // Off-cycle additional salary (PAY.520) — Step 1: Element Entry.
+    // Step 2 (Cru Offcycle Payroll Flow via Submit a Flow) added later.
+    'PY-009-01', 'PY-009-02', 'PY-009-03', 'PY-009-04',
+    'PY-009-05', 'PY-009-06', 'PY-009-07',
+  ]);
+
+  /**
    * Test IDs that have element entry field data from the migration DB but whose
    * business process is NOT about creating element entries. These bypass
    * ElementEntryFlow and route via script/business-process matching (Priority 3).
@@ -71,8 +95,7 @@ export class PayrollProcessingFlow extends BaseFlow {
   }
 
   async execute(tc: UATTestCase): Promise<void> {
-    // Login FIRST as the correct bot user (direct Oracle login) before any routing.
-    // This ensures ElementEntryFlow and other sub-flows don't fall back to SSO.
+    // Login as the bot assigned to this test (Lisa Franklin + Matt Gullige → bot_payroll_admin).
     await this.loginToHCM(tc);
 
     const fieldData = getFieldData(tc.testId);
@@ -96,6 +119,7 @@ export class PayrollProcessingFlow extends BaseFlow {
       process.includes('w-2') || process.includes('year end')
     );
     const isNonElement = PayrollProcessingFlow.NON_ELEMENT_ENTRY_IDS.has(tc.testId);
+    const isElementOverride = PayrollProcessingFlow.ELEMENT_ENTRY_OVERRIDE_IDS.has(tc.testId);
 
     // Scenario-first routing: if the field data explicitly says "Element Entry",
     // always use ElementEntryFlow — the scenario field is more specific than the
@@ -113,10 +137,24 @@ export class PayrollProcessingFlow extends BaseFlow {
       }
     }
 
-    if (fieldData && this.hasElementEntryFields(fieldData) && !isPayrollProcessingScript && !isNonElement) {
-      console.log(`[Payroll] ${tc.testId}: Routing to ElementEntryFlow (tab=${fieldData.tab}, element=${getField(fieldData, 'Element name')})`);
+    if (fieldData && this.hasElementEntryFields(fieldData) && (!isPayrollProcessingScript || isElementOverride) && !isNonElement) {
+      const elementName = getField(fieldData, 'Element name') || '';
+      console.log(`[Payroll] ${tc.testId}: Routing to ElementEntryFlow (tab=${fieldData.tab}, element=${elementName})`);
       const flow = new ElementEntryFlow(this.page);
       await flow.execute(fieldData);
+
+      // Step 2 for PY-009 off-cycle series: run QuickPay for the employee
+      // (HR runs batch payroll manually — automation handles individual QuickPay only)
+      if (PayrollProcessingFlow.ELEMENT_ENTRY_OVERRIDE_IDS.has(tc.testId) && tc.testId.startsWith('PY-009')) {
+        const employeeName = getField(fieldData, 'Search For') || '';
+        if (employeeName && elementName) {
+          console.log(`[Payroll] ${tc.testId}: Step 2 — QuickPay for "${employeeName}", element "${elementName}"`);
+          const quickPay = new QuickPayPage(this.page);
+          await quickPay.runQuickPay(employeeName, elementName);
+        } else {
+          console.log(`[Payroll] ${tc.testId}: Step 2 — QuickPay skipped (missing employee or element name)`);
+        }
+      }
       return;
     }
 
@@ -280,7 +318,7 @@ export class PayrollProcessingFlow extends BaseFlow {
       return;
     }
     await this.payroll.fillPayrollRunParams({
-      effectiveDate: tc.testDate || undefined,
+      effectiveDate: todayDate(),
     });
     await this.payroll.submitFlow();
     await this.payroll.verifyResult();
@@ -516,7 +554,7 @@ export class PayrollProcessingFlow extends BaseFlow {
     await this.payroll.goToScheduledProcesses();
     if (!await this.scheduleOrSkip('Calculate Payroll', tc.testId)) return;
     await this.payroll.fillPayrollRunParams({
-      effectiveDate: tc.testDate || undefined,
+      effectiveDate: todayDate(),
     });
     await this.payroll.submitFlow();
     await this.payroll.verifyResult();

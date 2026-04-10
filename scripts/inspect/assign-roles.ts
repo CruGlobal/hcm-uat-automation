@@ -41,7 +41,7 @@ const TIME_LABOR_ROLES = [
 /** Map: botName → roles to ADD. All bots get the same comprehensive set. */
 const BOT_ROLE_MAP: Record<string, string[]> = {
   bot_hr_admin:                 [...ALL_ROLES, ...TIME_LABOR_ROLES],
-  bot_hr_generalist_no_nid:     [...ALL_ROLES, 'Cru HR Specialist No Crisis and NID Data'],
+  bot_hr_generalist_no_nid:     [...ALL_ROLES, 'RJM HR Specialist No Crisis and NID role Custom'],
   bot_hr_generalist:            [...ALL_ROLES, ...TIME_LABOR_ROLES],
   bot_hr_local_usops:           ALL_ROLES,
   bot_hr_local_campus:          ALL_ROLES,
@@ -343,7 +343,7 @@ async function main() {
 
   // Determine which bots to process
   const botsToProcess = SINGLE_BOT
-    ? { [SINGLE_BOT]: BOT_ROLE_MAP[SINGLE_BOT] || HR_SPECIALIST_ROLES }
+    ? { [SINGLE_BOT]: BOT_ROLE_MAP[SINGLE_BOT] || ALL_ROLES }
     : BOT_ROLE_MAP;
 
   const results: { bot: string; result: Awaited<ReturnType<typeof addRolesToUser>> }[] = [];

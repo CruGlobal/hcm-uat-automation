@@ -11,7 +11,10 @@ const cases = sortByUser(loadUATModule(MODULE));
 
 test.describe(`${MODULE} (UAT Plan)`, () => {
   for (const tc of cases) {
+    // Off-cycle payroll tests (PY-009) run a full 10-task checklist — needs up to 30 min
+    const OFF_CYCLE_IDS = new Set(['PY-009-01', 'PY-009-02', 'PY-009-03', 'PY-009-04', 'PY-009-05', 'PY-009-06', 'PY-009-07']);
     test(uatTestTitle(tc), async ({ page }) => {
+      if (OFF_CYCLE_IDS.has(tc.testId)) test.setTimeout(1_800_000);
       test.skip(!isTestable(tc), `${tc.testId} status: ${tc.status}`);
       test.skip(isDeferredKnownFailure(tc.testId), `[KnownFailure] ${getFailureReason(tc.testId)}`);
 

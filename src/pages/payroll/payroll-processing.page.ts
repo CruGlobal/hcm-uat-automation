@@ -278,6 +278,299 @@ export class PayrollProcessingPage extends BasePage {
   }
 
   /**
+   * Navigate to "Submit a Flow" via My Client Groups → Payroll → Search "submit".
+   * This is the correct path for Cru Offcycle Payroll Flow (NOT Scheduled Processes).
+   */
+  async goToSubmitAFlow(): Promise<void> {
+    const home = new HomePage(this.page);
+    // My Client Groups → Payroll landing page
+    try {
+      await home.navigateVia('nv_itemNode_workforce_management_payroll', 'Payroll');
+    } catch {
+      await this.page.goto('/fscmUI/faces/FuseOverview?fndGlobalItemNodeId=itemNode_workforce_management_payroll', { timeout: 60_000 });
+      await this.page.waitForLoadState('networkidle', { timeout: 60_000 }).catch(() => {});
+    }
+    await this.page.waitForTimeout(3000);
+    await this.waitForJET();
+
+    // Search for "submit" in Payroll tasks search box
+    const taskSearch = this.page.getByRole('textbox', { name: 'Search for tasks' });
+    if (await taskSearch.isVisible({ timeout: 8_000 }).catch(() => false)) {
+      await taskSearch.fill('submit');
+      await taskSearch.press('Enter');
+      await this.page.waitForTimeout(2000);
+      await this.waitForJET();
+    }
+
+    // Click "Submit a Flow"
+    await this.page.getByRole('link', { name: 'Submit a Flow' }).click();
+    await this.page.waitForTimeout(3000);
+    await this.waitForJET();
+    console.log('[Payroll] Navigated to Submit a Flow');
+  }
+
+  /**
+   * Submit the Cru Offcycle Payroll Flow with parameters from codegen.
+   *
+   * @param payrollGroup - "Semimonthly Salaried" | "Semimonthly Supported" | "Biweekly Hourly"
+   *                       Select based on the employee being processed.
+   * @param flowName     - Unique name for this flow run (defaults to timestamp-based name).
+   */
+  async submitCruOffcycleFlow(options: {
+    payrollGroup: string;
+    flowName?: string;
+  }): Promise<void> {
+    // Search for Cru Offcycle Payroll Flow
+    const flowSearch = this.page.getByRole('textbox', { name: 'Search by flow pattern name' });
+    await flowSearch.fill('off');
+    await flowSearch.press('Enter');
+    await this.page.waitForTimeout(3000);
+    await this.waitForJET();
+
+    // Select "Cru Offcycle Payroll Flow"
+    await this.page.getByText('Cru Offcycle Payroll Flow').click();
+    await this.page.waitForTimeout(3000);
+    await this.waitForJET();
+
+    // Fill unique Payroll Flow name
+    const flowName = options.flowName || `Offcycle ${Date.now()}`;
+    const flowNameInput = this.page.getByRole('textbox', { name: 'Payroll Flow' });
+    await flowNameInput.fill(flowName);
+    console.log(`[Payroll] Flow name: ${flowName}`);
+
+    // Select Payroll group (Semimonthly Salaried / Semimonthly Supported / Biweekly Hourly)
+    const payrollArrow = this.page.locator(
+      '#PAYROLL .oj-searchselect-arrow, [id$="PAYROLL"] .oj-searchselect-arrow'
+    ).first();
+    await payrollArrow.click();
+    await this.page.waitForTimeout(2000);
+    await this.waitForJET();
+    await this.page.getByRole('gridcell', { name: options.payrollGroup, exact: true }).click();
+    await this.page.waitForTimeout(1000);
+    console.log(`[Payroll] Selected payroll group: ${options.payrollGroup}`);
+
+    // Select most recent Payroll Period (first row in dropdown)
+    const periodArrow = this.page.locator(
+      '#PAYROLL_PERIOD .oj-searchselect-arrow, [id$="PAYROLL_PERIOD"] .oj-searchselect-arrow'
+    ).first();
+    await periodArrow.click();
+    await this.page.waitForTimeout(2000);
+    await this.waitForJET();
+
+    // Select the period whose date range contains today's date.
+    // Row text format: "8 2026 Semimonthly | 2026-04-01 | 2026-04-15"
+    // The dropdown is virtualized — must scroll down to render 2026 rows before matching.
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const todayStr = today.toISOString().split('T')[0]; // e.g. "2026-04-07"
+
+    // Scroll the dropdown list down repeatedly until we find and click the matching period
+    const scrollContainer = this.page.locator(
+      '.oj-listbox-results, .oj-select-results, [class*="dropdown"] [role="listbox"], [role="listbox"]'
+    ).first();
+
+    let selectedPeriod = false;
+    const maxScrollAttempts = 20;
+
+    for (let i = 0; i < maxScrollAttempts; i++) {
+      // Scan currently visible rows
+      const matched = await this.page.evaluate((todayISO: string) => {
+        const todayDate = new Date(todayISO);
+        const rows = Array.from(document.querySelectorAll('[role="row"], [role="option"]'));
+        for (const row of rows) {
+          const text = row.textContent || '';
+          const dates = text.match(/\d{4}-\d{2}-\d{2}/g);
+          if (dates && dates.length >= 2) {
+            const start = new Date(dates[0]);
+            const end = new Date(dates[1]);
+            end.setHours(23, 59, 59, 999);
+            if (todayDate >= start && todayDate <= end) {
+              (row as HTMLElement).click();
+              return text.trim();
+            }
+          }
+        }
+        return null;
+      }, todayStr);
+
+      if (matched) {
+        console.log(`[Payroll] Selected period: ${matched}`);
+        selectedPeriod = true;
+        break;
+      }
+
+      // Not found yet — scroll down to load more rows
+      const scrolled = await scrollContainer.evaluate((el: Element) => {
+        if (el) {
+          el.scrollTop += 300;
+          return true;
+        }
+        return false;
+      }).catch(() => false);
+
+      if (!scrolled) {
+        // Try scrolling via keyboard End key on the last visible row
+        await this.page.keyboard.press('End');
+      }
+      await this.page.waitForTimeout(500);
+    }
+
+    if (!selectedPeriod) {
+      await this.screenshot('payroll-period-not-found');
+      throw new Error(`[Payroll] No payroll period found containing today's date (${today}). Cannot proceed — manual period selection required.`);
+    }
+    await this.page.waitForTimeout(1000);
+
+    // Select Run Type: Regular
+    const runTypeArrow = this.page.locator(
+      '#RUN_TYPE .oj-searchselect-arrow, [id$="RUN_TYPE"] .oj-searchselect-arrow'
+    ).first();
+    await runTypeArrow.click();
+    await this.page.waitForTimeout(2000);
+    await this.waitForJET();
+    await this.page.getByRole('row', { name: 'Regular' }).click();
+    await this.page.waitForTimeout(1000);
+
+    // Submit the flow
+    await this.page.getByRole('button', { name: 'Submit' }).click();
+    await this.page.waitForTimeout(5000);
+    await this.waitForJET();
+    console.log('[Payroll] Submitted Cru Offcycle Payroll Flow');
+  }
+
+  /**
+   * Wait for the Payroll Checklist "Run Validation Report for Payroll" task
+   * to reach "Completed" status. Clicks Refresh every 15 seconds while waiting.
+   * Timeout: 5 minutes.
+   */
+  /**
+   * Poll a checklist task until its status badge shows "Completed".
+   * Clicks Refresh every 15 seconds while waiting. Timeout: 5 minutes per task.
+   */
+  private async waitForChecklistTask(taskName: string): Promise<void> {
+    console.log(`[Payroll Checklist] Waiting for "${taskName}" to complete...`);
+    const timeout = 300_000;
+    const refreshInterval = 15_000;
+    const startTime = Date.now();
+
+    const completedBadge = this.page.locator('li[role="row"], tr[role="row"]')
+      .filter({ hasText: taskName })
+      .locator('span.oj-badge-success, span.oj-badge:has-text("Completed")')
+      .first();
+
+    while (Date.now() - startTime < timeout) {
+      const isVisible = await completedBadge.isVisible({ timeout: 2_000 }).catch(() => false);
+      if (isVisible) {
+        const text = await completedBadge.textContent().catch(() => '');
+        if (text?.includes('Completed')) {
+          console.log(`[Payroll Checklist] "${taskName}" — Completed ✓`);
+          return;
+        }
+      }
+      await this.page.waitForTimeout(refreshInterval);
+      const refreshBtn = this.page.getByRole('button', { name: 'Refresh' });
+      if (await refreshBtn.isVisible({ timeout: 3_000 }).catch(() => false)) {
+        await refreshBtn.click();
+        await this.waitForJET();
+        console.log(`[Payroll Checklist] Refreshed (${Math.round((Date.now() - startTime) / 1000)}s elapsed)`);
+      }
+    }
+    throw new Error(`[Payroll Checklist] Timed out waiting for "${taskName}" to complete (5 min)`);
+  }
+
+  /**
+   * Mark a Manual Task as complete via Actions → Mark as Complete → Submit.
+   * Used for "Verify Payroll Validation Report", "Verify Reports", "Verify Prepayments".
+   */
+  private async markChecklistTaskComplete(taskName: string): Promise<void> {
+    console.log(`[Payroll Checklist] Marking "${taskName}" as complete...`);
+
+    // Strategy 1: codegen pattern — getByRole('row').filter(hasText).getByLabel('Actions')
+    const taskRow = this.page.locator('[role="row"]').filter({ hasText: taskName }).first();
+    let actionsBtn = taskRow.getByLabel('Actions', { exact: true });
+
+    if (!await actionsBtn.isVisible({ timeout: 5_000 }).catch(() => false)) {
+      // Strategy 2: codegen pattern for gridcell — used by "Verify Reports", "Verify Prepayments"
+      const gridCell = this.page.getByRole('gridcell', { name: new RegExp(taskName) }).first();
+      actionsBtn = gridCell.getByLabel('Actions', { exact: true });
+    }
+
+    if (!await actionsBtn.isVisible({ timeout: 5_000 }).catch(() => false)) {
+      // Strategy 3: any Actions button near the task name text
+      actionsBtn = this.page.locator(`[aria-label="Actions"]`).filter({ has: this.page.locator(`text=${taskName}`) }).first();
+    }
+
+    await actionsBtn.click({ timeout: 15_000 });
+    await this.page.waitForTimeout(1000);
+
+    // Click "Mark as Complete" in the dropdown menu
+    await this.page.getByRole('menuitem', { name: 'Mark as Complete' }).click({ timeout: 15_000 });
+    await this.page.waitForTimeout(1000);
+
+    // Click Submit to confirm
+    await this.page.getByRole('button', { name: 'Submit' }).click();
+    await this.page.waitForTimeout(2000);
+    await this.waitForJET();
+    console.log(`[Payroll Checklist] "${taskName}" — marked complete ✓`);
+  }
+
+  /**
+   * Complete the full Cru Offcycle Payroll Flow checklist (10 tasks).
+   *
+   * Sequence:
+   *  1. Run Validation Report for Payroll   — wait for Completed
+   *  2. Verify Payroll Validation Report    — Manual Task: Mark as Complete
+   *  3. Calculate Payroll                   — wait for Completed
+   *  4. Verify Reports                      — Manual Task: Mark as Complete
+   *  5. Calculate Prepayments               — wait for Completed
+   *  6. Verify Prepayments                  — Manual Task: Mark as Complete
+   *  7. Archive Periodic Payroll Results    — wait for Completed
+   *  8. Run Payroll Costing Results         — wait for Completed
+   *  9. Run Payroll Register Report         — wait for Completed
+   * 10. Click Run Payroll Register Report   — view final results
+   */
+  async waitForPayrollChecklistCompletion(): Promise<void> {
+    console.log('[Payroll Checklist] Starting full 10-task checklist...');
+
+    // 1. Run Validation Report for Payroll — automated, wait for Completed
+    await this.waitForChecklistTask('Run Validation Report for Payroll');
+
+    // 2. Verify Payroll Validation Report — Manual Task
+    await this.markChecklistTaskComplete('Verify Payroll Validation');
+
+    // 3. Calculate Payroll — automated, wait for Completed
+    await this.waitForChecklistTask('Calculate Payroll');
+
+    // 4. Run Gross-to-Net Report — automated, must complete before Verify Reports unlocks
+    await this.waitForChecklistTask('Run Gross-to-Net Report');
+
+    // 5. Verify Reports — Manual Task (only available after Gross-to-Net completes)
+    await this.markChecklistTaskComplete('Verify Reports');
+
+    // 5. Calculate Prepayments — automated, wait for Completed
+    await this.waitForChecklistTask('Calculate Prepayments');
+
+    // 6. Verify Prepayments — Manual Task
+    await this.markChecklistTaskComplete('Verify Prepayments');
+
+    // 7. Archive Periodic Payroll Results — automated, wait for Completed
+    await this.waitForChecklistTask('Archive Periodic Payroll Results');
+
+    // 8. Run Payroll Costing Results — automated, wait for Completed
+    await this.waitForChecklistTask('Run Payroll Costing Results');
+
+    // 9. Run Payroll Register Report — automated, wait for Completed
+    await this.waitForChecklistTask('Run Payroll Register Report');
+
+    // 10. Click Run Payroll Register Report to view final results
+    console.log('[Payroll Checklist] All 10 tasks completed — opening Payroll Register Report...');
+    await this.page.getByText('Run Payroll Register Report').click();
+    await this.page.waitForTimeout(3000);
+    await this.waitForJET();
+    console.log('[Payroll Checklist] Done ✓');
+  }
+
+  /**
    * Schedule a new process by clicking "Schedule New Process" and entering the name.
    *
    * The Name combobox in the "Schedule New Process" dialog is an ADF
@@ -496,21 +789,34 @@ export class PayrollProcessingPage extends BasePage {
       let targetRow = matchRow;
       let matched = await matchRow.isVisible({ timeout: 2000 }).catch(() => false);
 
-      // If no exact match, try progressively broader keyword matching.
-      // First try ALL significant keywords together, then drop one at a time.
+      // If no exact match, try matching by ALL significant keywords (not just one)
       if (!matched) {
         const keywords = processName.split(/[\s-]+/).filter(w => w.length > 3);
-        // Try matching ALL keywords in one row first (most specific)
-        for (let dropCount = 0; dropCount < keywords.length && !matched; dropCount++) {
-          const tryKeywords = keywords.slice(0, keywords.length - dropCount);
-          const rowCount = await rows.count();
-          for (let ri = 0; ri < rowCount; ri++) {
-            const row = rows.nth(ri);
+
+        // Strategy 1: Find a row containing ALL keywords
+        if (keywords.length > 1) {
+          const allRows = await rows.all();
+          for (const row of allRows) {
             const text = (await row.textContent().catch(() => '')) || '';
-            const allMatch = tryKeywords.every(kw => text.toLowerCase().includes(kw.toLowerCase()));
-            if (allMatch) {
-              console.log(`[Payroll] Found ${tryKeywords.length}-keyword match: "${text.trim().substring(0, 80)}"`);
+            const textLower = text.toLowerCase();
+            const matchesAll = keywords.every(kw => textLower.includes(kw.toLowerCase()));
+            if (matchesAll) {
+              console.log(`[Payroll] Found all-keywords match: "${text.trim().substring(0, 60)}"`);
               targetRow = row;
+              matched = true;
+              break;
+            }
+          }
+        }
+
+        // Strategy 2: Single keyword match as last resort
+        if (!matched) {
+          for (const kw of keywords) {
+            const kwRow = rows.filter({ hasText: new RegExp(kw, 'i') }).first();
+            if (await kwRow.isVisible({ timeout: 1000 }).catch(() => false)) {
+              const text = await kwRow.textContent().catch(() => '');
+              console.log(`[Payroll] Found keyword "${kw}" match: "${text?.trim().substring(0, 60)}"`);
+              targetRow = kwRow;
               matched = true;
               break;
             }

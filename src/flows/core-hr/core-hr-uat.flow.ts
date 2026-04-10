@@ -1447,10 +1447,12 @@ export class CoreHRUATFlow extends BaseFlow {
   private async executePersonalInfoEdit(tc: UATTestCase, fd: ReturnType<typeof getFieldData>): Promise<void> {
     // Navigate to Person detail page where personal info fields live
     await this.navigateToPersonDetailPage();
+    // Dismiss any ADF overlay/glass pane (side nav panel, popups) before clicking Edit
+    await this.person.clearGlassPane();
     // Click Edit on the person page
     const editBtn = this.page.locator('a:has-text("Edit"), button:has-text("Edit")').first();
     if (await editBtn.isVisible({ timeout: 1000 }).catch(() => false)) {
-      await editBtn.click();
+      await editBtn.click({ force: true });
       await this.page.waitForTimeout(1000);
 
       // Select "Update" from dropdown if present

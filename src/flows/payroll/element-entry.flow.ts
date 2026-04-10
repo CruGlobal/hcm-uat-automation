@@ -1,45 +1,36 @@
 import { type Page } from '@playwright/test';
 import { BaseFlow } from '../base.flow';
 import { ElementEntryPage } from '../../pages/payroll/element-entry.page';
-import { ConfirmationPage } from '../../pages/core-hr/confirmation.page';
 import { getField } from '../../data/test-data-provider';
 import type { TestCase } from '../../data/types';
 
 /**
- * Flow: Payroll Element Entry
- * Tab: "Payroll"
+ * Flow: Payroll Element Entry (Redwood UI)
  *
- * Handles 108 of 113 payroll tests. Each test has field data with:
- * - Search For: employee name (e.g., "Erin O'Grady", "Mary Louise Smith")
- * - Effective date: Excel serial date (e.g., "45689" -> "01/15/2025")
- * - Element name: the payroll element (e.g., "Housing Allowance", "Loan Payback 403b")
- * - General Information > Separate Tax Code: (e.g., "Regular")
- * - General Information > Reason: (e.g., "Migration test")
- *
- * Steps:
- * 1. Login to HCM
- * 2. Navigate to Element Entries page
- * 3. Search for employee by name
- * 4. Fill element entry details (effective date, element name, tax code, reason)
- * 5. Submit/Create the entry
- * 6. Verify success or take screenshot
+ * Steps (from Playwright codegen):
+ * 1. Login to HCM (already done by PayrollProcessingFlow)
+ * 2. Navigate to Payroll landing → click "Element Entries" tile
+ * 3. Search Person → type name → select from autocomplete dropdown
+ * 4. Set Effective Date
+ * 5. Click Create → Element Name combobox → type + Tab → select from LOV → OK → Continue
+ * 6. Fill details: Reason, Amount, Separate Tax Code
+ * 7. Save → Done
+ * 8. Verify: set date again → confirm entry appears in table
  */
 export class ElementEntryFlow extends BaseFlow {
   protected elementEntry: ElementEntryPage;
-  protected confirmation: ConfirmationPage;
 
   constructor(page: Page) {
     super(page);
     this.elementEntry = new ElementEntryPage(page);
-    this.confirmation = new ConfirmationPage(page);
   }
 
   async execute(tc: TestCase): Promise<void> {
     // Ensure we're logged in. When called from PayrollProcessingFlow, login
-    // already happened — fullLogin() sees fscmUI and returns immediately.
+    // already happened — fullLogin() sees fscmUI/hcmUI and returns immediately.
     await this.loginToHCM();
 
-    // Navigate to Element Entries via Navigator or deep link
+    // Navigate to Element Entries page
     await this.navigateToElementEntries();
 
     // Verify navigation succeeded — check for person search field
@@ -54,152 +45,75 @@ export class ElementEntryFlow extends BaseFlow {
       return;
     }
 
-    // Fill element entry form from field data
+    // Fill element entry form (search person, set date, create element, fill details)
     await this.elementEntry.fillFromTestCase(tc);
 
-    // Submit/Create the entry
-    await this.elementEntry.clickCreate();
+    // Save and click Done
+    await this.elementEntry.saveAndDone();
 
-    // Verify success — use flexible verification since element entry
-    // may show success differently (toast, redirect, confirmation dialog)
-    await this.verifyElementEntryResult(tc);
+    // Verify the entry was created — re-navigate to Element Entries and search the employee
+    const effDate = getField(tc, 'Effective date');
+    const element = getField(tc, 'Element name');
+    const searchFor = getField(tc, 'Search For');
+    if (element) {
+      // Re-navigate to Element Entries page to do verification with fresh search
+      await this.navigateToElementEntries();
+      if (searchFor) {
+        await this.elementEntry.searchEmployeeForVerify(searchFor);
+      }
+      const verified = await this.elementEntry.verifyEntryExists(effDate || '', element);
+      if (!verified) {
+        await this.elementEntry.screenshot(`element-entry-verify-failed-${tc.testId}`);
+        throw new Error(`[ElementEntry] Verification failed: "${element}" entry not found after creation for test ${tc.testId}`);
+      }
+    }
+
+    console.log(`[ElementEntry] ${tc.testId}: Element entry "${element}" created and verified successfully`);
   }
 
   /**
-   * Navigate to Element Entries with multiple fallback strategies.
-   * Strategy 1: Navigator > Payroll > Element Entries
-   * Strategy 2: My Client Groups deep link
-   * Strategy 3: ADF Payroll landing page
+   * Navigate to Element Entries page.
+   * The Element Entries page is a Redwood page at /hcmUI/ (NOT /fscmUI/).
+   * Codegen: click link "Element Entries" on the Payroll landing page.
    */
   private async navigateToElementEntries(): Promise<void> {
-    // Person search field — the main indicator we're on the Element Entries page
-    const personField = this.page.locator(
-      'input[aria-label*="Person"], input[aria-label*="Employee"], input[aria-label*="Worker"], ' +
-      'input[placeholder*="Search for a Person"], input[placeholder*="Person"]'
-    ).first();
-
-    const baseUrl = process.env.ORACLE_HCM_URL || 'https://stafflife-icahjb-test.fa.ocs.oraclecloud.com';
-
-    // Helper: check if we're on the Element Entries page
-    const isOnEEPage = async () => personField.isVisible({ timeout: 8000 }).catch(() => false);
-
-    // Strategy 1: Navigator-based navigation
-    try {
-      await this.homePage.goToElementEntries();
-      await this.elementEntry.waitForJET();
-      if (await isOnEEPage()) return;
-      console.log('[ElementEntry] Navigator-based navigation succeeded but page not loaded, trying fallbacks...');
-    } catch {
-      console.log('[ElementEntry] Primary navigation failed, trying fallbacks...');
+    // Check if already on Element Entries page
+    const eeHeading = this.page.locator('h1:has-text("Element Entries")').first();
+    if (await eeHeading.isVisible({ timeout: 3000 }).catch(() => false)) {
+      console.log('[ElementEntry] Already on Element Entries page');
+      return;
     }
 
-    // Strategy 2: Direct deeplink to Element Entries
-    console.log('[ElementEntry] Trying Element Entries deeplink...');
-    await this.page.goto(`${baseUrl}/fscmUI/faces/deeplink?objType=ELEMENT_ENTRIES&action=NONE`, {
-      waitUntil: 'domcontentloaded', timeout: 60_000,
-    }).catch(() => {});
-    await this.page.waitForTimeout(5000);
-    await this.elementEntry.waitForJET();
-    if (await isOnEEPage()) return;
-
-    // Strategy 3: FuseOverview for Payroll landing → click Element Entries tile
-    console.log('[ElementEntry] Trying Payroll FuseOverview...');
+    // Navigate to Payroll landing page via Redwood URL (/hcmUI/, not /fscmUI/)
+    const baseUrl = process.env.ORACLE_HCM_URL || 'https://stafflife-icahjb-test.fa.ocs.oraclecloud.com';
+    console.log('[ElementEntry] Navigating to Payroll landing page...');
     await this.page.goto(
-      `${baseUrl}/fscmUI/faces/FuseOverview?fndGlobalItemNodeId=itemNode_workforce_management_payroll`,
-      { waitUntil: 'domcontentloaded', timeout: 60_000 }
-    ).catch(() => {});
+      `${baseUrl}/hcmUI/faces/FndOverview?fndGlobalItemNodeId=itemNode_workforce_management_payroll`,
+      { timeout: 60_000, waitUntil: 'domcontentloaded' }
+    );
     await this.page.waitForTimeout(5000);
     await this.elementEntry.waitForJET();
 
+    // Codegen: getByRole('link', { name: 'Element Entries' }).click()
     const eeLink = this.page.getByRole('link', { name: 'Element Entries' }).first();
     if (await eeLink.isVisible({ timeout: 15_000 }).catch(() => false)) {
+      console.log('[ElementEntry] Clicking Element Entries tile...');
       await eeLink.click();
-      await this.page.waitForLoadState('networkidle', { timeout: 60_000 }).catch(() => {});
       await this.page.waitForTimeout(5000);
       await this.elementEntry.waitForJET();
-      if (await isOnEEPage()) return;
+    } else {
+      // Fallback: try Navigator path
+      console.log('[ElementEntry] Element Entries tile not found, trying Navigator...');
+      await this.homePage.goToElementEntries();
+      await this.page.waitForTimeout(5000);
+      await this.elementEntry.waitForJET();
     }
 
-    // Strategy 4: Try via My Client Groups tab path
-    console.log('[ElementEntry] Trying My Client Groups path...');
-    await this.page.goto(`${baseUrl}/fscmUI/faces/AtkHomePageWelcome`, { timeout: 60_000 }).catch(() => {});
-    await this.page.waitForTimeout(3000);
-    const mcgTab = this.page.locator('a:has-text("My Client Groups"), [aria-label*="My Client Groups"]').first();
-    if (await mcgTab.isVisible({ timeout: 5000 }).catch(() => false)) {
-      await mcgTab.click({ force: true });
-      await this.page.waitForTimeout(3000);
-      const payrollLink = this.page.getByRole('link', { name: 'Payroll' }).first();
-      if (await payrollLink.isVisible({ timeout: 5000 }).catch(() => false)) {
-        await payrollLink.click({ force: true });
-        await this.page.waitForTimeout(3000);
-        const eeLink2 = this.page.getByRole('link', { name: 'Element Entries' }).first();
-        if (await eeLink2.isVisible({ timeout: 10_000 }).catch(() => false)) {
-          await eeLink2.click();
-          await this.page.waitForTimeout(5000);
-          await this.elementEntry.waitForJET();
-          if (await isOnEEPage()) return;
-        }
-      }
+    // Verify we're on Element Entries
+    if (!await eeHeading.isVisible({ timeout: 10_000 }).catch(() => false)) {
+      await this.page.screenshot({ path: 'test-results/element-entry-nav-failed.png', fullPage: true }).catch(() => {});
+      throw new Error(`[ElementEntry] Failed to navigate to Element Entries page. URL: ${this.page.url()}`);
     }
-
-    console.log(`[ElementEntry] All navigation strategies failed. Current URL: ${this.page.url()}`);
-    await this.page.screenshot({ path: 'test-results/ee-navigation-failed.png', fullPage: true }).catch(() => {});
-  }
-
-  /** Verify element entry was created successfully. */
-  private async verifyElementEntryResult(tc: TestCase): Promise<void> {
-    // Check for success indicators
-    const successSelectors = [
-      ':text("successfully")',
-      ':text("created")',
-      ':text("saved")',
-      ':text("already exists")',
-      ':text("Updated")',
-      '[class*="success"]',
-      '[class*="confirmation"]',
-      '.oj-message-summary',
-      '.fnd-notification-detail',
-    ];
-
-    for (const sel of successSelectors) {
-      const indicator = this.page.locator(sel).first();
-      const visible = await indicator.isVisible({ timeout: 3000 }).catch(() => false);
-      if (visible) {
-        const text = await indicator.textContent().catch(() => '');
-        console.log(`[ElementEntry] Success: ${text?.substring(0, 100)}`);
-        return;
-      }
-    }
-
-    // If no explicit success, check for error indicators
-    const errorSelectors = [
-      ':text("Error")',
-      ':text("error")',
-      '[class*="error"]',
-    ];
-    let hasError = false;
-    for (const sel of errorSelectors) {
-      const err = this.page.locator(sel).first();
-      if (await err.isVisible({ timeout: 2000 }).catch(() => false)) {
-        const errText = await err.textContent().catch(() => '');
-        // "already exists" or "duplicate" errors mean a previous test with the same
-        // testId already created this entry — treat as success.
-        if (errText && (/already exists/i.test(errText) || /duplicate/i.test(errText))) {
-          console.log(`[ElementEntry] Entry already exists (duplicate testId scenario) — treating as success`);
-          return;
-        }
-        console.log(`[ElementEntry] Error detected: ${errText?.substring(0, 200)}`);
-        hasError = true;
-        break;
-      }
-    }
-
-    if (!hasError) {
-      // No success and no error — take screenshot and treat as success
-      // (the element entry page may have navigated or shows no explicit confirmation)
-      console.log(`[ElementEntry] No explicit success/error indicator. Taking screenshot.`);
-    }
-
-    await this.elementEntry.screenshot(`element-entry-${tc.testId}`);
+    console.log('[ElementEntry] On Element Entries page');
   }
 }

@@ -22,7 +22,10 @@ export class LoginPage extends BasePage {
   private readonly oktaPassword = this.page.locator('input[name="credentials.passcode"]');
 
   // Okta SSO — MFA step
+  // Old Okta UI: "Select Google Authenticator." link
+  // New Okta UI (2026-03): "Enter a code / Okta Verify" with a "Select" button
   private readonly googleAuthSelect = this.page.locator('a[aria-label="Select Google Authenticator."]');
+  private readonly oktaVerifyCodeSelect = this.page.locator('button:near(:text("Enter a code"))').first();
   private readonly mfaCodeInput = this.page.locator('input[name="credentials.passcode"]');
 
   async navigate(): Promise<void> {
@@ -53,11 +56,22 @@ export class LoginPage extends BasePage {
     const totp = new TOTP({ secret: secret });
 
     // Check if we're on the MFA selection page or the password page
-    const gaSelectVisible = await this.googleAuthSelect.isVisible({ timeout: 5_000 }).catch(() => false);
+    // Three possible UIs:
+    //   1. Old Google Authenticator link: a[aria-label="Select Google Authenticator."]
+    //   2. New Okta Verify "Enter a code" with Select button
+    //   3. Password page (old flow: password first, then MFA)
+    const gaSelectVisible = await this.googleAuthSelect.isVisible({ timeout: 3_000 }).catch(() => false);
+    const oktaVerifyVisible = await this.oktaVerifyCodeSelect.isVisible({ timeout: 3_000 }).catch(() => false);
 
-    if (gaSelectVisible) {
-      // New flow: MFA selection first (passwordless)
-      await this.googleAuthSelect.click();
+    if (gaSelectVisible || oktaVerifyVisible) {
+      // MFA selection first (passwordless flow)
+      if (gaSelectVisible) {
+        console.log('[Login] Okta MFA: clicking Google Authenticator');
+        await this.googleAuthSelect.click();
+      } else {
+        console.log('[Login] Okta MFA: clicking "Enter a code" (Okta Verify)');
+        await this.oktaVerifyCodeSelect.click();
+      }
       await this.page.waitForLoadState('networkidle').catch(() => {});
       await this.page.waitForTimeout(3_000);
 
@@ -67,10 +81,18 @@ export class LoginPage extends BasePage {
 
       // After TOTP, Okta may ask for a second factor (password)
       if (!this.page.url().includes('fscmUI')) {
+        // Try both old ("Select Password." link) and new ("Password" with Select button) UIs
         const pwdSelect = this.page.locator('a[aria-label="Select Password."]');
+        const pwdSelectNew = this.page.locator('button:near(:text("Password"))').first();
         const pwdSelectVisible = await pwdSelect.isVisible({ timeout: 5_000 }).catch(() => false);
+        const pwdSelectNewVisible = !pwdSelectVisible && await pwdSelectNew.isVisible({ timeout: 3_000 }).catch(() => false);
         if (pwdSelectVisible) {
           await pwdSelect.click();
+        } else if (pwdSelectNewVisible) {
+          console.log('[Login] Okta: clicking Password second factor (new UI)');
+          await pwdSelectNew.click();
+        }
+        if (pwdSelectVisible || pwdSelectNewVisible) {
           await this.page.waitForLoadState('networkidle').catch(() => {});
           await this.page.waitForTimeout(3_000);
           await this.oktaPassword.waitFor({ state: 'visible', timeout: 10_000 });
@@ -80,13 +102,21 @@ export class LoginPage extends BasePage {
       }
     } else {
       // Old flow: password first, then MFA
+      console.log('[Login] Okta: password-first flow');
       await this.oktaPassword.waitFor({ state: 'visible', timeout: 15_000 });
       await this.oktaPassword.fill(pass);
       await this.oktaNextButton.click();
       await this.page.waitForLoadState('networkidle').catch(() => {});
 
-      await this.googleAuthSelect.waitFor({ state: 'visible', timeout: 15_000 });
-      await this.googleAuthSelect.click();
+      // After password, check for both old and new MFA selection UIs
+      const gaVisible = await this.googleAuthSelect.isVisible({ timeout: 5_000 }).catch(() => false);
+      const ovVisible = !gaVisible && await this.oktaVerifyCodeSelect.isVisible({ timeout: 3_000 }).catch(() => false);
+      if (gaVisible) {
+        await this.googleAuthSelect.click();
+      } else if (ovVisible) {
+        console.log('[Login] Okta MFA: clicking "Enter a code" (Okta Verify)');
+        await this.oktaVerifyCodeSelect.click();
+      }
       await this.page.waitForLoadState('networkidle').catch(() => {});
 
       await this.mfaCodeInput.waitFor({ state: 'visible', timeout: 15_000 });
