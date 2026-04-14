@@ -58,10 +58,23 @@ export class PayrollProcessingFlow extends BaseFlow {
    */
   private static readonly ELEMENT_ENTRY_OVERRIDE_IDS = new Set([
     // Bonus element entries — script says PAY.103/PAY.106 but actual test is
-    // creating a Bonus element entry on the Element Entries page
+    // creating a Bonus element entry on the Element Entries page.
+    // Step 2: QuickPay with element "Bonus" + SECA Tax Deduction Info + Pre Tax 403B.
     'PY-001-01', 'PY-001-02', 'PY-001-03',
     // Off-cycle additional salary (PAY.520) — Step 1: Element Entry.
-    // Step 2 (Cru Offcycle Payroll Flow via Submit a Flow) added later.
+    // Step 2: QuickPay with the additional salary element + SECA Tax Deduction Info + Pre Tax 403B.
+    'PY-009-01', 'PY-009-02', 'PY-009-03', 'PY-009-04',
+    'PY-009-05', 'PY-009-06', 'PY-009-07',
+  ]);
+
+  /**
+   * Test IDs that use the two-step process: Element Entry (Step 1) → QuickPay (Step 2).
+   * PY-001 series: Bonus element entry for hourly/salaried employees.
+   * PY-009 series: Off-cycle additional salary element entry.
+   * Both series check: [dynamic element] + "SECA Tax Deduction Info" + "Pre Tax 403B".
+   */
+  private static readonly QUICK_PAY_IDS = new Set([
+    'PY-001-01', 'PY-001-02', 'PY-001-03',
     'PY-009-01', 'PY-009-02', 'PY-009-03', 'PY-009-04',
     'PY-009-05', 'PY-009-06', 'PY-009-07',
   ]);
@@ -143,9 +156,9 @@ export class PayrollProcessingFlow extends BaseFlow {
       const flow = new ElementEntryFlow(this.page);
       await flow.execute(fieldData);
 
-      // Step 2 for PY-009 off-cycle series: run QuickPay for the employee
+      // Step 2 for two-step tests (PY-001 Bonus + PY-009 off-cycle): run QuickPay
       // (HR runs batch payroll manually — automation handles individual QuickPay only)
-      if (PayrollProcessingFlow.ELEMENT_ENTRY_OVERRIDE_IDS.has(tc.testId) && tc.testId.startsWith('PY-009')) {
+      if (PayrollProcessingFlow.QUICK_PAY_IDS.has(tc.testId)) {
         const employeeName = getField(fieldData, 'Search For') || '';
         if (employeeName && elementName) {
           console.log(`[Payroll] ${tc.testId}: Step 2 — QuickPay for "${employeeName}", element "${elementName}"`);
