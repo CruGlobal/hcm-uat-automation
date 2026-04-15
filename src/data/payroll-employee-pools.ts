@@ -64,6 +64,11 @@ const RCE: string[] = [
 export const PAYROLL_EMPLOYEE_POOLS: Record<string, string[]> = {
   // PY-002: Unpaid Leave — salaried employee
   'PY-002': CCC_SALARIED,
+  // PY-003: semi-monthly payroll — Additional Salary element entry + batch flow
+  'PY-003-01': CCC_SUPPORT,  // RMO — cru staff
+  'PY-003-02': CCC_SALARIED, // SAL — cru salaried
+  'PY-003-03': CCC_SUPPORT,  // RMO — cru staff
+  'PY-003-04': CCC_SALARIED, // SAL — cru salaried
   // PY-004: Short Pay — CCC supported staff
   'PY-004': CCC_SUPPORT,
   // PY-009 series: off-cycle additional salary
@@ -85,6 +90,12 @@ export const PAYROLL_EMPLOYEE_POOLS: Record<string, string[]> = {
  * Kept for manual HR batch runs; automated tests now use QuickPay.
  */
 export const PAYROLL_GROUP_BY_TEST: Record<string, string> = {
+  // PY-003: semi-monthly payroll (Step 2 batch flow)
+  'PY-003-01': 'Semimonthly Supported', // RMO — staff
+  'PY-003-02': 'Semimonthly Salaried',  // SAL — salaried
+  'PY-003-03': 'Semimonthly Supported', // RMO — staff
+  'PY-003-04': 'Semimonthly Salaried',  // SAL — salaried
+  // PY-009: off-cycle (kept for manual HR reference)
   'PY-009-01': 'Semimonthly Supported',
   'PY-009-02': 'Semimonthly Supported',
   'PY-009-03': 'Semimonthly Supported',
@@ -99,6 +110,11 @@ export const PAYROLL_GROUP_BY_TEST: Record<string, string> = {
 export const PAYROLL_ELEMENT_OVERRIDES: Record<string, string> = {
   // PY-002: Unpaid Leave
   'PY-002': 'Unpaid Leave',
+  // PY-003: semi-monthly payroll — Additional Salary element entry
+  'PY-003-01': 'Additional Salary',
+  'PY-003-02': 'Additional Salary',
+  'PY-003-03': 'Additional Salary',
+  'PY-003-04': 'Additional Salary',
   // PY-004: Short Pay
   'PY-004': 'Short Pay',
   // PY-009 additional salary

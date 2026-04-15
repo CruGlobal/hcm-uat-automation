@@ -5,7 +5,7 @@ import { ElementEntryFlow } from './element-entry.flow';
 import { QuickPayPage } from '../../pages/payroll/quick-pay.page';
 import { getFieldData } from '../../data/uat-plan-provider';
 import { getField } from '../../data/test-data-provider';
-import { PAYROLL_QUICKPAY_EXTRA_ELEMENTS } from '../../data/payroll-employee-pools';
+import { PAYROLL_QUICKPAY_EXTRA_ELEMENTS, PAYROLL_GROUP_BY_TEST } from '../../data/payroll-employee-pools';
 import type { UATTestCase, TestCase } from '../../data/types';
 
 /** Returns today's date as MM/DD/YYYY — used for all payroll effective dates. */
@@ -62,6 +62,8 @@ export class PayrollProcessingFlow extends BaseFlow {
     'PY-001-01', 'PY-001-02', 'PY-001-03',
     // PY-002: Unpaid Leave
     'PY-002',
+    // PY-003: semi-monthly payroll — Additional Salary + batch flow
+    'PY-003-01', 'PY-003-02', 'PY-003-03', 'PY-003-04',
     // PY-004: Short Pay (CCC support)
     'PY-004',
     // PY-009: Off-cycle additional salary variants
@@ -90,6 +92,17 @@ export class PayrollProcessingFlow extends BaseFlow {
     'PY-009-01', 'PY-009-02', 'PY-009-03', 'PY-009-04',
     'PY-009-05', 'PY-009-06', 'PY-009-07',
     'PY-011-02', 'PY-011-03',
+  ]);
+
+  /**
+   * Test IDs that use Element Entry (Step 1) → Cru Off-Cycle Batch Flow (Step 2).
+   * Unlike QUICK_PAY_IDS, these run the full batch payroll flow via "Submit a Flow"
+   * because they test complete semi-monthly / off-cycle payroll runs (not single
+   * employee QuickPay). Payroll group per test comes from PAYROLL_GROUP_BY_TEST.
+   */
+  private static readonly BATCH_PAYROLL_IDS = new Set([
+    // PY-003: semi-monthly payroll (RMO = Supported, SAL = Salaried)
+    'PY-003-01', 'PY-003-02', 'PY-003-03', 'PY-003-04',
   ]);
 
   /**
@@ -169,9 +182,20 @@ export class PayrollProcessingFlow extends BaseFlow {
       const flow = new ElementEntryFlow(this.page);
       await flow.execute(fieldData);
 
-      // Step 2 for two-step tests (PY-001/002/004/009/011): run QuickPay
-      // (HR runs batch payroll manually — automation handles individual QuickPay only)
-      if (PayrollProcessingFlow.QUICK_PAY_IDS.has(tc.testId)) {
+      // Step 2 routing — two patterns:
+      //   BATCH_PAYROLL_IDS → Cru Off-Cycle Batch Flow (semi-monthly full runs)
+      //   QUICK_PAY_IDS     → QuickPay Payments (single-employee off-cycle)
+      if (PayrollProcessingFlow.BATCH_PAYROLL_IDS.has(tc.testId)) {
+        const payrollGroup = PAYROLL_GROUP_BY_TEST[tc.testId];
+        if (payrollGroup) {
+          console.log(`[Payroll] ${tc.testId}: Step 2 — Cru Off-Cycle Batch Flow (group: ${payrollGroup})`);
+          await this.payroll.goToSubmitAFlow();
+          await this.payroll.submitCruOffcycleFlow({ payrollGroup });
+          await this.payroll.waitForPayrollChecklistCompletion();
+        } else {
+          console.log(`[Payroll] ${tc.testId}: Step 2 — Batch flow skipped (no payroll group configured)`);
+        }
+      } else if (PayrollProcessingFlow.QUICK_PAY_IDS.has(tc.testId)) {
         const employeeName = getField(fieldData, 'Search For') || '';
         if (employeeName && elementName) {
           const extras = PAYROLL_QUICKPAY_EXTRA_ELEMENTS[tc.testId] || [];
