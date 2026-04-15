@@ -73,6 +73,7 @@ export const PAYROLL_EMPLOYEE_POOLS: Record<string, string[]> = {
   'PY-009-04': CCC_SUPPORT, // Additional Salary 403b Employee Results — CCC support
   'PY-009-05': GCE,         // Additional Salary 403b Employee Results — GCE
   'PY-009-06': RCE,         // Additional Salary 403b Employee Results — RCE
+  'PY-009-07': RCE,         // 100% 403B deduction on Additional Salary — RCE
   // PY-011 series: 25-year awards / wellness checks
   'PY-011-02': CCC_SALARIED, // Bonus - 25 Years (cru salaried)
   'PY-011-03': CCC_SALARIED, // Additional Salary with "wellness bonus" reason
@@ -108,6 +109,8 @@ export const PAYROLL_ELEMENT_OVERRIDES: Record<string, string> = {
   'PY-009-04': 'Additional Salary 403b Employee Results',
   'PY-009-05': 'Additional Salary 403b Employee Results',
   'PY-009-06': 'Additional Salary 403b Employee Results',
+  // PY-009-07: 100% 403B deduction on Additional Salary (RCE)
+  'PY-009-07': 'Additional Salary Pymt Pretax 403b 100 Pct',
   // PY-011-02: 25-year award bonus
   'PY-011-02': 'Bonus - 25 Years',
   // PY-011-03: Wellness bonus (element is Additional Salary, reason is "wellness bonus")
