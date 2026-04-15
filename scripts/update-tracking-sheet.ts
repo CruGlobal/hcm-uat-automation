@@ -43,6 +43,17 @@ export interface TestResult {
   status: 'passed' | 'failed' | 'timedOut' | 'skipped' | 'interrupted';
   duration: number;
   errorMessage: string;
+  navOnly: boolean;
+}
+
+/** Marker logged by page objects/flows/validators when falling back to nav-only completion. */
+const NAV_ONLY_REGEX = /navigation-only completion|nav-only/i;
+
+function extractStdout(result: any): string {
+  const chunks = result.stdout || [];
+  return chunks
+    .map((c: any) => (typeof c === 'string' ? c : c?.text || ''))
+    .join('');
 }
 
 // ─── Parse Playwright JSON report ────────────────────────────────────────────
@@ -72,6 +83,8 @@ export function parsePlaywrightReport(reportPath: string): TestResult[] {
             // lastResult.status is the actual result: "passed"|"failed"|"timedOut"|"skipped"
             const status = lastResult.status;
             const errorMessage = extractError(lastResult);
+            const stdout = extractStdout(lastResult);
+            const navOnly = NAV_ONLY_REGEX.test(stdout);
 
             results.push({
               testId,
@@ -80,6 +93,7 @@ export function parsePlaywrightReport(reportPath: string): TestResult[] {
               status,
               duration: lastResult.duration || 0,
               errorMessage,
+              navOnly,
             });
           }
         }
@@ -133,7 +147,7 @@ function cleanError(msg: string): string {
 export function mapStatus(result: TestResult): string {
   switch (result.status) {
     case 'passed':
-      return 'Passed';
+      return result.navOnly ? 'Pass (nav-only)' : 'Passed';
     case 'failed':
     case 'timedOut':
       return 'Failed';
@@ -149,7 +163,9 @@ export function mapStatus(result: TestResult): string {
 function mapActualResult(result: TestResult): string {
   switch (result.status) {
     case 'passed':
-      return `Passed (${(result.duration / 1000).toFixed(1)}s)`;
+      return result.navOnly
+        ? `Pass (nav-only) (${(result.duration / 1000).toFixed(1)}s)`
+        : `Passed (${(result.duration / 1000).toFixed(1)}s)`;
     case 'failed':
       return result.errorMessage || 'Test failed';
     case 'timedOut':
@@ -198,14 +214,17 @@ async function main() {
   console.log(`  Found ${results.length} test results`);
 
   // Summary
-  const counts = { passed: 0, failed: 0, skipped: 0, other: 0 };
+  const counts = { passed: 0, navOnly: 0, failed: 0, skipped: 0, other: 0 };
   for (const r of results) {
-    if (r.status === 'passed') counts.passed++;
+    if (r.status === 'passed') {
+      if (r.navOnly) counts.navOnly++;
+      else counts.passed++;
+    }
     else if (r.status === 'failed' || r.status === 'timedOut') counts.failed++;
     else if (r.status === 'skipped') counts.skipped++;
     else counts.other++;
   }
-  console.log(`  Passed: ${counts.passed}, Failed: ${counts.failed}, Skipped: ${counts.skipped}`);
+  console.log(`  Passed: ${counts.passed}, Pass (nav-only): ${counts.navOnly}, Failed: ${counts.failed}, Skipped: ${counts.skipped}`);
 
   // Filter out skipped tests — don't update sheet for tests that were skipped
   // (e.g. RUN_PASSED_ONLY filtering, deferred/cancelled tests)
@@ -336,7 +355,7 @@ async function main() {
   const url = `https://docs.google.com/spreadsheets/d/${spreadsheetId}`;
   console.log(`\n================================================`);
   console.log(`  Updated ${matched} tests in tracking sheet`);
-  console.log(`  Passed: ${counts.passed}, Failed: ${counts.failed}, Skipped: ${counts.skipped}`);
+  console.log(`  Passed: ${counts.passed}, Pass (nav-only): ${counts.navOnly}, Failed: ${counts.failed}, Skipped: ${counts.skipped}`);
   console.log(`  ${url}`);
   console.log('================================================\n');
 }
