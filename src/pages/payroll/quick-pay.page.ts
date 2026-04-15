@@ -141,15 +141,18 @@ export class QuickPayPage extends BasePage {
   /**
    * On the element checkboxes page:
    * 1. Uncheck "Select All" (deselects all elements)
-   * 2. Check the dynamic element row (e.g. "Additional Salary")
+   * 2. Check each dynamic element row (one or more, e.g. "Additional Salary")
    * 3. Check "SECA Tax Deduction Info"
    * 4. Check "Pre Tax 403B"
    *
    * Uses TR-based selector: find the row whose span.x2i8 contains the element name,
    * then click the checkbox in that row.
+   *
+   * @param dynamicElements One or more element names specific to the test case.
    */
-  async selectElementCheckboxes(dynamicElementName: string): Promise<void> {
-    console.log(`[QuickPay] Selecting element checkboxes. Dynamic element: "${dynamicElementName}"`);
+  async selectElementCheckboxes(dynamicElements: string | string[]): Promise<void> {
+    const dynamicList = Array.isArray(dynamicElements) ? dynamicElements : [dynamicElements];
+    console.log(`[QuickPay] Selecting element checkboxes. Dynamic elements: ${dynamicList.map(e => `"${e}"`).join(', ')}`);
 
     // Wait for checkboxes to be visible
     await this.page.waitForTimeout(3000);
@@ -169,8 +172,8 @@ export class QuickPayPage extends BasePage {
       console.log('[QuickPay] Select All row not found — proceeding to individual checkboxes');
     }
 
-    // Step 2: Check each required element
-    const elementsToCheck = [dynamicElementName, ...QuickPayPage.FIXED_ELEMENTS];
+    // Step 2: Check each required element (dynamic + fixed SECA/Pre Tax 403B)
+    const elementsToCheck = [...dynamicList, ...QuickPayPage.FIXED_ELEMENTS];
     for (const elementName of elementsToCheck) {
       await this.checkElementRow(elementName);
     }
@@ -252,13 +255,14 @@ export class QuickPayPage extends BasePage {
   }
 
   /**
-   * Full QuickPay flow for a given employee and dynamic element name.
-   * Called from PayrollProcessingFlow as Step 2 for PY-009 series.
+   * Full QuickPay flow for a given employee and one or more dynamic element names.
+   * Called from PayrollProcessingFlow as Step 2 for PY-001 / PY-002 / PY-004 /
+   * PY-009 / PY-011 two-step tests.
    */
-  async runQuickPay(employeeName: string, dynamicElementName: string): Promise<void> {
+  async runQuickPay(employeeName: string, dynamicElements: string | string[]): Promise<void> {
     await this.navigateToQuickPay();
     await this.searchEmployee(employeeName);
-    await this.selectElementCheckboxes(dynamicElementName);
+    await this.selectElementCheckboxes(dynamicElements);
     await this.submitQuickPay();
   }
 }

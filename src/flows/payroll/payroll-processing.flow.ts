@@ -5,6 +5,7 @@ import { ElementEntryFlow } from './element-entry.flow';
 import { QuickPayPage } from '../../pages/payroll/quick-pay.page';
 import { getFieldData } from '../../data/uat-plan-provider';
 import { getField } from '../../data/test-data-provider';
+import { PAYROLL_QUICKPAY_EXTRA_ELEMENTS } from '../../data/payroll-employee-pools';
 import type { UATTestCase, TestCase } from '../../data/types';
 
 /** Returns today's date as MM/DD/YYYY — used for all payroll effective dates. */
@@ -57,26 +58,38 @@ export class PayrollProcessingFlow extends BaseFlow {
    * and route through ElementEntryFlow.
    */
   private static readonly ELEMENT_ENTRY_OVERRIDE_IDS = new Set([
-    // Bonus element entries — script says PAY.103/PAY.106 but actual test is
-    // creating a Bonus element entry on the Element Entries page.
-    // Step 2: QuickPay with element "Bonus" + SECA Tax Deduction Info + Pre Tax 403B.
+    // PY-001: Bonus element entry (hourly/salaried)
     'PY-001-01', 'PY-001-02', 'PY-001-03',
-    // Off-cycle additional salary (PAY.520) — Step 1: Element Entry.
-    // Step 2: QuickPay with the additional salary element + SECA Tax Deduction Info + Pre Tax 403B.
+    // PY-002: Unpaid Leave
+    'PY-002',
+    // PY-004: Short Pay (CCC support)
+    'PY-004',
+    // PY-009: Off-cycle additional salary variants
     'PY-009-01', 'PY-009-02', 'PY-009-03', 'PY-009-04',
     'PY-009-05', 'PY-009-06', 'PY-009-07',
+    // PY-011: 25-year award + wellness bonus
+    'PY-011-02', 'PY-011-03',
   ]);
 
   /**
    * Test IDs that use the two-step process: Element Entry (Step 1) → QuickPay (Step 2).
-   * PY-001 series: Bonus element entry for hourly/salaried employees.
-   * PY-009 series: Off-cycle additional salary element entry.
-   * Both series check: [dynamic element] + "SECA Tax Deduction Info" + "Pre Tax 403B".
+   * QuickPay checks [primary element + any extras] + SECA Tax Deduction Info + Pre Tax 403B.
+   * - PY-001-01/02/03: Bonus
+   * - PY-002: Unpaid Leave
+   * - PY-004: Short Pay
+   * - PY-009-01/02/03: Additional Salary (CCC/GCE/RCE)
+   * - PY-009-04/05/06: Additional Salary 403b Employee Results (CCC/GCE/RCE; GCE adds "403b Employee Results")
+   * - PY-009-07: 100% 403B deduction on Additional Salary
+   * - PY-011-02: Bonus - 25 Years
+   * - PY-011-03: Additional Salary (reason: "wellness bonus")
    */
   private static readonly QUICK_PAY_IDS = new Set([
     'PY-001-01', 'PY-001-02', 'PY-001-03',
+    'PY-002',
+    'PY-004',
     'PY-009-01', 'PY-009-02', 'PY-009-03', 'PY-009-04',
     'PY-009-05', 'PY-009-06', 'PY-009-07',
+    'PY-011-02', 'PY-011-03',
   ]);
 
   /**
@@ -156,14 +169,16 @@ export class PayrollProcessingFlow extends BaseFlow {
       const flow = new ElementEntryFlow(this.page);
       await flow.execute(fieldData);
 
-      // Step 2 for two-step tests (PY-001 Bonus + PY-009 off-cycle): run QuickPay
+      // Step 2 for two-step tests (PY-001/002/004/009/011): run QuickPay
       // (HR runs batch payroll manually — automation handles individual QuickPay only)
       if (PayrollProcessingFlow.QUICK_PAY_IDS.has(tc.testId)) {
         const employeeName = getField(fieldData, 'Search For') || '';
         if (employeeName && elementName) {
-          console.log(`[Payroll] ${tc.testId}: Step 2 — QuickPay for "${employeeName}", element "${elementName}"`);
+          const extras = PAYROLL_QUICKPAY_EXTRA_ELEMENTS[tc.testId] || [];
+          const dynamicElements = [elementName, ...extras];
+          console.log(`[Payroll] ${tc.testId}: Step 2 — QuickPay for "${employeeName}", elements: ${dynamicElements.map(e => `"${e}"`).join(', ')}`);
           const quickPay = new QuickPayPage(this.page);
-          await quickPay.runQuickPay(employeeName, elementName);
+          await quickPay.runQuickPay(employeeName, dynamicElements);
         } else {
           console.log(`[Payroll] ${tc.testId}: Step 2 — QuickPay skipped (missing employee or element name)`);
         }
