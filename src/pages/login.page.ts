@@ -7,9 +7,9 @@ import { getBotCredentials } from '../config/bot-users';
 
 export class LoginPage extends BasePage {
   // Oracle native login form (direct login, no SSO)
-  private readonly nativeUserId = this.page.getByRole('textbox', { name: 'User ID' });
+  private readonly nativeUserId = this.page.getByRole('textbox', { name: /^(User ID|Username)$/i });
   private readonly nativePassword = this.page.getByRole('textbox', { name: 'Password' });
-  private readonly nativeSignIn = this.page.getByRole('button', { name: 'Sign In' });
+  private readonly nativeSignIn = this.page.getByRole('button', { name: /^(Sign In|Next)$/i });
 
   // Oracle login page — SSO button
   private readonly ssoButton = this.page.locator('#ssoBtn');
@@ -251,7 +251,10 @@ export class LoginPage extends BasePage {
       const acceptBtn = this.page.getByRole('button', { name: /Accept|Continue|OK|I Agree|Agree/i }).first();
       if (await acceptBtn.isVisible({ timeout: 3_000 }).catch(() => false)) {
         console.log(`[Login] Accepting terms/prompt for ${username}`);
-        await acceptBtn.click();
+        // Oracle auto-redirects can detach the button mid-click — ignore and re-check URL.
+        await acceptBtn.click({ timeout: 5_000 }).catch((err) => {
+          console.log(`[Login] Accept-button click lost race with redirect (${String(err).substring(0, 80)}) — continuing`);
+        });
         await this.page.waitForLoadState('networkidle', { timeout: 30_000 }).catch(() => {});
         continue;
       }
@@ -271,7 +274,9 @@ export class LoginPage extends BasePage {
       const skipBtn = this.page.getByRole('button', { name: /Skip|Later|Remind Me Later/i }).first();
       if (await skipBtn.isVisible({ timeout: 3_000 }).catch(() => false)) {
         console.log(`[Login] Skipping setup screen for ${username}`);
-        await skipBtn.click();
+        await skipBtn.click({ timeout: 5_000 }).catch((err) => {
+          console.log(`[Login] Skip-button click lost race with redirect (${String(err).substring(0, 80)}) — continuing`);
+        });
         await this.page.waitForLoadState('networkidle', { timeout: 30_000 }).catch(() => {});
         continue;
       }

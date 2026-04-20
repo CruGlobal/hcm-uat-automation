@@ -45,14 +45,10 @@ export async function dismissPopups(page: Page): Promise<void> {
     await page.waitForTimeout(1000);
   }
 
-  // Handle "You have a new home page!" home page notification with "Remove" link
-  const newHomePageNotif = page.getByRole('link', { name: 'You have a new home page!' }).first();
-  if (await newHomePageNotif.isVisible({ timeout: 1000 }).catch(() => false)) {
-    console.log('[Popups] Dismissing "new home page" notification');
-    const removeLink = page.getByRole('link', { name: 'Remove' }).first();
-    await removeLink.click().catch(() => {});
-    await page.waitForTimeout(500);
-  }
+  // "You have a new home page!" is an informational panel on the welcome body, not a
+  // blocking modal. Clicking its "Remove" link triggers a "Delete Component" confirmation
+  // that hangs the page for ~60s — and the banner doesn't block Navigator or any
+  // interaction, so there's no reason to dismiss it here.
 
   const dismissSelectors = [
     '.walkme-click-and-hover',
