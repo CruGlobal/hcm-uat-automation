@@ -490,12 +490,28 @@ export async function lookupWorkerByName(
   displayName: string,
   creds?: BasicAuthCredentials,
 ): Promise<WorkerRecord | null> {
+  const matches = await lookupWorkersByName(page, baseUrl, displayName, creds);
+  return matches[0] || null;
+}
+
+/**
+ * Look up all workers (up to 25) matching a DisplayName substring.
+ * Useful when a name maps to multiple person records — for example, a rehired
+ * person can leave both the original (terminated) and a new (active) record in
+ * the system, and pre-flight may need to re-terminate every active one.
+ */
+export async function lookupWorkersByName(
+  page: Page | null,
+  baseUrl: string,
+  displayName: string,
+  creds?: BasicAuthCredentials,
+): Promise<WorkerRecord[]> {
   const encoded = encodeURIComponent(displayName);
-  const endpoint = `/hcmRestApi/resources/latest/workers?q=DisplayName LIKE '*${encoded}*'&fields=PersonId,PersonNumber,DisplayName&onlyData=true&limit=5`;
+  const endpoint = `/hcmRestApi/resources/latest/workers?q=DisplayName LIKE '*${encoded}*'&fields=PersonId,PersonNumber,DisplayName&onlyData=true&limit=25`;
   const data = await hcmGet(page, baseUrl, endpoint, creds);
   const items = data?.items;
-  if (!items || items.length === 0) return null;
-  return items[0] as WorkerRecord;
+  if (!items || items.length === 0) return [];
+  return items as WorkerRecord[];
 }
 
 /**

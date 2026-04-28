@@ -182,7 +182,7 @@ export class PersonManagementPage extends BasePage {
       const currentUrl = this.page.url();
 
       // Dead session or login page — re-login
-      if (!currentUrl.includes('fscmUI') || currentUrl.includes('login') || currentUrl.includes('signin')) {
+      if ((!currentUrl.includes('fscmUI') && !currentUrl.includes('hcmUI')) || currentUrl.includes('login') || currentUrl.includes('signin')) {
         console.log(`[PersonMgmt] Not on HCM page (${currentUrl}), re-authenticating...`);
         const login = new LoginPage(this.page);
         await login.fullLogin();
@@ -191,7 +191,7 @@ export class PersonManagementPage extends BasePage {
       // Navigate to Person Management and wait generously for ADF to render
       console.log('[PersonMgmt] Search field not visible — navigating to Person Management');
       await this.page.goto(
-        '/fscmUI/faces/FuseOverview?fndGlobalItemNodeId=itemNode_workforce_management_person_management',
+        '/hcmUI/faces/FndOverview?fndGlobalItemNodeId=itemNode_workforce_management_person_management',
         { timeout: 60_000 },
       ).catch(() => {});
       await this.page.waitForLoadState('networkidle', { timeout: 60_000 }).catch(() => {});
@@ -206,7 +206,7 @@ export class PersonManagementPage extends BasePage {
         await this.page.goto('/fscmUI/faces/AtkHomePageWelcome', { timeout: 60_000 }).catch(() => {});
         await this.page.waitForTimeout(3000);
         await this.page.goto(
-          '/fscmUI/faces/FuseOverview?fndGlobalItemNodeId=itemNode_workforce_management_person_management',
+          '/hcmUI/faces/FndOverview?fndGlobalItemNodeId=itemNode_workforce_management_person_management',
           { timeout: 60_000 },
         ).catch(() => {});
         await this.page.waitForLoadState('networkidle', { timeout: 60_000 }).catch(() => {});
@@ -218,7 +218,7 @@ export class PersonManagementPage extends BasePage {
         console.log('[PersonMgmt] 3rd attempt — waiting 10s then re-navigating...');
         await this.page.waitForTimeout(10_000);
         await this.page.goto(
-          '/fscmUI/faces/FuseOverview?fndGlobalItemNodeId=itemNode_workforce_management_person_management',
+          '/hcmUI/faces/FndOverview?fndGlobalItemNodeId=itemNode_workforce_management_person_management',
           { timeout: 60_000 },
         ).catch(() => {});
         await this.page.waitForLoadState('networkidle', { timeout: 60_000 }).catch(() => {});
@@ -262,7 +262,7 @@ export class PersonManagementPage extends BasePage {
 
     console.log('[PersonMgmt] Search panel not found — navigating via FuseOverview URL');
     await this.page.goto(
-      '/fscmUI/faces/FuseOverview?fndGlobalItemNodeId=itemNode_workforce_management_person_management',
+      '/hcmUI/faces/FndOverview?fndGlobalItemNodeId=itemNode_workforce_management_person_management',
       { timeout: 60_000 },
     ).catch(() => {});
     await this.page.waitForLoadState('networkidle', { timeout: 60_000 }).catch(() => {});

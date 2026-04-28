@@ -36,8 +36,23 @@ export default defineConfig({
     screenshot: 'only-on-failure',
     trace: 'retain-on-failure',
     video: 'off',
+    // Use a real Chrome user-agent (Playwright's default includes "HeadlessChrome",
+    // which Okta SAML uses to block the auto-redirect after IDCS authentication).
+    userAgent:
+      'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 ' +
+      '(KHTML, like Gecko) Chrome/127.0.0.0 Safari/537.36',
   },
   projects: [
-    { name: 'oracle-hcm', use: { ...devices['Desktop Chrome'] } },
+    {
+      name: 'oracle-hcm',
+      use: {
+        ...devices['Desktop Chrome'],
+        // Hide the automation flag (`navigator.webdriver`) — Okta uses it as a
+        // signal to stop the SAML redirect chain in headless runs.
+        launchOptions: {
+          args: ['--disable-blink-features=AutomationControlled'],
+        },
+      },
+    },
   ],
 });

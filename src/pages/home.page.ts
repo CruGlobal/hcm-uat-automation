@@ -460,10 +460,12 @@ export class HomePage extends BasePage {
     }
   }
 
-  /** Navigate to an Oracle HCM page by its fndGlobalItemNodeId (direct URL bypass). */
+  /** Navigate to an Oracle HCM page by its fndGlobalItemNodeId (direct URL bypass).
+   * Uses /hcmUI/faces/FndOverview — the old /fscmUI/faces/FuseOverview path renders a blank page
+   * after Oracle's UI refresh. Confirmed working for Person Management, Scheduled Processes, etc. */
   private async gotoDirectUrl(itemNodeId: string): Promise<void> {
     await this.page.goto(
-      `/fscmUI/faces/FuseOverview?fndGlobalItemNodeId=${itemNodeId}`,
+      `/hcmUI/faces/FndOverview?fndGlobalItemNodeId=${itemNodeId}`,
       { timeout: 60_000 },
     );
     await this.page.waitForLoadState('networkidle', { timeout: 60_000 }).catch(() => {});

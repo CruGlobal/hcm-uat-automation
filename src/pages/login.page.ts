@@ -123,9 +123,10 @@ export class LoginPage extends BasePage {
       await this.enterTOTP(totp);
     }
 
-    // Ensure we're on the HCM page
-    if (!this.page.url().includes('fscmUI')) {
-      await this.page.waitForURL('**/fscmUI/**', { timeout: 120_000 });
+    // Ensure we're on the HCM page (Oracle moved most pages from /fscmUI/ to /hcmUI/).
+    const url = this.page.url();
+    if (!url.includes('fscmUI') && !url.includes('hcmUI')) {
+      await this.page.waitForURL(/\/(fscmUI|hcmUI)\//, { timeout: 120_000 });
     }
     await this.waitForReady();
     await this.dismissPopups();
@@ -172,10 +173,45 @@ export class LoginPage extends BasePage {
         continue;
       }
 
-      if (attempt === 5 && !this.page.url().includes('fscmUI')) {
-        await this.page.waitForURL('**/fscmUI/**', { timeout: 30_000 }).catch(() => {});
+      if (attempt === 5 && !this.page.url().includes('fscmUI') && !this.page.url().includes('hcmUI')) {
+        await this.page.waitForURL(/\/(fscmUI|hcmUI)\//, { timeout: 30_000 }).catch(() => {});
       }
     }
+  }
+
+  /**
+   * Submit username + password on whichever login form Oracle is showing.
+   * Handles two layouts:
+   *   (a) Single-step (legacy / IDCS) — Username + Password + Sign In on one page.
+   *   (b) Two-step (Okta) — Username → Next, then Password → Next on the second page.
+   */
+  private async submitCredentials(username: string, password: string): Promise<void> {
+    console.log(`[Login] submitCredentials starting on URL: ${this.page.url()}`);
+    await this.nativeUserId.waitFor({ state: 'visible', timeout: 15_000 });
+    await this.nativeUserId.fill(username);
+    console.log(`[Login] Username filled (${username})`);
+
+    // Look for Password on the same page first (single-step flows). Short probe — if
+    // it's there, we're on legacy / IDCS. Otherwise we're on Okta's Username step.
+    const passwordVisibleNow = await this.nativePassword.isVisible({ timeout: 2_500 }).catch(() => false);
+    if (!passwordVisibleNow) {
+      console.log('[Login] Two-step login detected — clicking Sign In/Next on username page');
+      await this.nativeSignIn.click({ timeout: 90_000 });
+      console.log(`[Login] Username submitted, URL now: ${this.page.url()}`);
+      // Wait for the password field on the next page. Increase timeout — Okta sometimes
+      // shows a brief loading state before rendering the password input.
+      await this.nativePassword.waitFor({ state: 'visible', timeout: 30_000 });
+      console.log('[Login] Password field appeared on next page');
+    } else {
+      console.log('[Login] Single-step login detected — both fields on same page');
+    }
+
+    await this.nativePassword.fill(password);
+    console.log('[Login] Password filled, clicking Sign In');
+    await this.nativeSignIn.click({ timeout: 90_000 });
+
+    // Wait for navigation away from the login form.
+    await this.page.waitForLoadState('networkidle', { timeout: 60_000 }).catch(() => {});
   }
 
   /**
@@ -191,12 +227,11 @@ export class LoginPage extends BasePage {
   async directLogin(username: string, password: string): Promise<void> {
     console.log(`[Login] Direct HCM login as ${username}`);
 
-    // Fill the native Oracle login form
-    await this.nativeUserId.waitFor({ state: 'visible', timeout: 15_000 });
-    await this.nativeUserId.fill(username);
-    await this.nativePassword.fill(password);
-    // Use longer timeout for Sign In click — Oracle OAM stalls under concurrent load
-    await this.nativeSignIn.click({ timeout: 90_000 });
+    // Fill the credentials. Oracle test environments now redirect "/" through Okta
+    // (2-step: Username → Next → Password → Next). Older flows are still single-step
+    // (Username + Password on one page). Detect which one we're on by probing for
+    // the Password field after entering the username.
+    await this.submitCredentials(username, password);
 
     // Wait for any navigation after login (may land on intermediate pages)
     await this.page.waitForLoadState('networkidle', { timeout: 60_000 }).catch(() => {});
@@ -208,10 +243,7 @@ export class LoginPage extends BasePage {
       await this.page.waitForTimeout(30_000);
       await this.page.goto('/');
       await this.page.waitForLoadState('networkidle', { timeout: 30_000 }).catch(() => {});
-      await this.nativeUserId.waitFor({ state: 'visible', timeout: 15_000 });
-      await this.nativeUserId.fill(username);
-      await this.nativePassword.fill(password);
-      await this.nativeSignIn.click({ timeout: 90_000 });
+      await this.submitCredentials(username, password);
       await this.page.waitForLoadState('networkidle', { timeout: 60_000 }).catch(() => {});
 
       if (this.page.url().includes('auth_cred_submit')) {
@@ -222,10 +254,7 @@ export class LoginPage extends BasePage {
             console.log(`[Login] Retrying login for ${username} after SCIM unlock...`);
             await this.page.goto('/');
             await this.page.waitForLoadState('networkidle', { timeout: 30_000 }).catch(() => {});
-            await this.nativeUserId.waitFor({ state: 'visible', timeout: 15_000 });
-            await this.nativeUserId.fill(username);
-            await this.nativePassword.fill(password);
-            await this.nativeSignIn.click();
+            await this.submitCredentials(username, password);
             await this.page.waitForLoadState('networkidle', { timeout: 60_000 }).catch(() => {});
             if (!this.page.url().includes('auth_cred_submit')) return; // unlock+retry succeeded
           }
@@ -238,7 +267,7 @@ export class LoginPage extends BasePage {
     // Handle Oracle intermediate pages (retry up to 5 times)
     for (let i = 0; i < 5; i++) {
       const url = this.page.url();
-      if (url.includes('fscmUI')) break;
+      if (url.includes('fscmUI') || url.includes('hcmUI')) break;
 
       // If still on OAM auth page, credentials failed — fail fast
       if (url.includes('auth_cred_submit') || url.includes('/oam/server/')) {
@@ -285,9 +314,11 @@ export class LoginPage extends BasePage {
       await this.page.waitForTimeout(3_000);
     }
 
-    // Final wait for fscmUI
-    if (!this.page.url().includes('fscmUI')) {
-      await this.page.waitForURL('**/fscmUI/**', { timeout: 60_000 });
+    // Final wait for the post-login Oracle landing page. Oracle's UI refresh moved
+    // most pages from /fscmUI/ to /hcmUI/ — accept either.
+    const u = this.page.url();
+    if (!u.includes('fscmUI') && !u.includes('hcmUI')) {
+      await this.page.waitForURL(/\/(fscmUI|hcmUI)\//, { timeout: 60_000 });
     }
     await this.waitForReady();
     await this.dismissPopups();
@@ -312,7 +343,7 @@ export class LoginPage extends BasePage {
   async fullLogin(username?: string, password?: string, totpSecret?: string): Promise<void> {
     // If we're already on the HCM page, verify the session is actually alive
     const currentUrl = this.page.url();
-    if (currentUrl.includes('fscmUI')) {
+    if (currentUrl.includes('fscmUI') || currentUrl.includes('hcmUI')) {
       const alive = await this.isSessionAlive();
       if (alive) {
         await this.waitForReady();
@@ -353,7 +384,8 @@ export class LoginPage extends BasePage {
     await this.navigate();
 
     // If the session from storageState redirected us to HCM, skip login
-    if (this.page.url().includes('fscmUI')) {
+    const navUrl = this.page.url();
+    if (navUrl.includes('fscmUI') || navUrl.includes('hcmUI')) {
       await this.waitForReady();
       await this.dismissPopups();
       return;

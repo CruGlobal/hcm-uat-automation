@@ -19,6 +19,8 @@ import {
   lookupElementEntriesByNumber,
   lookupBenefitEnrollmentsByNumber,
   lookupTimeCardsByNumber,
+  lookupWorkerByName,
+  lookupWorkersByName,
   reverseTermination,
   withdrawAbsence,
   deleteElementEntry,
@@ -71,12 +73,31 @@ export class PreFlightChecker {
     const fieldData = getFieldData(tc.testId);
     if (!fieldData) return OK;
 
-    const personNumber = getField(fieldData, 'person number') || getField(fieldData, 'personnumber');
+    let personNumber = getField(fieldData, 'person number') || getField(fieldData, 'personnumber');
 
     // Hire checks work even without a person number (looks up by name)
     if (bp.includes('hire') || bp.includes('pending') || bp.includes('nonworker') || bp.includes('non worker')) {
-      return this.prepareHire(tc, personNumber);
+      // For rehire/CWR, fall through to the rehire-specific handler below.
+      if (!bp.includes('rehire')) {
+        return this.prepareHire(tc, personNumber);
+      }
     }
+
+    // Rehire and CWR tests usually carry only the person's name in the data sheet
+    // (no person number). Resolve the person number by name via REST so we can run
+    // the state checks/resets even when the sheet doesn't include it.
+    //
+    // For rehire specifically: a previous run may have created a NEW work
+    // relationship for this name, leaving both the original (terminated) and the
+    // newly-rehired (active) record in the system. Re-terminate every active match
+    // up front so the rehire test can find a clean terminated person to rehire.
+    if (!personNumber && (bp.includes('rehire') || bp.includes('create work rel'))) {
+      if (bp.includes('rehire')) {
+        await this.reterminateActiveDuplicates(tc, fieldData);
+      }
+      personNumber = await this.resolvePersonNumberFromName(tc, fieldData);
+    }
+
     // Remaining checks require a person number
     if (!personNumber) return OK;
     if (bp.includes('terminat') || bp.includes('end work rel') ||
@@ -94,6 +115,89 @@ export class PreFlightChecker {
     // leave of absence, document management, approvals, additional jobs, etc.
     // Only exclude tests that explicitly target terminated persons or don't need a person.
     return this.prepareAssignmentChange(tc, personNumber);
+  }
+
+  /**
+   * For rehire tests: terminate every active work relationship across ALL person
+   * records that match the test's name. A prior rehire run may have created a new
+   * person record alongside the original terminated one; both could resolve to
+   * "Lomax, Keva", and the rehire test needs at least one fully-terminated record
+   * to operate on. We re-terminate any active ones so the rehire path is clean.
+   */
+  private async reterminateActiveDuplicates(
+    tc: UATTestCase, fieldData: TestCase,
+  ): Promise<void> {
+    const last = getField(fieldData, 'Use Person > Last Name') || getField(fieldData, 'Last Name');
+    const first = getField(fieldData, 'Use Person > First Name') || getField(fieldData, 'First Name');
+    if (!last && !first) return;
+
+    const candidates = [
+      last && first ? `${last}, ${first}` : '',
+      last && first ? `${first} ${last}` : '',
+      last,
+    ].filter(Boolean) as string[];
+
+    const seen = new Set<string>();
+    for (const name of candidates) {
+      let workers: Awaited<ReturnType<typeof lookupWorkersByName>> = [];
+      try {
+        workers = await lookupWorkersByName(null, this.baseUrl, name, this.creds);
+      } catch (error: any) {
+        console.warn(`[PreFlight] ${tc.testId}: Multi-name lookup for "${name}" failed: ${error.message}`);
+        continue;
+      }
+      for (const w of workers) {
+        if (!w.PersonNumber || seen.has(w.PersonNumber)) continue;
+        seen.add(w.PersonNumber);
+
+        const full = await getWorkerFull(null, this.baseUrl, w.PersonNumber, this.creds).catch(() => null);
+        const activeRel = (full?.workRelationships || []).find(wr => wr.TerminationDate === null);
+        if (!activeRel) continue;
+
+        console.log(`[PreFlight] ${tc.testId}: Found active duplicate "${w.DisplayName}" (${w.PersonNumber}) — re-terminating`);
+        try {
+          const today = new Date().toISOString().split('T')[0];
+          await terminateWorker(this.baseUrl, full!.PersonId, activeRel.PeriodOfServiceId, today, this.creds);
+        } catch (error: any) {
+          console.warn(`[PreFlight] ${tc.testId}: Could not re-terminate ${w.PersonNumber}: ${error.message}`);
+        }
+      }
+    }
+  }
+
+  /**
+   * Resolve a person number from the test's field data when the data sheet only
+   * provides Last/First Name (typical for rehire and CWR tests). Tries "Last, First"
+   * (Oracle's display order) first, then variants. Returns '' if no match.
+   */
+  private async resolvePersonNumberFromName(
+    tc: UATTestCase, fieldData: TestCase,
+  ): Promise<string> {
+    const last = getField(fieldData, 'Use Person > Last Name') || getField(fieldData, 'Last Name');
+    const first = getField(fieldData, 'Use Person > First Name') || getField(fieldData, 'First Name');
+    if (!last && !first) return '';
+
+    // Oracle's DisplayName is typically "Last, First" — try that first.
+    const candidates = [
+      last && first ? `${last}, ${first}` : '',
+      last && first ? `${first} ${last}` : '',
+      last,
+      first,
+    ].filter(Boolean) as string[];
+
+    for (const name of candidates) {
+      try {
+        const worker = await lookupWorkerByName(null, this.baseUrl, name, this.creds);
+        if (worker?.PersonNumber) {
+          console.log(`[PreFlight] ${tc.testId}: Resolved "${name}" → person number ${worker.PersonNumber}`);
+          return worker.PersonNumber;
+        }
+      } catch (error: any) {
+        console.warn(`[PreFlight] ${tc.testId}: Name lookup for "${name}" failed: ${error.message}`);
+      }
+    }
+    console.warn(`[PreFlight] ${tc.testId}: Could not resolve person number for "${last || first}" — pre-flight will be skipped`);
+    return '';
   }
 
   /** Assignment Change: person must have an active work relationship. Reverse termination if needed. */

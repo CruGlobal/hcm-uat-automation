@@ -122,7 +122,7 @@ export class CreateWorkRelationshipFlow extends BaseCoreHRFlow {
       // Navigate to Person Management explicitly
       console.log('[CWR] Search field not visible — navigating to Person Management');
       await this.page.goto(
-        '/fscmUI/faces/FuseOverview?fndGlobalItemNodeId=itemNode_workforce_management_person_management',
+        '/hcmUI/faces/FndOverview?fndGlobalItemNodeId=itemNode_workforce_management_person_management',
         { timeout: 60_000 },
       ).catch(() => {});
       await this.page.waitForLoadState('networkidle', { timeout: 60_000 }).catch(() => {});
@@ -239,74 +239,40 @@ export class CreateWorkRelationshipFlow extends BaseCoreHRFlow {
 
   /**
    * Initiate Create Work Relationship from the search results page.
-   * Uses the per-row Actions icon (orange dropdown) on the first search result,
-   * which provides the "Create Work Relationship" option.
-   * Primary strategy: navigate to person's detail page, use Actions menu there.
-   * Fallback: per-row popup icon on search results.
+   * Path verified via codegen against the live Oracle UI:
+   *   1. Click the per-row "Actions" button (first row in search results)
+   *   2. In the popup, click "Personal and Employment"
+   *   3. Click "Create Work Relationship"
+   *
+   * The popup renders inside the ADF z-order layer at id="__af_Z_window".
    */
   private async initiateCreateWorkRelationship(): Promise<void> {
     await this.person.dismissPopups();
 
-    // PRIMARY: Navigate to person detail page and use Actions menu there.
-    // The detail page Actions menu reliably shows "Create Work Relationship"
-    // for terminated persons (when bot has access).
-    const detailCWR = await this.initiateCWRFromDetailPage();
-    if (detailCWR) {
-      await this.page.waitForTimeout(3000);
-      await this.person.waitForJET();
-      await this.person.clearGlassPane();
-      console.log('[CWR] CWR initiated via detail page — wizard should be loading');
-      return;
-    }
+    // Step 1: per-row Actions button
+    const actionsBtn = this.page.getByRole('button', { name: 'Actions' }).first();
+    await actionsBtn.waitFor({ state: 'visible', timeout: 15_000 });
+    console.log('[CWR] Clicking per-row Actions button');
+    await actionsBtn.click();
 
-    // FALLBACK: Per-row Actions popup on search results page
-    console.log('[CWR] Detail page approach failed, trying per-row popup...');
-    await this.page.keyboard.press('Escape').catch(() => {});
-    await this.page.waitForTimeout(2000);
-    await this.person.clearGlassPane();
+    // Step 2: hover/click "Personal and Employment" in the popup
+    const popup = this.page.locator('[id="__af_Z_window"]');
+    const peItem = popup.getByText('Personal and Employment', { exact: false }).first();
+    await peItem.waitFor({ state: 'visible', timeout: 10_000 });
+    console.log('[CWR] Opening "Personal and Employment" submenu');
+    await peItem.click();
 
-    // Navigate back to search results if we ended up on detail page
-    await this.page.goBack({ timeout: 10000 }).catch(() => {});
+    // Step 3: click "Create Work Relationship" in the submenu
+    const cwrItem = popup.getByText('Create Work Relationship', { exact: false }).first();
+    await cwrItem.waitFor({ state: 'visible', timeout: 10_000 });
+    console.log('[CWR] Clicking "Create Work Relationship"');
+    await cwrItem.click();
+
+    // Wait for the wizard to load
     await this.page.waitForTimeout(3000);
     await this.person.waitForJET();
-
-    const actionClicked = await this.tryClickRowActions();
-    if (!actionClicked) {
-      await this.page.screenshot({ path: 'test-results/cwr-option-not-found.png', fullPage: true }).catch(() => {});
-      throw new Error('Could not find "Create Work Relationship" option via popup or detail page');
-    }
-
-    const cwrClicked = await this.clickCWRInPopup();
-    if (!cwrClicked) {
-      await this.page.screenshot({ path: 'test-results/cwr-option-not-found.png', fullPage: true }).catch(() => {});
-      throw new Error('Could not find "Create Work Relationship" option via popup or detail page');
-    }
-
-    // Wait for CWR wizard to load — verify we navigated away from search page
-    await this.page.waitForTimeout(5000);
-    await this.person.waitForJET();
     await this.person.clearGlassPane();
-
-    // Verify the wizard opened by checking for wizard-specific elements
-    const wizardIndicators = [
-      this.page.locator('[id*="SP1:"]').first(), // ADF wizard panel
-      this.page.getByText('Basic Details', { exact: false }).first(),
-      this.page.getByText('When and Why', { exact: false }).first(),
-      this.page.getByText('Hire Date', { exact: false }).first(),
-      this.page.getByText('Identification', { exact: false }).first(),
-    ];
-    let wizardFound = false;
-    for (const indicator of wizardIndicators) {
-      if (await indicator.isVisible({ timeout: 3000 }).catch(() => false)) {
-        console.log('[CWR] Wizard page detected');
-        wizardFound = true;
-        break;
-      }
-    }
-    if (!wizardFound) {
-      console.log('[CWR] WARNING: Wizard page not detected — may still be on search page');
-      await this.page.screenshot({ path: 'test-results/cwr-after-click.png', fullPage: true }).catch(() => {});
-    }
+    console.log('[CWR] CWR wizard should be loading');
   }
 
   /**
@@ -888,23 +854,37 @@ export class CreateWorkRelationshipFlow extends BaseCoreHRFlow {
       await this.person.waitForJET();
     }
 
-    // Action — CWR uses different labels than Hire wizard
+    // Action — Oracle's CWR wizard offers these options directly:
+    //   "Rehire an Employee", "Add Employee Work Relationship",
+    //   "Add Contingent Work Relationship", "Add Non-Worker Work Relationship",
+    //   "Add Pending Work Relationship".
+    // The data sheet usually carries the literal option name (e.g. "Rehire an Employee"),
+    // so we prefer the exact value and only fall back to a mapping for legacy aliases
+    // that don't match any option directly.
     const cwrActionMap: Record<string, string> = {
-      'rehire an employee': 'Add Employee Work Relationship',
-      'rehire': 'Add Employee Work Relationship',
-      'hire an employee': 'Add Employee Work Relationship',
       'add contingent worker': 'Add Contingent Work Relationship',
       'add nonworker': 'Add Non-Worker Work Relationship',
       'add pending worker': 'Add Pending Work Relationship',
     };
+    // Known Oracle option labels — if the data sheet already gives us one of these,
+    // pass it through unchanged so that e.g. "Rehire an Employee" doesn't get
+    // remapped to "Add Employee Work Relationship".
+    const knownActionLabels = new Set([
+      'rehire an employee',
+      'add employee work relationship',
+      'add contingent work relationship',
+      'add non-worker work relationship',
+      'add pending work relationship',
+    ]);
     let action = getField(tc, "Use Person > What's the way") || getField(tc, "What's the way") || getField(tc, 'Action');
     if (action) {
-      let mapped = cwrActionMap[action.toLowerCase()];
+      const isKnownLabel = knownActionLabels.has(action.toLowerCase());
+      let mapped = !isKnownLabel ? cwrActionMap[action.toLowerCase()] : '';
       if (mapped) {
         console.log(`[CWR] Mapped Action: "${action}" → "${mapped}"`);
         action = mapped;
-      } else if (!mapped) {
-        // Generic "Create Work Relationship" — derive action from Worker Type
+      } else if (!mapped && !isKnownLabel) {
+        // Vague action (e.g., "Create Work Relationship") — derive from Worker Type
         const wt = (getField(tc, 'Use Person > Worker Type') || getField(tc, 'Worker Type') || '').toLowerCase();
         const workerTypeActionMap: Record<string, string> = {
           'employee': 'Add Employee Work Relationship',

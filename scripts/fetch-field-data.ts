@@ -19,7 +19,7 @@ import * as dotenv from 'dotenv';
 
 dotenv.config();
 
-const SHEET_ID = '1zhX-jtQnBieWCo6OIv7bx2hlIAQg85l55kfzvn6qwUk';
+const SHEET_ID = '1ZvyHTqQhtMCwYompUZ6cI-h4BIqnj62rWSTeK2cckq8';
 const TOKEN_URL = 'https://oauth2.googleapis.com/token';
 const SHEETS_API = 'https://sheets.googleapis.com/v4/spreadsheets';
 const OUTPUT_FILE = path.resolve(process.cwd(), '.cache-generated', 'field-data.json');
@@ -97,20 +97,34 @@ function parseTab(tabName: string, rows: string[][]): TestCase[] {
   const fieldRows: { compositeKey: string; rowIdx: number }[] = [];
 
   for (let r = testCaseRowIdx + 2; r < rows.length; r++) {
-    const label = (rows[r][0] || '').trim();
-    if (!label) continue;
+    const labelA = (rows[r][0] || '').trim();
+    const labelB = (rows[r][1] || '').trim();
+    if (!labelA && !labelB) continue;
 
-    // Detect section headers: col B is empty and no test case columns have values
-    // OR the label matches known section header patterns (no test data in that row)
+    // Section header detection: no test case columns have values on this row.
     const hasAnyValue = testCols.some(tc => (rows[r][tc.colIdx] || '').trim() !== '');
     if (!hasAnyValue) {
-      // This is a section header row
-      currentSection = label;
+      // Only treat as section header when the label lives in col A.
+      if (labelA) currentSection = labelA;
       continue;
     }
 
-    const compositeKey = currentSection ? `${currentSection} > ${label}` : label;
-    fieldRows.push({ compositeKey, rowIdx: r });
+    // Data row. Three shapes we accept:
+    //  (1) col A only            → field name = A, prefix = currentSection
+    //  (2) col B only            → field name = B, prefix = currentSection  (new-sheet fields)
+    //  (3) col A + col B both    → emit BOTH: "section > A" and "A > B"
+    //        (A may be a sub-section header with its first field inline, OR A may be the
+    //         field name with B being a description. Both lookups resolve via partial match.)
+    if (labelA && labelB) {
+      const key1 = currentSection ? `${currentSection} > ${labelA}` : labelA;
+      const key2 = `${labelA} > ${labelB}`;
+      fieldRows.push({ compositeKey: key1, rowIdx: r });
+      fieldRows.push({ compositeKey: key2, rowIdx: r });
+    } else {
+      const label = labelA || labelB;
+      const compositeKey = currentSection ? `${currentSection} > ${label}` : label;
+      fieldRows.push({ compositeKey, rowIdx: r });
+    }
   }
 
   // Build one TestCase per column
