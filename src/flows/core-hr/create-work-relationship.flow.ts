@@ -56,34 +56,288 @@ export class CreateWorkRelationshipFlow extends BaseCoreHRFlow {
     // Use per-row Actions icon from search results to initiate CWR
     await this.initiateCreateWorkRelationship();
 
-    // Fill the wizard — CWR uses the same hire wizard structure
-    // Step 1: When and Why + Personal Details
-    await this.fillWhenAndWhy(tc);
-    await this.clickNext();
+    // The CWR wizard has 5 steps:
+    //   1. Identification        — Basic Details + Personal Details (latter pre-filled)
+    //   2. Person Information    — Address / Phone / Email / Legislative (all pre-filled)
+    //   3. Employment Information — Work Relationship + Assignment + Manager + Payroll
+    //   4. Compensation          — Salary Basis + Salary Amount + Other Comp
+    //   5. Review                — Submit
+    //
+    // The CWR wizard uses different ADF prefixes (AddWRIWAreaMATF) than the Hire wizard
+    // — selectors here are role-based, captured live via Playwright MCP rather than ADF IDs.
 
-    // Step 2: Person Information (address/legislative — usually pre-populated for rehire)
-    // Just click Next since the person already exists
-    await this.clickNext();
+    await this.fillCWRStep1Identification(tc);
+    await this.clickCWRNext();
 
-    // Step 3: Employment Information — wait extra for CWR form to load
+    // Step 2: Person Information — pre-filled from existing person record
+    await this.clickCWRNext();
+
+    // Step 3: Employment Information
     await this.person.waitForJET();
-    await this.page.waitForTimeout(2000);
+    await this.page.waitForTimeout(2_000);
+    await this.fillCWRStep3Employment(tc);
+    await this.clickCWRNext();
 
-    // Check if we're actually on Step 3 (assignment fields visible)
-    const assignmentField = this.page.locator('[id*="businessUnitId"], [id*="NewPe1"], [id*="Assignment"]').first();
-    if (await assignmentField.isVisible({ timeout: 10000 }).catch(() => false)) {
-      await this.fillStep3(tc);
-    } else {
-      console.log('[CWR] Assignment fields not found on Step 3 — taking screenshot and continuing');
-      await this.page.screenshot({ path: 'test-results/cwr-step3.png', fullPage: true }).catch(() => {});
-    }
-    await this.clickNext();
-
-    // Step 4: Compensation (skip)
-    await this.clickNext();
+    // Step 4: Compensation
+    await this.fillCWRStep4Compensation(tc);
+    await this.clickCWRNext();
 
     // Step 5: Review → Submit
     await this.submitAndVerify();
+  }
+
+  /** Click the wizard's "Next" button — anchor element in the CWR wizard, not <button>. */
+  private async clickCWRNext(): Promise<void> {
+    // Codegen captured a <button> Next, but the wizard renders Next as an anchor when
+    // disabled / re-rendered. Try the role first, then fall back to clicking via JS.
+    const nextBtn = this.page.getByRole('button', { name: 'Next', exact: true }).first();
+    if (await nextBtn.isVisible({ timeout: 2_000 }).catch(() => false)) {
+      await nextBtn.click({ timeout: 10_000 }).catch(async () => {
+        await this.page.evaluate(() => {
+          const a = Array.from(document.querySelectorAll('a, button')).find(
+            (x) => (x as HTMLElement).textContent?.trim() === 'Next',
+          );
+          (a as HTMLElement | undefined)?.click();
+        });
+      });
+    } else {
+      await this.page.evaluate(() => {
+        const a = Array.from(document.querySelectorAll('a, button')).find(
+          (x) => (x as HTMLElement).textContent?.trim() === 'Next',
+        );
+        (a as HTMLElement | undefined)?.click();
+      });
+    }
+    await this.page.waitForTimeout(2_500);
+    await this.person.waitForJET();
+  }
+
+  /** Step 1 — Identification: pick Action, Action Reason, Legal Employer, Worker Type. */
+  private async fillCWRStep1Identification(tc: TestCase): Promise<void> {
+    await this.page.waitForTimeout(2_500);
+    await this.person.waitForJET();
+
+    // Effective date — Oracle pre-fills today; only override when the data sheet wants
+    // a specific historical date.
+    const when = getField(tc, 'Use Person > When') || getField(tc, 'When');
+    if (when) {
+      const dateStr = this.whenAndWhy.convertDate(when);
+      const startDate = this.page.getByRole('textbox', { name: 'Start Date' }).first();
+      if (await startDate.isVisible({ timeout: 3_000 }).catch(() => false)) {
+        await startDate.click();
+        await this.page.keyboard.press('Control+A');
+        await startDate.fill(dateStr);
+        await startDate.press('Tab');
+        await this.page.waitForTimeout(800);
+      }
+    }
+
+    // Action — must be picked first; it drives which fields become editable below.
+    const action = getField(tc, "Use Person > What's the way") || getField(tc, "What's the way") || 'Rehire an Employee';
+    await this.pickCWROption('Action', action, /^action$/i);
+
+    // Action Reason — optional but Oracle wants it for audit. Map the data-sheet
+    // codes ("12MO_FT", "VAC_POS") to the actual dropdown labels.
+    const reasonRaw = getField(tc, 'Use Person > Why') || getField(tc, 'Why');
+    if (reasonRaw) {
+      const reason = this.mapActionReason(reasonRaw);
+      await this.pickCWROption('Action Reason', reason);
+    }
+
+    // Legal Employer — autocomplete; Oracle pre-fills based on the existing person,
+    // but if the test wants a different one we type-and-tab.
+    const legalEmployer = getField(tc, 'Use Person > Legal Employer') || getField(tc, 'Legal Employer');
+    if (legalEmployer) {
+      await this.fillAutocomplete('Legal Employer', legalEmployer);
+    }
+
+    // Worker Type — for Rehire it usually locks to "Employee"; only set if combobox.
+    const workerType = getField(tc, 'Use Person > Worker Type') || getField(tc, 'Worker Type');
+    if (workerType) {
+      const wt = this.page.getByRole('combobox', { name: /^worker type$/i }).first();
+      if (await wt.isVisible({ timeout: 1_500 }).catch(() => false)) {
+        await this.pickCWROption('Worker Type', workerType, /^worker type$/i);
+      }
+    }
+  }
+
+  /** Step 3 — Employment Information: assignment, job, payroll, manager. */
+  private async fillCWRStep3Employment(tc: TestCase): Promise<void> {
+    // ── Assignment header fields ────────────────────────────────────────
+    const businessUnit = getField(tc, 'Use Person > Business Unit') || getField(tc, 'Business Unit');
+    if (businessUnit) await this.fillAutocomplete('Business Unit', businessUnit);
+
+    const personType = getField(tc, 'Assignment > Person Type') || getField(tc, 'Person Type');
+    if (personType) await this.pickCWROption('Person Type', personType);
+
+    const assignmentStatus = getField(tc, 'Assignment > Assignment Status') || getField(tc, 'Assignment Status');
+    if (assignmentStatus) await this.pickCWROption('Assignment Status', assignmentStatus);
+
+    // ── Job sub-section ─────────────────────────────────────────────────
+    const job = getField(tc, 'Assignment > Job') || getField(tc, 'Job');
+    if (job) await this.fillAutocomplete('Job', this.cleanLOVValue(job));
+
+    const grade = getField(tc, 'Assignment > Grade') || getField(tc, 'Grade');
+    if (grade) await this.fillAutocomplete('Grade', grade);
+
+    const department = getField(tc, 'Assignment > Department') || getField(tc, 'Department');
+    if (department) await this.fillAutocomplete('Department', department);
+
+    const location = getField(tc, 'Assignment > Location') || getField(tc, 'Location');
+    if (location) await this.fillAutocomplete('Location', location);
+
+    const wfh = getField(tc, 'Assignment > Work from Home') || getField(tc, 'Working at Home');
+    if (wfh) await this.pickCWROption('Working at Home', wfh.toUpperCase().startsWith('Y') ? 'Yes' : 'No');
+
+    const assignmentCategory = getField(tc, 'Assignment > Assignment Category') || getField(tc, 'Assignment Category');
+    if (assignmentCategory) await this.pickCWROption('Assignment Category', assignmentCategory);
+
+    const regTemp = getField(tc, 'Assignment > Reg/Temp') || getField(tc, 'Regular or Temporary');
+    if (regTemp) await this.pickCWROption('Regular or Temporary', regTemp);
+
+    const ftPt = getField(tc, 'Assignment > Full time or Part Time') || getField(tc, 'Full Time or Part Time');
+    if (ftPt) await this.pickCWROption('Full Time or Part Time', ftPt);
+
+    const hourlySalaried = getField(tc, 'Assignment > Hourly Salary') || getField(tc, 'Hourly Paid or Salaried');
+    if (hourlySalaried) {
+      const norm = /hour/i.test(hourlySalaried) ? 'Hourly' : 'Salaried';
+      await this.pickCWROption('Hourly Paid or Salaried', norm);
+    }
+
+    // Working Hours / Frequency — Oracle pre-fills 40 / Weekly; only override when
+    // the data sheet specifies otherwise.
+    const workingHours = getField(tc, 'Assignment > Working Hours') || getField(tc, 'Working Hours');
+    if (workingHours && workingHours !== '40') {
+      const wh = this.page.getByRole('textbox', { name: 'Working Hours' }).first();
+      if (await wh.isVisible({ timeout: 1_500 }).catch(() => false)) {
+        await wh.fill(workingHours);
+        await wh.press('Tab');
+      }
+    }
+    const freq = getField(tc, 'Assignment > Working Hours Frequesncy')   // sheet typo
+              || getField(tc, 'Working Hours Frequency')
+              || getField(tc, 'Frequency');
+    if (freq) {
+      const normFreq = freq.toLowerCase() === 'weekly' ? 'Weekly'
+                     : freq.toLowerCase() === 'monthly' ? 'Monthly' : freq;
+      if (normFreq !== 'Weekly') {
+        await this.pickCWROption('Frequency', normFreq);
+      }
+    }
+
+    // ── Manager Details ─────────────────────────────────────────────────
+    // The data sheet rarely names a manager for rehire tests; if not provided, leave
+    // the wizard's pre-populated manager (or empty row) untouched. When provided,
+    // type into the autocomplete and pick the first match.
+    const managerName = getField(tc, 'Manager > Name') || getField(tc, 'Manager');
+    if (managerName) {
+      // The Manager Details "Name" combobox lives below "Manager Details" heading;
+      // there's also a generic "Name" elsewhere — disambiguate by section anchor.
+      const managerSection = this.page.locator('h2:has-text("Manager Details")').locator('xpath=ancestor::*[3]').first();
+      const mgrName = managerSection.getByRole('combobox', { name: 'Name' }).first();
+      if (await mgrName.isVisible({ timeout: 3_000 }).catch(() => false)) {
+        await mgrName.click();
+        await mgrName.fill(managerName);
+        await this.page.waitForTimeout(1_500);
+        // Pick the first matching option from the autocomplete dropdown.
+        const opt = this.page.getByRole('option').filter({ hasText: new RegExp(managerName, 'i') }).first();
+        if (await opt.isVisible({ timeout: 3_000 }).catch(() => false)) {
+          await opt.click();
+        } else {
+          await mgrName.press('Tab');
+        }
+      }
+    }
+
+    // ── Payroll Details ─────────────────────────────────────────────────
+    const payrollFreq = getField(tc, 'Payroll Details > Payroll Frequency')
+                     || getField(tc, 'Payroll Details: > Payroll Frequency')
+                     || getField(tc, 'Payroll Frequency');
+    if (payrollFreq) {
+      // The Payroll Details section uses a "Create" link to add a payroll row.
+      const payrollSection = this.page.locator('h2:has-text("Payroll Details"), h1:has-text("Payroll Details")').first();
+      const createLink = payrollSection.locator('xpath=ancestor::*[5]').first()
+        .getByRole('link', { name: 'Create' }).first();
+      if (await createLink.isVisible({ timeout: 2_000 }).catch(() => false)) {
+        await createLink.click();
+        await this.page.waitForTimeout(1_500);
+        // The Payroll combobox renders inside the new row.
+        await this.fillAutocomplete('Payroll', payrollFreq);
+      }
+    }
+  }
+
+  /** Step 4 — Compensation: Salary Basis + Salary Amount. */
+  private async fillCWRStep4Compensation(tc: TestCase): Promise<void> {
+    await this.page.waitForTimeout(1_500);
+    await this.person.waitForJET();
+
+    const salaryBasis = getField(tc, 'Salary > Salary Basis') || getField(tc, 'Salary Basis');
+    if (salaryBasis) await this.fillAutocomplete('Salary Basis', salaryBasis);
+
+    const salaryAmount = getField(tc, 'Salary > Salary') || getField(tc, 'Salary Amount');
+    if (salaryAmount) {
+      const amtField = this.page.getByRole('textbox', { name: 'Salary Amount' }).first();
+      if (await amtField.isVisible({ timeout: 3_000 }).catch(() => false)) {
+        await amtField.click();
+        await amtField.fill(String(salaryAmount).replace(/[^0-9.]/g, ''));
+        await amtField.press('Tab');
+      }
+    }
+  }
+
+  /** Click an ADF combobox by accessible name and pick a matching option. */
+  private async pickCWROption(label: string, value: string, exactName?: RegExp): Promise<void> {
+    const cb = exactName
+      ? this.page.getByRole('combobox', { name: exactName }).first()
+      : this.page.getByRole('combobox', { name: label }).first();
+    if (!await cb.isVisible({ timeout: 3_000 }).catch(() => false)) {
+      console.log(`[CWR] ${label} combobox not visible — skipping`);
+      return;
+    }
+    await cb.click();
+    await this.page.waitForTimeout(600);
+    const option = this.page.getByRole('option', { name: value, exact: false }).first();
+    if (await option.isVisible({ timeout: 3_000 }).catch(() => false)) {
+      await option.click();
+    } else {
+      // Fall back to typing — useful for autocomplete-style comboboxes.
+      await cb.fill(value);
+      await cb.press('Tab');
+    }
+    await this.page.waitForTimeout(400);
+  }
+
+  /** Type into an autocomplete combobox and Tab to commit the first suggestion. */
+  private async fillAutocomplete(label: string, value: string): Promise<void> {
+    const cb = this.page.getByRole('combobox', { name: label }).first();
+    if (!await cb.isVisible({ timeout: 3_000 }).catch(() => false)) {
+      console.log(`[CWR] ${label} autocomplete not visible — skipping`);
+      return;
+    }
+    await cb.click();
+    await cb.fill(value);
+    await this.page.waitForTimeout(900);
+    await cb.press('Tab');
+    await this.page.waitForTimeout(400);
+  }
+
+  /** Strip trailing whitespace and known spreadsheet typos from LOV values.
+   * Examples: "Project Sepciallist " → "Project Specialist". */
+  private cleanLOVValue(raw: string): string {
+    const trimmed = raw.trim();
+    const corrections: Record<string, string> = {
+      'Project Sepciallist': 'Project Specialist',
+    };
+    return corrections[trimmed] || trimmed;
+  }
+
+  /** Map data-sheet "Why" codes to the dropdown labels Oracle exposes. */
+  private mapActionReason(raw: string): string {
+    const code = raw.trim().toUpperCase();
+    if (/12.*FT|12.*MO/.test(code)) return 'Rehire Within 12 mos of FT Ser';
+    if (/VAC|POSITION/.test(code)) return 'Rehire to fill vacant position';
+    return raw.trim();
   }
 
   /**
