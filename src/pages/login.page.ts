@@ -276,6 +276,34 @@ export class LoginPage extends BasePage {
 
       console.log(`[Login] Intermediate page detected (${username}): ${url}`);
 
+      // Okta SAML response page — IDCS/Okta hands back a SAML assertion to Oracle
+      // via an HTML form that's supposed to auto-POST. Sometimes the auto-submit
+      // never fires (especially in headless mode where Okta's fingerprinting
+      // throttles the redirect). When that happens, find and submit the form
+      // manually.
+      if (url.includes('signon.okta.com') && url.includes('/sso/saml')) {
+        console.log(`[Login] SAML response page detected — submitting SAML form manually`);
+        const submitted = await this.page.evaluate(() => {
+          // Find a form whose action posts back to the Oracle Cloud domain.
+          const forms = Array.from(document.forms);
+          const oracleForm = forms.find((f) =>
+            (f.action || '').includes('oraclecloud.com') ||
+            (f.action || '').includes('fa.ocs') ||
+            !!f.querySelector('input[name="SAMLResponse"]'),
+          ) || forms[0];
+          if (!oracleForm) return false;
+          oracleForm.submit();
+          return true;
+        }).catch(() => false);
+        if (submitted) {
+          await this.page.waitForLoadState('networkidle', { timeout: 30_000 }).catch(() => {});
+        } else {
+          // Fall back to a short wait and let Okta retry on its own.
+          await this.page.waitForTimeout(3_000);
+        }
+        continue;
+      }
+
       // Terms of Use / Privacy Policy — click Accept/Continue/OK
       const acceptBtn = this.page.getByRole('button', { name: /Accept|Continue|OK|I Agree|Agree/i }).first();
       if (await acceptBtn.isVisible({ timeout: 3_000 }).catch(() => false)) {

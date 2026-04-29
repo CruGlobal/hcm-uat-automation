@@ -1549,36 +1549,61 @@ export class CoreHRUATFlow extends BaseFlow {
     const wantsPhone = scenario.includes('phone');
     const wantsEmergency = scenario.includes('emergency') || scenario.includes('emergency contact');
 
-    // Navigate to the Personal Info landing page (Redwood-rendered tile page).
-    await this.page.goto(
-      '/hcmUI/faces/FndOverview?fndGlobalItemNodeId=PER_HCMPEOPLETOP_FUSE_PER_INFO',
-      { timeout: 60_000 },
-    ).catch(() => {});
+    // Navigate to the Personal Info landing page (Redwood tile page). Visiting the
+    // /hcmUI/faces/FndOverview deep link directly sometimes lands on a half-rendered
+    // page when the Redwood routing context hasn't been bootstrapped yet — go via
+    // the Fusion home first, which is what the live UI does.
+    await this.page.goto('/fscmUI/faces/FuseWelcome', { timeout: 60_000 }).catch(() => {});
     await this.page.waitForLoadState('networkidle', { timeout: 30_000 }).catch(() => {});
     await this.person.waitForJET();
     await this.person.dismissPopups();
 
+    // From the Me springboard, click the Personal Information app tile.
+    const personalInfoTile = this.page.getByRole('link', { name: /^Personal Information$/i }).first();
+    if (await personalInfoTile.isVisible({ timeout: 5_000 }).catch(() => false)) {
+      await personalInfoTile.click();
+    } else {
+      // Fallback: deep link straight to Personal Information.
+      await this.page.goto(
+        '/hcmUI/faces/FndOverview?fndGlobalItemNodeId=PER_HCMPEOPLETOP_FUSE_PER_INFO',
+        { timeout: 60_000 },
+      ).catch(() => {});
+    }
+    await this.page.waitForLoadState('networkidle', { timeout: 30_000 }).catch(() => {});
+    await this.page.waitForTimeout(2_500);
+    await this.person.waitForJET();
+    console.log(`[PersonalInfo] ${tc.testId}: Personal Info landing URL: ${this.page.url()}`);
+    await this.page.screenshot({ path: `test-results/hr114-landing.png`, fullPage: true }).catch(() => {});
+
     const exercised: string[] = [];
     const skipped: string[] = [];
 
+    // Run emergency-contact first — it's on a separate page and isn't affected by
+    // any inline-row state from the Contact Info sections, so it's the most likely
+    // to succeed even if other sub-sections hit issues.
+    if (wantsEmergency) {
+      await this.gotoPersonalInfoTile(
+        'Family and Emergency Contacts', /Add family.*emergency/i, 'My contacts',
+      );
+      const ok = await this.addEmergencyContact(tc);
+      (ok ? exercised : skipped).push('emergency-contact');
+      await this.goBackToPersonalInfoLanding();
+    }
+
     if (wantsAddress || wantsPhone) {
-      await this.gotoPersonalInfoTile('Contact Info', /Add or update.*phone.*email.*address/i);
+      await this.gotoPersonalInfoTile('Contact Info', /Add or update.*phone.*email.*address/i, 'Phone details');
       if (wantsAddress) {
         const ok = await this.addContactInfoAddress(tc);
         (ok ? exercised : skipped).push('address');
+        // Close any open Address row before moving on so other Add buttons aren't
+        // disabled — Redwood disables every section's Add button while one is open.
+        await this.cancelOpenInlineRow();
       }
       if (wantsPhone) {
         const ok = await this.addContactInfoPhone(tc);
         (ok ? exercised : skipped).push('phone');
+        await this.cancelOpenInlineRow();
       }
-      // Back to Personal Info landing for the next sub-section
-      await this.goBackToPersonalInfoLanding();
-    }
-
-    if (wantsEmergency) {
-      await this.gotoPersonalInfoTile('Family and Emergency Contacts', /Add family.*emergency/i);
-      const ok = await this.addEmergencyContact(tc);
-      (ok ? exercised : skipped).push('emergency-contact');
       await this.goBackToPersonalInfoLanding();
     }
 
@@ -1593,39 +1618,81 @@ export class CoreHRUATFlow extends BaseFlow {
     );
   }
 
-  /** Click a Personal Info landing tile (Personal Details / Contact Info / etc). */
-  private async gotoPersonalInfoTile(name: string, descPattern: RegExp): Promise<void> {
+  /**
+   * Click a Personal Info landing tile (Personal Details / Contact Info / etc) and
+   * wait for the destination's content to actually render. The Redwood page change
+   * is async — the URL flips quickly but the section content can take 5-15 seconds
+   * to paint. Without waiting on a content marker, the next button-visibility check
+   * runs against a blank page and reports "not visible" wrongly.
+   */
+  private async gotoPersonalInfoTile(
+    name: string, descPattern: RegExp, contentMarker?: string,
+  ): Promise<void> {
     // Tile links carry both the title AND the description in their accessible name,
     // so anchor by description regex to avoid colliding with side-nav links of the
     // same short name.
     const tile = this.page.getByRole('link', { name: descPattern }).first();
+    let clicked = false;
     if (await tile.isVisible({ timeout: 5_000 }).catch(() => false)) {
       await tile.click();
+      clicked = true;
     } else {
       // Fallback: link with the short tile title.
-      await this.page.getByRole('link', { name }).first().click().catch(() => {});
+      const fallback = this.page.getByRole('link', { name }).first();
+      if (await fallback.isVisible({ timeout: 3_000 }).catch(() => false)) {
+        await fallback.click();
+        clicked = true;
+      }
     }
+    if (!clicked) {
+      console.log(`[PersonalInfo] gotoPersonalInfoTile("${name}"): tile not found`);
+      return;
+    }
+    // Wait for the URL to leave the Personal Info landing.
+    await this.page.waitForURL(
+      (url) => !url.toString().includes('PER_HCMPEOPLETOP_FUSE_PER_INFO'),
+      { timeout: 30_000 },
+    ).catch(() => {});
     await this.page.waitForLoadState('networkidle', { timeout: 30_000 }).catch(() => {});
+
+    // Wait for a content marker on the destination page so we don't run subsequent
+    // checks while Redwood is still rendering.
+    if (contentMarker) {
+      await this.page.getByRole('heading', { name: contentMarker, exact: false }).first()
+        .waitFor({ state: 'visible', timeout: 30_000 })
+        .catch(() => {
+          console.log(`[PersonalInfo] gotoPersonalInfoTile("${name}"): "${contentMarker}" never appeared`);
+        });
+    }
+    await this.page.waitForTimeout(1_500);
     await this.person.waitForJET();
   }
 
-  /** Click "Go back" on a Redwood Personal Info sub-page to return to the landing. */
+  /**
+   * Return to the Personal Info landing page reliably. The Redwood "Go back"
+   * button only walks ONE level — going from create-new-contact → FAEC list,
+   * not all the way to the landing — and depends on the page actually being a
+   * sub-page that has a back button. Direct-URL navigation avoids both.
+   */
   private async goBackToPersonalInfoLanding(): Promise<void> {
-    const backBtn = this.page.getByRole('button', { name: /go back/i }).first();
-    if (await backBtn.isVisible({ timeout: 3_000 }).catch(() => false)) {
-      await backBtn.click().catch(() => {});
-      await this.page.waitForTimeout(1_500);
-      await this.person.waitForJET();
-    }
+    await this.page.goto(
+      '/hcmUI/faces/FndOverview?fndGlobalItemNodeId=PER_HCMPEOPLETOP_FUSE_PER_INFO',
+      { timeout: 60_000 },
+    ).catch(() => {});
+    await this.page.waitForLoadState('networkidle', { timeout: 30_000 }).catch(() => {});
+    // Wait for the Family and Emergency Contacts tile to render — proves the
+    // landing page is fully loaded and tile-clickable.
+    await this.page.getByRole('link', { name: /Family and Emergency Contacts/i }).first()
+      .waitFor({ state: 'visible', timeout: 20_000 })
+      .catch(() => {});
+    await this.page.waitForTimeout(1_500);
+    await this.person.waitForJET();
   }
 
   /** Open the Address inline form on Contact Info, fill required fields, save. */
   private async addContactInfoAddress(tc: UATTestCase): Promise<boolean> {
     const addBtn = this.page.getByRole('button', { name: 'Add Address' }).first();
-    if (!await addBtn.isVisible({ timeout: 5_000 }).catch(() => false)) {
-      console.log(`[PersonalInfo] ${tc.testId}: Add Address button not visible — skipping`);
-      return false;
-    }
+    if (!await this.waitForAddButtonReady(addBtn, tc, 'address')) return false;
     await addBtn.click();
     await this.page.waitForTimeout(1_200);
 
@@ -1653,10 +1720,7 @@ export class CoreHRUATFlow extends BaseFlow {
   /** Open the Phone inline form on Contact Info, fill required fields, save. */
   private async addContactInfoPhone(tc: UATTestCase): Promise<boolean> {
     const addBtn = this.page.getByRole('button', { name: 'Add Phone details' }).first();
-    if (!await addBtn.isVisible({ timeout: 5_000 }).catch(() => false)) {
-      console.log(`[PersonalInfo] ${tc.testId}: Add Phone button not visible — skipping`);
-      return false;
-    }
+    if (!await this.waitForAddButtonReady(addBtn, tc, 'phone')) return false;
     await addBtn.click();
     await this.page.waitForTimeout(1_200);
 
@@ -1677,10 +1741,7 @@ export class CoreHRUATFlow extends BaseFlow {
   /** Open the New Contact form, mark as emergency contact, submit. */
   private async addEmergencyContact(tc: UATTestCase): Promise<boolean> {
     const addBtn = this.page.getByRole('button', { name: 'Add My contacts' }).first();
-    if (!await addBtn.isVisible({ timeout: 5_000 }).catch(() => false)) {
-      console.log(`[PersonalInfo] ${tc.testId}: Add My contacts button not visible — skipping`);
-      return false;
-    }
+    if (!await this.waitForAddButtonReady(addBtn, tc, 'emergency')) return false;
     await addBtn.click();
     await this.page.waitForTimeout(1_200);
 
@@ -1693,20 +1754,47 @@ export class CoreHRUATFlow extends BaseFlow {
     }
 
     // Required fields on the New Contact form: Last Name, Relationship, start date.
-    // Last Name textboxes share a generic name attribute; anchor by visible label.
-    const lastNameField = this.page.locator(
-      'label:has-text("Last Name") + * input, label:has-text("Last Name") ~ * input',
+    // Every textbox in Basic info shares the accessible name
+    // "contact-basic-information-global-name-edit-input-text", so role-based
+    // queries can't disambiguate them. Anchor by the visible "Last Name" label
+    // and walk to the first input that follows it.
+    const lastName = this.page.locator(
+      'xpath=//*[normalize-space(text())="Last Name"]/following::input[1]',
     ).first();
-    const lastNameAlt = this.page.getByLabel('Last Name', { exact: false }).first();
-    const lastName = await lastNameField.isVisible({ timeout: 2_000 }).catch(() => false)
-      ? lastNameField : lastNameAlt;
-    if (await lastName.isVisible({ timeout: 3_000 }).catch(() => false)) {
+    if (await lastName.isVisible({ timeout: 5_000 }).catch(() => false)) {
+      await lastName.click();
       await lastName.fill('TestContact');
+      await this.page.waitForTimeout(400);
+    } else {
+      console.log(`[PersonalInfo] ${tc.testId}: Last Name field not found on New Contact form`);
     }
 
-    await this.pickRedwoodComboboxOption(
-      this.page.getByRole('combobox', { name: 'Relationship' }).first(), 'Other',
+    // Relationship — Cru's list doesn't include a generic "Other"; just pick
+    // whatever Oracle offers first.
+    await this.pickRedwoodComboboxFirstOption(
+      this.page.getByRole('combobox', { name: 'Relationship' }).first(),
     );
+
+    // Relationship start date — required. Use .fill() directly (focus + type)
+    // rather than .click() — clicking the date combobox opens a calendar dialog
+    // that can stall the action. .fill bypasses the dialog and writes the value.
+    // Press Escape first to dismiss any leftover Relationship dropdown.
+    await this.page.keyboard.press('Escape').catch(() => {});
+    await this.page.waitForTimeout(300);
+    const today = new Date();
+    const mm = String(today.getMonth() + 1).padStart(2, '0');
+    const dd = String(today.getDate()).padStart(2, '0');
+    const yy = String(today.getFullYear()).slice(-2);
+    const startDateField = this.page.getByRole('combobox', { name: /start date of this relationship/i }).first();
+    if (await startDateField.isVisible({ timeout: 2_000 }).catch(() => false)) {
+      await startDateField.fill(`${mm}/${dd}/${yy}`, { timeout: 5_000 }).catch(async (err) => {
+        console.log(`[PersonalInfo] ${tc.testId}: start-date fill failed (${String(err).substring(0, 60)}) — trying keyboard fallback`);
+        await startDateField.focus().catch(() => {});
+        await this.page.keyboard.type(`${mm}/${dd}/${yy}`).catch(() => {});
+      });
+      await this.page.keyboard.press('Tab');
+      await this.page.waitForTimeout(500);
+    }
 
     // Toggle "This person is an emergency contact" — Redwood renders it as a switch.
     const switchBtn = this.page.getByRole('switch', { name: /emergency contact/i }).first();
@@ -1722,17 +1810,58 @@ export class CoreHRUATFlow extends BaseFlow {
       return false;
     }
     await submitBtn.click();
-    await this.page.waitForTimeout(3_000);
-    await this.person.waitForJET();
 
-    // If Oracle complained about a required field we didn't fill, just bail
-    // gracefully — this section was exercised even if not saved.
-    const validationError = await this.page.getByText(/required|please/i).first()
-      .isVisible({ timeout: 1_500 }).catch(() => false);
-    if (validationError) {
-      console.log(`[PersonalInfo] ${tc.testId}: Emergency contact validation error — exercised navigation only`);
+    // Wait for submission to complete: success leaves /create-new-contact and
+    // returns to the FAEC list. If the URL doesn't change within a reasonable
+    // window, Oracle is showing a validation error — capture diagnostics.
+    const left = await this.page.waitForURL(
+      (url) => !url.toString().includes('create-new-contact'),
+      { timeout: 15_000 },
+    ).then(() => true).catch(() => false);
+    await this.person.waitForJET();
+    if (!left) {
+      console.log(`[PersonalInfo] ${tc.testId}: Emergency contact Submit blocked (validation?) — capturing screenshot`);
+      await this.page.screenshot({ path: `test-results/hr114-emergency-validation.png`, fullPage: true }).catch(() => {});
+      return false;
+    }
+    console.log(`[PersonalInfo] ${tc.testId}: Emergency contact submitted successfully`);
+    return true;
+  }
+
+  /**
+   * Wait for an "Add ..." button to be both visible AND enabled. Redwood disables
+   * every section's Add button while ANY inline row in that section is open, so
+   * we treat a disabled button as "skip this section, log diagnostics, move on"
+   * rather than letting the click time out for 30 s.
+   */
+  private async waitForAddButtonReady(
+    addBtn: Locator, tc: UATTestCase, label: string,
+  ): Promise<boolean> {
+    if (!await addBtn.isVisible({ timeout: 10_000 }).catch(() => false)) {
+      console.log(`[PersonalInfo] ${tc.testId}: Add ${label} button not visible — skipping (URL: ${this.page.url()})`);
+      await this.page.screenshot({ path: `test-results/hr114-${label}-not-found.png`, fullPage: true }).catch(() => {});
+      return false;
+    }
+    if (!await addBtn.isEnabled().catch(() => false)) {
+      console.log(`[PersonalInfo] ${tc.testId}: Add ${label} button is disabled — skipping (likely an inline row left open)`);
+      await this.page.screenshot({ path: `test-results/hr114-${label}-disabled.png`, fullPage: true }).catch(() => {});
+      return false;
     }
     return true;
+  }
+
+  /**
+   * Cancel any open Redwood inline-row form. Redwood disables a section's Add
+   * button until the open row's Save or Cancel is clicked — clicking Cancel here
+   * unblocks the next section's Add button, even when our Save earlier failed
+   * validation or stayed open.
+   */
+  private async cancelOpenInlineRow(): Promise<void> {
+    const cancelBtn = this.page.getByRole('button', { name: 'Cancel', exact: true }).first();
+    if (await cancelBtn.isVisible({ timeout: 1_500 }).catch(() => false)) {
+      await cancelBtn.click().catch(() => {});
+      await this.page.waitForTimeout(1_000);
+    }
   }
 
   /** Click "Save" in a Redwood inline form and report success. */
@@ -1748,18 +1877,76 @@ export class CoreHRUATFlow extends BaseFlow {
     return true;
   }
 
-  /** Click an inline-listbox combobox and pick the option whose text contains `match`. */
+  /**
+   * Pick a value from an Oracle JET combobox.
+   *
+   * Oracle's listbox renders in a separate z-order layer — the option is "visible"
+   * to Playwright but mouse clicks frequently don't land (the classic Redwood
+   * combobox unresponsive-options bug). Keyboard navigation (ArrowDown N times
+   * + Enter) drives JET's own focus state and consistently commits the value.
+   *
+   * Strategy:
+   *   1. Click to open the dropdown
+   *   2. Try a click on the matching option (works for some comboboxes)
+   *   3. If that doesn't take, fall back to keyboard navigation
+   */
   private async pickRedwoodComboboxOption(combobox: Locator, match: string): Promise<void> {
     if (!await combobox.isVisible({ timeout: 2_000 }).catch(() => false)) return;
-    await combobox.click();
-    await this.page.waitForTimeout(600);
+    await combobox.click().catch(() => {});
+    await this.page.waitForTimeout(800);
+
+    // Try a direct click first — fast path for the cases where it works.
     const opt = this.page.getByRole('option', { name: new RegExp(match, 'i') }).first();
     if (await opt.isVisible({ timeout: 2_000 }).catch(() => false)) {
-      await opt.click();
-    } else {
-      // Fall back to the first option in the listbox (e.g. when match isn't present).
-      await this.page.getByRole('option').first().click().catch(() => {});
+      const before = await combobox.inputValue().catch(() => '');
+      await opt.click({ timeout: 3_000 }).catch(() => {});
+      await this.page.waitForTimeout(400);
+      const after = await combobox.inputValue().catch(() => '');
+      if (after && after !== before) return; // click took effect
     }
+
+    // Keyboard fallback: arrow through the listbox until we hit a matching label.
+    await this.commitComboboxByKeyboard(combobox, match);
+  }
+
+  /** Open a Redwood combobox and pick the first option via keyboard. */
+  private async pickRedwoodComboboxFirstOption(combobox: Locator): Promise<void> {
+    if (!await combobox.isVisible({ timeout: 2_000 }).catch(() => false)) return;
+    await combobox.click().catch(() => {});
+    await this.page.waitForTimeout(800);
+    // ArrowDown highlights the first option; Enter commits it. Keyboard events go
+    // through JET's focus manager, sidestepping the pointer-event flakiness.
+    await this.page.keyboard.press('ArrowDown');
+    await this.page.waitForTimeout(200);
+    await this.page.keyboard.press('Enter');
+    await this.page.waitForTimeout(400);
+  }
+
+  /**
+   * Walk a JET combobox's listbox via keyboard until the highlighted option
+   * matches `match` (case-insensitive substring), then commit with Enter. Caps
+   * the search at 30 ArrowDown presses to avoid runaway loops.
+   */
+  private async commitComboboxByKeyboard(combobox: Locator, match: string): Promise<void> {
+    const wanted = match.toLowerCase();
+    for (let i = 0; i < 30; i++) {
+      await this.page.keyboard.press('ArrowDown');
+      await this.page.waitForTimeout(120);
+      // Read the currently active option's text from JET's aria-activedescendant.
+      const activeText = await combobox.evaluate((el) => {
+        const id = el.getAttribute('aria-activedescendant');
+        if (!id) return '';
+        const opt = document.getElementById(id);
+        return opt?.textContent?.trim() || '';
+      }).catch(() => '');
+      if (activeText && activeText.toLowerCase().includes(wanted)) {
+        await this.page.keyboard.press('Enter');
+        await this.page.waitForTimeout(400);
+        return;
+      }
+    }
+    // Didn't find a match — commit whatever's currently highlighted.
+    await this.page.keyboard.press('Enter');
     await this.page.waitForTimeout(400);
   }
 
