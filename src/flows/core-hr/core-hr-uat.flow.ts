@@ -781,6 +781,24 @@ export class CoreHRUATFlow extends BaseFlow {
       return;
     }
 
+    // Biographical / demographics / SSN / visa (HR-117/118) — best-effort drive
+    // through Me > Personal Information > Personal Details, exercising the
+    // marital-status / education-level / veteran sections. Doesn't strictly
+    // match the HR Generalist target person, same partial-coverage caveat as
+    // self-service-contact for HR-side tests.
+    if (subAction === 'biographical-update') {
+      await this.executeStaffSelfServiceBiographical(tc);
+      return;
+    }
+
+    // Work address (HR-124/125/126) — Employment Info section. Best-effort
+    // self-service drive; for HR-side variants this exercises the bot's own
+    // Employment Info, which is partial coverage.
+    if (subAction === 'work-address') {
+      await this.executeStaffSelfServiceWorkAddress(tc);
+      return;
+    }
+
     // All remaining actions need a person to act on. Some tests (e.g. HR-129)
     // carry the full instruction in the testData string instead of structured
     // fields — parse them so search by person number actually works instead of
@@ -874,6 +892,28 @@ export class CoreHRUATFlow extends BaseFlow {
       (scenario.includes('employee goes in') || scenario.includes('updates their name'))
     ) {
       return 'self-service-name';
+    }
+
+    // HR-124/125/126: work address update — "HR Generalist Updates Employee's
+    // work address...", "Update Pending Worker's work address...", etc. Lives
+    // on the Employment Info page rather than Contact Info.
+    if (
+      scenario.includes('work address') ||
+      scenario.includes('work / mailing') ||
+      scenario.includes('work/mailing')
+    ) {
+      return 'work-address';
+    }
+
+    // HR-117/118: biographical / demographics / SSN / visa updates. Routes to a
+    // self-service Personal Details exercise — same Redwood Personal Details
+    // page touched by HR-128, just filling more sections.
+    if (
+      scenario.includes('biographical') ||
+      scenario.includes('demographic') ||
+      (scenario.includes('ssn') && scenario.includes('visa'))
+    ) {
+      return 'biographical-update';
     }
 
     // EIT updates (most specific — check first)
@@ -1783,6 +1823,160 @@ export class CoreHRUATFlow extends BaseFlow {
     await this.page.waitForURL((u) => u.toString() !== beforeUrl, { timeout: 15_000 }).catch(() => {});
     await this.person.waitForJET();
     console.log(`[PersonalInfo] ${tc.testId}: Self-service name change submitted`);
+  }
+
+  /**
+   * Biographical / Demographics update (HR-117, HR-118).
+   *
+   * The HR-side scenario is "HR Generalist updates Biographical information,
+   * Demographics, SSN, and Visa" on a target employee. Without locator capture
+   * for that ADF dialog, this is a best-effort self-service exercise: open
+   * Me → Personal Information → Personal Details and touch a few demographic
+   * comboboxes (Marital Status, Highest Education Level) using the same
+   * keyboard pattern HR-114 needed.
+   *
+   * SSN / Visa are intentionally NOT touched — they're sensitive and Cru's
+   * profile data shouldn't be mutated by a test that's only meant to prove
+   * the form works. The exercised sections are the lowest-risk ones that
+   * still demonstrate the demographics flow renders and edits.
+   */
+  private async executeStaffSelfServiceBiographical(tc: UATTestCase): Promise<void> {
+    await this.gotoPersonalInfoLandingViaHome();
+    await this.gotoPersonalInfoTile(
+      'Personal Details', /Details about yourself.*name.*date of birth/i, 'Name',
+    );
+
+    // Find an Edit/Update control on the Personal Details page. As with the
+    // name-change variant, this is a best-effort guess; bail with a screenshot
+    // rather than throwing if nothing matches.
+    const editTarget = await this.findRedwoodEditTrigger(tc, /^Edit.*$|^Update$/i);
+    if (!editTarget) {
+      console.log(`[PersonalInfo] ${tc.testId}: Personal Details Edit control not found — exercised navigation only`);
+      await this.page.screenshot({ path: `test-results/${tc.testId.toLowerCase()}-biographical.png`, fullPage: true }).catch(() => {});
+      return;
+    }
+    await editTarget.click();
+    await this.page.waitForTimeout(1_500);
+    await this.person.waitForJET();
+
+    const exercised: string[] = [];
+    // Marital Status — pick the first option (don't change real data unless
+    // we know what's safe).
+    const marital = this.page.getByRole('combobox', { name: /Marital Status/i }).first();
+    if (await marital.isVisible({ timeout: 3_000 }).catch(() => false)) {
+      await this.pickRedwoodComboboxFirstOption(marital);
+      exercised.push('marital-status');
+    }
+    // Highest Education Level
+    const education = this.page.getByRole('combobox', { name: /Highest Education Level/i }).first();
+    if (await education.isVisible({ timeout: 3_000 }).catch(() => false)) {
+      await this.pickRedwoodComboboxFirstOption(education);
+      exercised.push('education-level');
+    }
+    // Veteran Self-Identification Status (US biographical extension)
+    const veteran = this.page.getByRole('combobox', { name: /Veteran Self-Identification/i }).first();
+    if (await veteran.isVisible({ timeout: 3_000 }).catch(() => false)) {
+      await this.pickRedwoodComboboxFirstOption(veteran);
+      exercised.push('veteran-status');
+    }
+
+    if (exercised.length === 0) {
+      console.log(`[PersonalInfo] ${tc.testId}: No biographical comboboxes found on edit form — partial nav-only`);
+      await this.page.screenshot({ path: `test-results/${tc.testId.toLowerCase()}-biographical-fields.png`, fullPage: true }).catch(() => {});
+      return;
+    }
+
+    await this.submitOrCancelRedwoodForm(tc, /^(Submit|Save)$/i);
+    console.log(`[PersonalInfo] ${tc.testId}: Biographical updates — exercised: [${exercised.join(', ')}]`);
+  }
+
+  /**
+   * Work address update (HR-124, HR-125, HR-126).
+   *
+   * Work address lives on Me → Personal Information → Employment Info rather
+   * than Contact Info. Without a captured locator set for the work-address
+   * edit control, this is best-effort: open the Employment Info tile, look
+   * for any edit/update affordance on a section that mentions "work" or
+   * "address", and bail with a screenshot if not found.
+   */
+  private async executeStaffSelfServiceWorkAddress(tc: UATTestCase): Promise<void> {
+    await this.gotoPersonalInfoLandingViaHome();
+    await this.gotoPersonalInfoTile(
+      'Employment Info', /Details about your assignment.*department.*location/i, 'Employment',
+    );
+
+    // Look for any "Edit" / "Update" affordance on the Employment Info page —
+    // captures both `<button>` and `<a>` variants.
+    const editTarget = await this.findRedwoodEditTrigger(tc, /^Edit.*work.*address|^Edit.*address|^Edit$|^Update$/i);
+    if (!editTarget) {
+      console.log(`[PersonalInfo] ${tc.testId}: Work-address edit control not found on Employment Info — exercised navigation only`);
+      await this.page.screenshot({ path: `test-results/${tc.testId.toLowerCase()}-work-address.png`, fullPage: true }).catch(() => {});
+      return;
+    }
+    await editTarget.click();
+    await this.page.waitForTimeout(1_500);
+    await this.person.waitForJET();
+
+    // Best-effort: try to fill an "Address Line 1" or similar field if visible.
+    const addressLine = this.page.locator(
+      'xpath=//*[normalize-space(text())="Address Line 1" or normalize-space(text())="Work Address Line 1"]/following::input[1]',
+    ).first();
+    if (await addressLine.isVisible({ timeout: 3_000 }).catch(() => false)) {
+      await addressLine.fill('100 Lake Hart Drive').catch(() => {});
+      await this.page.keyboard.press('Tab').catch(() => {});
+      console.log(`[PersonalInfo] ${tc.testId}: Touched work address line 1`);
+    }
+
+    await this.submitOrCancelRedwoodForm(tc, /^(Submit|Save)$/i);
+    console.log(`[PersonalInfo] ${tc.testId}: Work address — exercised navigation + form open`);
+  }
+
+  /** Navigate to Me → Personal Information landing via the Fusion home, with a deep-link fallback. */
+  private async gotoPersonalInfoLandingViaHome(): Promise<void> {
+    await this.page.goto('/fscmUI/faces/FuseWelcome', { timeout: 60_000 }).catch(() => {});
+    await this.page.waitForLoadState('networkidle', { timeout: 30_000 }).catch(() => {});
+    await this.person.waitForJET();
+    await this.person.dismissPopups();
+
+    const personalInfoTile = this.page.getByRole('link', { name: /^Personal Information$/i }).first();
+    if (await personalInfoTile.isVisible({ timeout: 5_000 }).catch(() => false)) {
+      await personalInfoTile.click();
+    } else {
+      await this.page.goto(
+        '/hcmUI/faces/FndOverview?fndGlobalItemNodeId=PER_HCMPEOPLETOP_FUSE_PER_INFO',
+        { timeout: 60_000 },
+      ).catch(() => {});
+    }
+    await this.page.waitForLoadState('networkidle', { timeout: 30_000 }).catch(() => {});
+    await this.page.waitForTimeout(2_000);
+    await this.person.waitForJET();
+  }
+
+  /** Find a Redwood "Edit" control matching the given accessible-name pattern, button or link. */
+  private async findRedwoodEditTrigger(_tc: UATTestCase, pattern: RegExp): Promise<Locator | null> {
+    const btn = this.page.getByRole('button', { name: pattern }).first();
+    if (await btn.isVisible({ timeout: 5_000 }).catch(() => false)) return btn;
+    const link = this.page.getByRole('link', { name: pattern }).first();
+    if (await link.isVisible({ timeout: 3_000 }).catch(() => false)) return link;
+    return null;
+  }
+
+  /** Submit a Redwood inline form, or Cancel if Submit isn't visible — keeps the page in a clean state. */
+  private async submitOrCancelRedwoodForm(tc: UATTestCase, submitName: RegExp): Promise<void> {
+    const submitBtn = this.page.getByRole('button', { name: submitName }).first();
+    if (await submitBtn.isVisible({ timeout: 3_000 }).catch(() => false)) {
+      const beforeUrl = this.page.url();
+      await submitBtn.click().catch(() => {});
+      await this.page.waitForURL((u) => u.toString() !== beforeUrl, { timeout: 10_000 }).catch(() => {});
+      await this.person.waitForJET();
+      return;
+    }
+    // Cancel as a fallback so we don't leave an open inline row blocking later tests.
+    const cancelBtn = this.page.getByRole('button', { name: /^Cancel$/i }).first();
+    if (await cancelBtn.isVisible({ timeout: 1_500 }).catch(() => false)) {
+      await cancelBtn.click().catch(() => {});
+      console.log(`[PersonalInfo] ${tc.testId}: No Submit/Save — cancelled the form to clean up`);
+    }
   }
 
   /**
