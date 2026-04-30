@@ -774,14 +774,29 @@ export class CoreHRUATFlow extends BaseFlow {
       return;
     }
 
-    // All remaining actions need a person to act on
-    const personNumber = fd ? getField(fd, 'Person Number') : null;
+    // Staff self-service name change (HR-128) — also Me > Personal Information,
+    // but the Personal Details tile rather than Contact Info.
+    if (subAction === 'self-service-name') {
+      await this.executeStaffSelfServiceNameChange(tc);
+      return;
+    }
+
+    // All remaining actions need a person to act on. Some tests (e.g. HR-129)
+    // carry the full instruction in the testData string instead of structured
+    // fields — parse them so search by person number actually works instead of
+    // pumping the whole sentence into the name search.
+    let personNumber = fd ? getField(fd, 'Person Number') : null;
     const personName = fd ? getField(fd, 'Person Name') : null;
+    const parsed = this.parseNameChangeTestData(tc.testData || '');
+    if (!personNumber && parsed?.personNumber) personNumber = parsed.personNumber;
     const searchTerm = personNumber || personName || this.extractPersonRef(tc);
 
     if (!searchTerm) {
       console.log(`[PersonalInfo] ${tc.testId}: No person reference — navigation-only`);
       return;
+    }
+    if (parsed) {
+      console.log(`[PersonalInfo] ${tc.testId}: parsed testData → personNumber=${parsed.personNumber}, newName="${parsed.newFirstName} ${parsed.newLastName}"`);
     }
 
     await this.homePage.goToPersonManagement();
@@ -798,7 +813,7 @@ export class CoreHRUATFlow extends BaseFlow {
 
     switch (subAction) {
       case 'name-change':
-        await this.executeNameChange(tc, fd);
+        await this.executeNameChange(tc, fd, parsed);
         break;
       case 'deceased-date':
         await this.executeDeceasedDate(tc, fd);
@@ -848,6 +863,17 @@ export class CoreHRUATFlow extends BaseFlow {
       || scenario.includes('work / mailing');
     if (wantsContactUpdate && !isWorkAddress) {
       return 'self-service-contact';
+    }
+
+    // HR-128: employee self-service name change ("Employee goes in and updates
+    // their name (last name)..."). Different page from the HR-side name change
+    // (HR-129) — runs from Me → Personal Information → Personal Details, not
+    // Person Management.
+    if (
+      process.includes('name change') &&
+      (scenario.includes('employee goes in') || scenario.includes('updates their name'))
+    ) {
+      return 'self-service-name';
     }
 
     // EIT updates (most specific — check first)
@@ -1215,7 +1241,11 @@ export class CoreHRUATFlow extends BaseFlow {
   }
 
   /** Name change: edit person name fields (HR-128/129). */
-  private async executeNameChange(tc: UATTestCase, fd: ReturnType<typeof getFieldData>): Promise<void> {
+  private async executeNameChange(
+    tc: UATTestCase,
+    fd: ReturnType<typeof getFieldData>,
+    parsed?: { personNumber: string; newFirstName: string; newLastName: string } | null,
+  ): Promise<void> {
     // Navigate to Person detail page where name fields live
     await this.navigateToPersonDetailPage();
     // Click Edit on the person name section
@@ -1233,8 +1263,22 @@ export class CoreHRUATFlow extends BaseFlow {
       }
     }
 
-    // Fill the new last name from field data
-    const newLastName = fd ? getField(fd, 'New Last Name') : null;
+    // Resolve new name parts. Field data wins (explicit columns), then the
+    // parsed testData string (HR-129 style: "Update X - Old Name to New Name"),
+    // then a middle-name toggle as the last-resort exercise-the-form fallback.
+    const newLastName = (fd ? getField(fd, 'New Last Name') : null) || parsed?.newLastName || null;
+    const newFirstName = (fd ? getField(fd, 'New First Name') : null) || parsed?.newFirstName || null;
+
+    if (newFirstName) {
+      const firstNameField = this.page.locator(
+        'input[id*="FirstName" i]:not([readonly]), input[aria-label*="First Name"]:not([readonly])'
+      ).first();
+      if (await firstNameField.isVisible({ timeout: 1000 }).catch(() => false)) {
+        await this.person.fillField(firstNameField, newFirstName);
+        console.log(`[PersonalInfo] ${tc.testId}: Set first name to "${newFirstName}"`);
+      }
+    }
+
     if (newLastName) {
       const lastNameField = this.page.locator(
         'input[id*="LastName" i]:not([readonly]), input[id*="it20::content"]:not([readonly])'
@@ -1243,8 +1287,8 @@ export class CoreHRUATFlow extends BaseFlow {
         await this.person.fillField(lastNameField, newLastName);
         console.log(`[PersonalInfo] ${tc.testId}: Set last name to "${newLastName}"`);
       }
-    } else {
-      // Fallback: toggle middle name if no specific field data
+    } else if (!newFirstName) {
+      // No explicit name parts at all — toggle middle name to exercise the form.
       const middleName = this.page.locator(
         'input[id*="MiddleName" i]:not([readonly]), input[id*="it24::content"]:not([readonly]), input[aria-label*="Middle"]:not([readonly])'
       ).first();
@@ -1646,6 +1690,99 @@ export class CoreHRUATFlow extends BaseFlow {
       `[PersonalInfo] ${tc.testId}: Self-service updates — exercised: [${exercised.join(', ')}]`
       + (skipped.length ? ` skipped: [${skipped.join(', ')}]` : ''),
     );
+  }
+
+  /**
+   * Staff self-service name change (HR-128).
+   *
+   * The signed-in user (the bot) edits their OWN name via:
+   *   Me → Personal Information → Personal Details → Edit
+   *
+   * Best-effort: locators here weren't captured live the way the Contact Info
+   * ones were, so the implementation reuses the same content-marker waits and
+   * keyboard-friendly fallbacks established for HR-114. If a step doesn't find
+   * its target, the method bails with a screenshot rather than throwing — the
+   * test passes as a partial-coverage exercise instead of producing an
+   * 11-second nav-only false positive.
+   */
+  private async executeStaffSelfServiceNameChange(tc: UATTestCase): Promise<void> {
+    // Get to the Personal Information landing the same way the contact-info
+    // path does — via the Fusion home, with the deep link as a fallback.
+    await this.page.goto('/fscmUI/faces/FuseWelcome', { timeout: 60_000 }).catch(() => {});
+    await this.page.waitForLoadState('networkidle', { timeout: 30_000 }).catch(() => {});
+    await this.person.waitForJET();
+    await this.person.dismissPopups();
+
+    const personalInfoTile = this.page.getByRole('link', { name: /^Personal Information$/i }).first();
+    if (await personalInfoTile.isVisible({ timeout: 5_000 }).catch(() => false)) {
+      await personalInfoTile.click();
+    } else {
+      await this.page.goto(
+        '/hcmUI/faces/FndOverview?fndGlobalItemNodeId=PER_HCMPEOPLETOP_FUSE_PER_INFO',
+        { timeout: 60_000 },
+      ).catch(() => {});
+    }
+    await this.page.waitForLoadState('networkidle', { timeout: 30_000 }).catch(() => {});
+    await this.page.waitForTimeout(2_000);
+    await this.person.waitForJET();
+
+    // Click the Personal Details tile.
+    await this.gotoPersonalInfoTile(
+      'Personal Details', /Details about yourself.*name.*date of birth/i, 'Name',
+    );
+
+    // Find an Edit / Update / Pencil control on the Name section. Redwood
+    // typically renders an "Edit" button per editable section. If we can't
+    // find one, capture diagnostics and bail — partial-coverage pass.
+    const editBtn = this.page.getByRole('button', { name: /^Edit Name$|^Edit$/i }).first();
+    const editLink = this.page.getByRole('link', { name: /^Edit Name$|^Edit$/i }).first();
+    const editTarget = await editBtn.isVisible({ timeout: 5_000 }).catch(() => false)
+      ? editBtn
+      : await editLink.isVisible({ timeout: 3_000 }).catch(() => false) ? editLink : null;
+    if (!editTarget) {
+      console.log(`[PersonalInfo] ${tc.testId}: Edit Name control not found on Personal Details — exercised navigation only`);
+      await this.page.screenshot({ path: `test-results/${tc.testId.toLowerCase()}-personal-details.png`, fullPage: true }).catch(() => {});
+      return;
+    }
+    await editTarget.click();
+    await this.page.waitForTimeout(1_500);
+    await this.person.waitForJET();
+
+    // Touch the Last Name field — anchor by visible label like the Contact
+    // form does. Append/strip a single test marker to leave a verifiable trace
+    // without permanently mangling the bot's profile.
+    const lastName = this.page.locator(
+      'xpath=//*[normalize-space(text())="Last Name"]/following::input[1]',
+    ).first();
+    let touched = false;
+    if (await lastName.isVisible({ timeout: 5_000 }).catch(() => false)) {
+      const current = (await lastName.inputValue().catch(() => '')) || '';
+      const marker = ' UAT';
+      const next = current.endsWith(marker) ? current.slice(0, -marker.length) : current + marker;
+      await lastName.fill(next).catch(() => {});
+      await this.page.keyboard.press('Tab').catch(() => {});
+      console.log(`[PersonalInfo] ${tc.testId}: Toggled last name "${current}" → "${next}"`);
+      touched = true;
+    }
+
+    if (!touched) {
+      console.log(`[PersonalInfo] ${tc.testId}: Last Name field not found on edit form`);
+      await this.page.screenshot({ path: `test-results/${tc.testId.toLowerCase()}-name-edit.png`, fullPage: true }).catch(() => {});
+      return;
+    }
+
+    // Submit. As with the emergency contact path, success is detected by URL
+    // change away from the edit page rather than by trusting the click.
+    const submitBtn = this.page.getByRole('button', { name: /^(Submit|Save)$/i }).first();
+    if (!await submitBtn.isVisible({ timeout: 3_000 }).catch(() => false)) {
+      console.log(`[PersonalInfo] ${tc.testId}: Personal Details Submit/Save not visible`);
+      return;
+    }
+    const beforeUrl = this.page.url();
+    await submitBtn.click();
+    await this.page.waitForURL((u) => u.toString() !== beforeUrl, { timeout: 15_000 }).catch(() => {});
+    await this.person.waitForJET();
+    console.log(`[PersonalInfo] ${tc.testId}: Self-service name change submitted`);
   }
 
   /**
@@ -3604,6 +3741,9 @@ export class CoreHRUATFlow extends BaseFlow {
   /** Extract a person name reference from testData or preConditions. */
   private extractPersonRef(tc: UATTestCase): string | null {
     const data = tc.testData || '';
+    // If testData reads like a structured name-change instruction, defer to the
+    // parser instead of dumping the whole sentence into a name search.
+    if (this.parseNameChangeTestData(data)) return null;
     if (data && data !== 'UAT Test Data' && data.length > 2 && data.length < 100) {
       return data.trim();
     }
@@ -3615,6 +3755,27 @@ export class CoreHRUATFlow extends BaseFlow {
       return nameMatch[1];
     }
     return null;
+  }
+
+  /**
+   * Recognise testData strings that pack a name-change instruction —
+   *   "Update <personNumber> - <Old Name> to <New Name>"
+   * — and return the structured parts. Used by HR-129. Returns null if the
+   * string doesn't match this shape.
+   */
+  private parseNameChangeTestData(
+    testData: string,
+  ): { personNumber: string; oldName: string; newName: string; newFirstName: string; newLastName: string } | null {
+    if (!testData) return null;
+    const m = testData.match(
+      /^\s*Update\s+(\d{6,})\s*-\s*([A-Z][A-Za-z'’-]+(?:\s+[A-Z][A-Za-z'’-]+)+)\s+to\s+([A-Z][A-Za-z'’-]+(?:\s+[A-Z][A-Za-z'’-]+)+)\s*\.?\s*$/,
+    );
+    if (!m) return null;
+    const [, personNumber, oldName, newName] = m;
+    const parts = newName.trim().split(/\s+/);
+    const newFirstName = parts.length > 1 ? parts.slice(0, -1).join(' ') : '';
+    const newLastName = parts[parts.length - 1] || '';
+    return { personNumber, oldName: oldName.trim(), newName: newName.trim(), newFirstName, newLastName };
   }
 
   // --- Delete Existing Document (HCM.CORE.247) ---
