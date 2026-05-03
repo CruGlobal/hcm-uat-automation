@@ -500,6 +500,13 @@ export class AssignmentChangeFlow extends BaseCoreHRFlow {
             console.log(`[AssignChange] ${fieldName} already populated with "${current}" — skipping LOV change (migration DB value "${value}" is a code, not searchable)`);
             continue;
           }
+          // Migration DB uses "Not Graded" to mean "this person has no grade";
+          // it's not a real LOV value in Oracle. Skip rather than burn 20s on a
+          // guaranteed-failed search that ends in an "Invalid value" submit error.
+          if (fieldName === 'Grade' && value.trim().toLowerCase() === 'not graded') {
+            console.log(`[AssignChange] Grade migration value "Not Graded" is a placeholder, not a searchable LOV — leaving field empty`);
+            continue;
+          }
         }
       }
 
