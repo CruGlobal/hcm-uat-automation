@@ -3,6 +3,7 @@ import path from 'path';
 import type { UATTestCase, TestCase } from './types';
 import { getBotForTester } from '../config/bot-users';
 import { pickEmployeeFromPool, PAYROLL_ELEMENT_OVERRIDES, PAYROLL_REASON_OVERRIDES } from './payroll-employee-pools';
+import { getLeaveMapping } from './leave-actions';
 
 const CACHE_FILE = path.resolve(process.cwd(), '.cache', 'uat-plan.json');
 const FIELD_DATA_FILE = path.resolve(process.cwd(), '.cache-generated', 'field-data.json');
@@ -139,6 +140,28 @@ export function getFieldData(testId: string): TestCase | undefined {
       _fieldDataCache = new Map();
     }
   }
+
+  // Synthesize field data for leave tests (HR-303..322) — these have no migration
+  // DB row, so we generate a TestCase from the static leave-actions mapping.
+  // Each leave test is assigned a unique person to avoid state collisions in
+  // parallel runs (a person can only be in one leave state at a time).
+  const leaveMap = getLeaveMapping(testId);
+  if (leaveMap) {
+    const fields: Record<string, string> = {
+      'Person Number': leaveMap.personNumber,
+      'Person Name': leaveMap.personName,
+      "What's the way": leaveMap.action,
+    };
+    if (leaveMap.reason) fields['Why'] = leaveMap.reason;
+    return {
+      testId,
+      tab: 'AI Core Assign Change',
+      scenario: 'Leave Action',
+      fields,
+      columnIndex: -1,
+    };
+  }
+
   const tc = _fieldDataCache.get(testId);
   if (!tc) return undefined;
 
