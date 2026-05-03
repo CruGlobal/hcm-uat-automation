@@ -88,20 +88,20 @@ export class AssignmentChangeFlow extends BaseCoreHRFlow {
     } else if (personName) {
       searchSucceeded = await this.person.searchByName(personName);
     } else {
-      console.log(`[AssignChange] ${tc.testId}: No person number or name in field data — navigation-only completion`);
-      return;
+      // Previously fell through to a silent navigation-only "pass" — that hid
+      // genuine flow failures (e.g. HR-416 Manager Self-Service couldn't reach
+      // Person Management). Fail loudly so we can see and fix these tests.
+      throw new Error(`${tc.testId}: No person number or name in field data — assignment-change cannot proceed`);
     }
 
     if (!searchSucceeded) {
-      console.log(`[AssignChange] ${tc.testId}: Person Management not available — navigation-only completion`);
-      return;
+      throw new Error(`${tc.testId}: Person Management not available for this user/role — assignment-change cannot proceed (likely Manager Self-Service path needed)`);
     }
 
     // Open Edit → Update (or Change Assignment / Transfer) → fill dialog
     const updateInitiated = await this.initiateUpdate();
     if (!updateInitiated) {
-      console.log(`[AssignChange] ${tc.testId}: Edit/Update not available — navigation-only completion`);
-      return;
+      throw new Error(`${tc.testId}: Edit/Update not available on person detail page — assignment-change cannot proceed`);
     }
     // fillUpdateDialog returns false if no dialog appeared — this is OK when
     // "Change Assignment" or "Transfer" was clicked directly (skips the dialog
