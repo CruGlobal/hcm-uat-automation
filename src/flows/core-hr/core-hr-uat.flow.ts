@@ -3429,40 +3429,44 @@ export class CoreHRUATFlow extends BaseFlow {
     const searchTerm = personNumber || personName || this.extractPersonRef(tc);
 
     await this.homePage.goToPersonManagement();
-    const salarySearchOk = await this.searchForPerson(personNumber, personNumber ? null : searchTerm);
-    if (!salarySearchOk) { console.log(`[ChangeSalary] ${tc.testId}: PM not available — navigation-only`); return; }
-
-    // Verify person detail page loaded before trying Actions menu
-    await this.page.waitForTimeout(3000);
-    await this.person.waitForJET();
-
-    // Navigate to Salary section → Change Salary
-    // Try "Manage Salary" first (most common), fall back to "Change Salary"
-    let found = false;
-    try {
-      found = await this.selectPersonAction('Manage Salary');
-    } catch {
-      try {
-        found = await this.selectPersonAction('Change Salary');
-      } catch {
-        // Neither action found
-      }
+    if (!personNumber) {
+      throw new Error(`${tc.testId}: No person number in field data — change-salary cannot search by name alone for the row Actions menu path`);
     }
-    if (!found) return;
+
+    // Search but do NOT click into the person detail page. The Compensation →
+    // Change Salary nested menu lives on the search results row's Actions ▼
+    // button, not on the detail page.
+    const found = await this.person.searchByPersonNumberOnly(personNumber);
+    if (!found) {
+      throw new Error(`${tc.testId}: Person ${personNumber} not found in Person Management search`);
+    }
+    await this.page.waitForTimeout(2000);
+    await this.person.waitForJET();
+    await this.person.clearGlassPane();
+
+    // Click the row-level Actions ▼ button → hover Compensation → click Change Salary
+    const navigated = await this.selectRowActionPath('Compensation', 'Change Salary');
+    if (!navigated) {
+      throw new Error(`${tc.testId}: Could not navigate Compensation → Change Salary from the search-results row Actions menu`);
+    }
     await this.page.waitForTimeout(2000);
 
-    // Fill the When and Why dialog with effective date and action
+    // The Change Salary page has Action / Reason / Salary Basis / Salary Amount
+    // all inline on a single screen. Older code expected a separate When/Why
+    // dialog with a Continue button — that doesn't exist on this path. Fill
+    // everything on the same page, then Save (clickSubmit falls back to Save).
     if (fd) {
+      // Effective Start Date
       const effDate = getField(fd, 'When - Effective date') || getField(fd, 'Effective Date');
       if (effDate) {
         const dateInput = this.page.locator('input[id*="inputDate"][id*="::content"]').first();
         if (await dateInput.isVisible({ timeout: 1000 }).catch(() => false)) {
           await this.person.fillField(dateInput, effDate);
-          await this.page.waitForTimeout(1000);
+          await this.page.waitForTimeout(800);
         }
       }
 
-      // Action (What's the way) — e.g. "Change Salary"
+      // Action (e.g. "Change Salary") — Action field on the form
       const action = getField(fd, "What's the way");
       if (action) {
         const actionField = this.page.locator('input[id*="actionsName"][id*="::content"]').first();
@@ -3472,7 +3476,7 @@ export class CoreHRUATFlow extends BaseFlow {
         }
       }
 
-      // Action Reason (Why)
+      // Action Reason (e.g. "Merit") — Action Reason field on the form
       const reason = getField(fd, 'Why');
       if (reason) {
         const reasonField = this.page.locator('input[id*="actionReason"][id*="::content"]').first();
@@ -3481,18 +3485,21 @@ export class CoreHRUATFlow extends BaseFlow {
           await this.page.waitForTimeout(500);
         }
       }
-    }
 
-    // Click Continue/OK to proceed past the When and Why dialog
-    await this.person.clickAdfButton('Continue');
-    await this.page.waitForTimeout(2000);
-    await this.person.waitForJET();
-
-    // Fill salary fields on the salary page
-    if (fd) {
-      const salaryAmount = getField(fd, 'Salary > Salary') || getField(fd, 'Salary');
+      // Salary Basis (auto-set per person type, but override if data provided)
       const salaryBasis = getField(fd, 'Salary > Salary Basis') || getField(fd, 'Salary Basis');
+      if (salaryBasis) {
+        const basisField = this.page.locator(
+          'input[id*="SalaryBasis" i]:not([readonly]), input[id*="salaryBasis" i]:not([readonly])'
+        ).first();
+        if (await basisField.isVisible({ timeout: 1000 }).catch(() => false)) {
+          await this.person.fillCombobox(basisField, salaryBasis);
+          console.log(`[SalaryChange] ${tc.testId}: Salary basis = ${salaryBasis}`);
+        }
+      }
 
+      // Salary Amount — main form field
+      const salaryAmount = getField(fd, 'Salary > Salary') || getField(fd, 'Salary');
       if (salaryAmount) {
         const amountField = this.page.locator(
           'input[id*="Salary" i][id*="Amount" i]:not([readonly]), ' +
@@ -3504,22 +3511,32 @@ export class CoreHRUATFlow extends BaseFlow {
           console.log(`[SalaryChange] ${tc.testId}: Salary amount = ${salaryAmount}`);
         }
       }
-
-      if (salaryBasis) {
-        const basisField = this.page.locator(
-          'input[id*="SalaryBasis" i]:not([readonly]), ' +
-          'input[id*="salaryBasis" i]:not([readonly])'
-        ).first();
-        if (await basisField.isVisible({ timeout: 1000 }).catch(() => false)) {
-          await this.person.fillCombobox(basisField, salaryBasis);
-          console.log(`[SalaryChange] ${tc.testId}: Salary basis = ${salaryBasis}`);
-        }
-      }
     }
 
     await this.page.waitForTimeout(1000);
-    await this.confirmation.clickSubmit();
-    await this.confirmation.expectSuccess();
+
+    // Save the change — Change Salary page uses a plain Save button (not an
+    // ADF link), so we click it directly via Playwright. After Save, Oracle
+    // shows an OK confirmation popup; dismiss it.
+    const saveBtn = this.page.getByRole('button', { name: 'Save', exact: true }).first();
+    if (await saveBtn.isVisible({ timeout: 5000 }).catch(() => false)) {
+      await saveBtn.click();
+      console.log(`[SalaryChange] ${tc.testId}: Save clicked`);
+      await this.page.waitForTimeout(3000);
+      await this.person.waitForJET();
+
+      // Confirmation popup
+      const okBtn = this.page.getByRole('button', { name: 'OK', exact: true }).first();
+      if (await okBtn.isVisible({ timeout: 5000 }).catch(() => false)) {
+        await okBtn.click();
+        console.log(`[SalaryChange] ${tc.testId}: Confirmation OK clicked`);
+        await this.page.waitForTimeout(2000);
+        await this.person.waitForJET();
+      }
+      console.log(`[SalaryChange] ${tc.testId}: Save committed`);
+    } else {
+      throw new Error(`${tc.testId}: Save button not found on Change Salary page`);
+    }
   }
 
   // --- Manager Self-Service (HCM.CORE.4xx) ---
@@ -3883,6 +3900,166 @@ export class CoreHRUATFlow extends BaseFlow {
     }
 
     throw new Error(errorMsg);
+  }
+
+  /**
+   * Click a nested action from the per-row Actions ▼ button on the Person
+   * Management search results page. The row Actions menu has top-level parents
+   * (Absences / Payroll / Compensation / Personal and Employment / Workforce
+   * Modeling) with the salary/bonus/leave actions nested underneath. This
+   * method:
+   *   1. Locates the per-row Actions ▼ trigger on the first result row
+   *   2. Opens it
+   *   3. Hovers the parent item to expand the submenu
+   *   4. Clicks the child item
+   *
+   * Caller must have already run searchByPersonNumberOnly so the search
+   * results table is populated.
+   */
+  private async selectRowActionPath(parent: string, child: string): Promise<boolean> {
+    // Selector for visible child items — scoped broadly across menuitem/anchor/
+    // td so we don't depend on Oracle's specific role labeling. ":visible"
+    // pseudo prevents matching hidden duplicates elsewhere on the page.
+    const childSel =
+      `[role="menuitem"]:visible:has-text("${child}"), ` +
+      `a:visible:has-text("${child}"), ` +
+      `td:visible:has-text("${child}"), ` +
+      `li:visible:has-text("${child}")`;
+
+    for (let attempt = 0; attempt < 3; attempt++) {
+      if (attempt > 0) {
+        console.log(`[selectRowActionPath] Retry ${attempt + 1} for "${parent} → ${child}"`);
+        await this.page.keyboard.press('Escape').catch(() => {});
+        await this.page.waitForTimeout(2000);
+        await this.person.waitForJET();
+      }
+
+      // Find and click the per-row Actions ▼ button on the search results
+      const rowAction = this.page.locator(
+        '[id*="table2:0:commandImageLink"], [id*="table2:0:cil"], ' +
+        '[id*="table2:0:"] [aria-label*="Action" i], ' +
+        'tr[_afrrk]:first-child [aria-label*="Action" i]'
+      ).first();
+      if (!(await rowAction.isVisible({ timeout: 3000 }).catch(() => false))) {
+        console.log('[selectRowActionPath] Row Actions ▼ not visible — retrying');
+        continue;
+      }
+      await rowAction.click({ force: true });
+      await this.page.waitForTimeout(1500);
+
+      // Find the parent submenu trigger (e.g. "Compensation"). Filter by
+      // visibility — there may be hidden duplicates elsewhere in the DOM.
+      const parentItem = this.page.locator(
+        `[role="menuitem"]:visible:has-text("${parent}"), ` +
+        `td:visible:has-text("${parent}"), ` +
+        `a:visible:has-text("${parent}"), ` +
+        `li:visible:has-text("${parent}")`
+      ).first();
+      if (!(await parentItem.isVisible({ timeout: 3000 }).catch(() => false))) {
+        console.log(`[selectRowActionPath] Parent "${parent}" not visible after row Actions click`);
+        continue;
+      }
+
+      // Try hover first (Oracle ADF cascading menus expand on hover)
+      await parentItem.hover();
+      await this.page.waitForTimeout(1500);
+
+      let childItem = this.page.locator(childSel).first();
+      let childVisible = await childItem.isVisible({ timeout: 2000 }).catch(() => false);
+
+      // Hover didn't expand → try click on parent
+      if (!childVisible) {
+        await parentItem.click({ force: true }).catch(() => {});
+        await this.page.waitForTimeout(1500);
+        childItem = this.page.locator(childSel).first();
+        childVisible = await childItem.isVisible({ timeout: 2000 }).catch(() => false);
+      }
+
+      if (!childVisible) {
+        // Final attempt: hover via mouseover JS event (some ADF menus need it)
+        await parentItem.dispatchEvent('mouseover').catch(() => {});
+        await this.page.waitForTimeout(1500);
+        childItem = this.page.locator(childSel).first();
+        childVisible = await childItem.isVisible({ timeout: 2000 }).catch(() => false);
+      }
+
+      if (!childVisible) {
+        // Capture what's visible to aid debugging
+        const visible = await this.page.locator('[role="menuitem"]:visible, a:visible, td:visible')
+          .allTextContents().catch(() => []);
+        const items = visible.map(t => t.trim()).filter(t => t && t.length < 40).slice(0, 25);
+        console.log(`[selectRowActionPath] Child "${child}" not visible. Visible labels nearby: [${items.join(', ')}]`);
+        continue;
+      }
+
+      await childItem.click();
+      await this.page.waitForTimeout(3000);
+      await this.person.waitForJET();
+      return true;
+    }
+    return false;
+  }
+
+  /**
+   * Click a nested action from the person Actions menu.
+   * Used when the action lives inside a sub-menu (e.g. Compensation → Change
+   * Salary, Absences → Add Absence). Opens the Actions menu, hovers/clicks the
+   * parent item to expand the submenu, then clicks the child item.
+   */
+  private async selectNestedPersonAction(parent: string, child: string): Promise<boolean> {
+    await this.ensureOnPersonDetailPage();
+    await this.page.waitForTimeout(2000);
+    await this.person.waitForJET();
+    await this.person.dismissPopups();
+    await this.person.clearGlassPane();
+
+    for (let attempt = 0; attempt < 3; attempt++) {
+      if (attempt > 0) {
+        console.log(`[selectNestedPersonAction] Retry ${attempt + 1} for "${parent} → ${child}"`);
+        await this.page.waitForTimeout(3000);
+        await this.person.waitForJET();
+      }
+
+      // Open the Actions button
+      const actionsBtn = this.page.locator(
+        'button:has-text("Actions"), a[role="button"]:has-text("Actions"), [role="menuitem"][aria-label="Actions"]'
+      ).first();
+      if (!(await actionsBtn.isVisible({ timeout: 5000 }).catch(() => false))) {
+        await this.page.keyboard.press('Escape').catch(() => {});
+        continue;
+      }
+      await actionsBtn.click();
+      await this.page.waitForTimeout(800);
+
+      // Hover the parent item — that's how Oracle expands the submenu
+      const parentItem = this.page.locator(`[role="menuitem"]:has-text("${parent}"), li:has-text("${parent}")`).first();
+      if (!(await parentItem.isVisible({ timeout: 3000 }).catch(() => false))) {
+        console.log(`[selectNestedPersonAction] Parent "${parent}" not visible after opening Actions`);
+        await this.page.keyboard.press('Escape').catch(() => {});
+        continue;
+      }
+      await parentItem.hover();
+      await this.page.waitForTimeout(800);
+
+      // Click the child item — try menuitem first, then plain text
+      const childItem = this.page.locator(`[role="menuitem"]:has-text("${child}"), a:has-text("${child}")`).first();
+      if (!(await childItem.isVisible({ timeout: 3000 }).catch(() => false))) {
+        // Some submenus require a click on the parent (not just hover) to open
+        await parentItem.click({ force: true }).catch(() => {});
+        await this.page.waitForTimeout(800);
+        if (!(await childItem.isVisible({ timeout: 2000 }).catch(() => false))) {
+          console.log(`[selectNestedPersonAction] Child "${child}" not visible after expanding "${parent}"`);
+          await this.page.keyboard.press('Escape').catch(() => {});
+          continue;
+        }
+      }
+      await childItem.click();
+      await this.page.waitForTimeout(2000);
+      await this.person.waitForJET();
+      return true;
+    }
+
+    return false;
   }
 
   /**

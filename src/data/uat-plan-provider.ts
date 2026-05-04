@@ -4,6 +4,7 @@ import type { UATTestCase, TestCase } from './types';
 import { getBotForTester } from '../config/bot-users';
 import { pickEmployeeFromPool, PAYROLL_ELEMENT_OVERRIDES, PAYROLL_REASON_OVERRIDES } from './payroll-employee-pools';
 import { getLeaveMapping } from './leave-actions';
+import { getSalaryMapping } from './salary-actions';
 
 const CACHE_FILE = path.resolve(process.cwd(), '.cache', 'uat-plan.json');
 const FIELD_DATA_FILE = path.resolve(process.cwd(), '.cache-generated', 'field-data.json');
@@ -158,6 +159,26 @@ export function getFieldData(testId: string): TestCase | undefined {
       tab: 'AI Core Assign Change',
       scenario: 'Leave Action',
       fields,
+      columnIndex: -1,
+    };
+  }
+
+  // Synthesize field data for salary tests (HR-419..432) — same pattern as
+  // leave-tests; no migration row exists, so we use the static salary-actions
+  // mapping (person + Change Salary action + Merit reason + target amount).
+  const salaryMap = getSalaryMapping(testId);
+  if (salaryMap) {
+    return {
+      testId,
+      tab: 'AI Core Compensation',
+      scenario: 'Salary Change',
+      fields: {
+        'Person Number': salaryMap.personNumber,
+        'Person Name': salaryMap.personName,
+        "What's the way": salaryMap.action,
+        'Why': salaryMap.reason,
+        'Salary > Salary': salaryMap.salaryAmount,
+      },
       columnIndex: -1,
     };
   }
