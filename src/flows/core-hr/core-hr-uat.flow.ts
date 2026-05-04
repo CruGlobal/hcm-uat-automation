@@ -19,7 +19,7 @@ import { ElementEntryFlow } from '../payroll/element-entry.flow';
 import { CompensationPage } from '../../pages/compensation/compensation.page';
 import { getFieldData } from '../../data/uat-plan-provider';
 import { getField } from '../../data/test-data-provider';
-import type { UATTestCase } from '../../data/types';
+import type { UATTestCase, TestCase } from '../../data/types';
 
 /**
  * Flow for Core HR UAT Plan tests (575 tests).
@@ -2840,39 +2840,147 @@ export class CoreHRUATFlow extends BaseFlow {
   // --- Bonus (HCM.COMP.306 — Allocate Individual Compensation) ---
 
   private async executeBonus(tc: UATTestCase): Promise<void> {
-    // Bonus tests have field data with Element Name="Bonus", Person Name, Amount, Effective Date.
-    // Route through Element Entries (same page as payroll element entries).
     const fieldData = getFieldData(tc.testId);
 
+    // Older bonus tests (HR-448 etc.) have payroll-style field data with
+    // "Element Name"="Bonus" — those go through Element Entries.
     if (fieldData && getField(fieldData, 'Element Name')) {
-      // Map "Person Name" (Last, First) to "Search For" (First Last) for ElementEntryFlow
       const personName = getField(fieldData, 'Person Name');
       if (personName && !getField(fieldData, 'Search For')) {
-        // Convert "Smith, Paul" → "Paul Smith" for the search field
         const parts = personName.split(',').map((s: string) => s.trim());
         const searchName = parts.length === 2 ? `${parts[1]} ${parts[0]}` : personName;
         fieldData.fields['Search For'] = searchName;
       }
-
       console.log(`[Bonus] ${tc.testId}: Routing to ElementEntryFlow (person="${getField(fieldData, 'Search For')}", element="${getField(fieldData, 'Element Name')}")`);
       const flow = new ElementEntryFlow(this.page);
       await flow.execute(fieldData);
       return;
     }
 
-    // No field data — fallback: navigate via Person Management
-    await this.homePage.goToPersonManagement();
-    const personRef = this.extractBonusPersonRef(tc);
-    if (personRef) {
-      console.log(`[Bonus] Searching for person: ${personRef}`);
-      const found = await this.person.searchByName(personRef);
-      if (!found) { console.log(`[Bonus] ${tc.testId}: PM not available — navigation-only`); return; }
+    // HR-439..454 path: synthesized bonus data has Plan / Option / Amount, no
+    // Element Name. Use Person Management → row Actions ▼ → Compensation →
+    // Individual Compensation → Award Compensation dialog.
+    if (fieldData && getField(fieldData, 'Plan')) {
+      await this.executeBonusViaIndividualCompensation(tc, fieldData);
+      return;
     }
-    // Try to access Individual Compensation from person's Actions menu
-    await this.selectPersonAction('Individual Compensation');
+
+    // No field data and no Element Name — fail loudly instead of silent
+    // navigation-only, which used to mask broken tests.
+    throw new Error(`${tc.testId}: Bonus test has no field data — cannot execute (need Plan/Option/Amount or Element Name)`);
+  }
+
+  /**
+   * Award a bonus via Individual Compensation. Used by HR-439..454 where the
+   * synthesized field data has Plan / Option / Amount.
+   *
+   * Path:
+   *   1. Person Management search by person number (no detail-page click)
+   *   2. Row Actions ▼ → Compensation → Individual Compensation
+   *   3. Click "Award Compensation" button on the Individual Compensation page
+   *   4. Fill Plan + Option in the dialog
+   *   5. Fill Amount in the expanded Details panel
+   *   6. OK on dialog → Save on the Individual Compensation page → OK confirm
+   */
+  private async executeBonusViaIndividualCompensation(tc: UATTestCase, fd: TestCase): Promise<void> {
+    const personNumber = getField(fd, 'Person Number');
+    if (!personNumber) {
+      throw new Error(`${tc.testId}: Bonus test missing Person Number in synthesized field data`);
+    }
+
+    await this.homePage.goToPersonManagement();
+    const found = await this.person.searchByPersonNumberOnly(personNumber);
+    if (!found) {
+      throw new Error(`${tc.testId}: Person ${personNumber} not found in Person Management search`);
+    }
     await this.page.waitForTimeout(2000);
-    await this.confirmation.clickSubmit();
-    await this.confirmation.expectSuccess();
+    await this.person.waitForJET();
+    await this.person.clearGlassPane();
+
+    // Row Actions ▼ → Compensation → Individual Compensation
+    const navigated = await this.selectRowActionPath('Compensation', 'Individual Compensation');
+    if (!navigated) {
+      throw new Error(`${tc.testId}: Could not navigate Compensation → Individual Compensation from row Actions menu`);
+    }
+    await this.page.waitForTimeout(2000);
+    await this.person.waitForJET();
+
+    // Click "Award Compensation" button on the Individual Compensation page
+    const awardBtn = this.page.getByRole('button', { name: 'Award Compensation', exact: true }).first();
+    if (!(await awardBtn.isVisible({ timeout: 5000 }).catch(() => false))) {
+      throw new Error(`${tc.testId}: "Award Compensation" button not visible on Individual Compensation page`);
+    }
+    await awardBtn.click();
+    console.log(`[Bonus] ${tc.testId}: Award Compensation clicked`);
+    await this.page.waitForTimeout(2000);
+    await this.person.waitForJET();
+
+    // Fill Plan dropdown
+    const plan = getField(fd, 'Plan');
+    if (plan) {
+      const planField = this.page.getByRole('combobox', { name: 'Plan', exact: true }).first();
+      if (await planField.isVisible({ timeout: 3000 }).catch(() => false)) {
+        await this.person.fillCombobox(planField, plan);
+        console.log(`[Bonus] ${tc.testId}: Plan = ${plan}`);
+        await this.page.waitForTimeout(1000);
+        await this.person.waitForJET();
+      }
+    }
+
+    // Fill Option dropdown (depends on Plan, so wait for it to populate)
+    const option = getField(fd, 'Option');
+    if (option) {
+      const optionField = this.page.getByRole('combobox', { name: 'Option', exact: true }).first();
+      if (await optionField.isVisible({ timeout: 3000 }).catch(() => false)) {
+        await this.person.fillCombobox(optionField, option);
+        console.log(`[Bonus] ${tc.testId}: Option = ${option}`);
+        await this.page.waitForTimeout(1500);
+        await this.person.waitForJET();
+      }
+    }
+
+    // Fill Amount in the Details panel that expands after Plan + Option selected
+    const amount = getField(fd, 'Amount');
+    if (amount) {
+      const amountField = this.page.locator(
+        'input[id*="Amount" i]:not([readonly]):visible, ' +
+        'input[name*="amount" i]:not([readonly]):visible'
+      ).first();
+      if (await amountField.isVisible({ timeout: 3000 }).catch(() => false)) {
+        await this.person.fillField(amountField, amount);
+        console.log(`[Bonus] ${tc.testId}: Amount = ${amount}`);
+      }
+    }
+
+    // OK on the Award Compensation dialog
+    const dialogOk = this.page.getByRole('button', { name: 'OK', exact: true }).first();
+    if (await dialogOk.isVisible({ timeout: 3000 }).catch(() => false)) {
+      await dialogOk.click();
+      console.log(`[Bonus] ${tc.testId}: Dialog OK clicked`);
+      await this.page.waitForTimeout(2000);
+      await this.person.waitForJET();
+    }
+
+    // Save on the Individual Compensation page
+    const saveBtn = this.page.getByRole('button', { name: 'Save', exact: true }).first();
+    if (await saveBtn.isVisible({ timeout: 5000 }).catch(() => false)) {
+      await saveBtn.click();
+      console.log(`[Bonus] ${tc.testId}: Save clicked`);
+      await this.page.waitForTimeout(3000);
+      await this.person.waitForJET();
+
+      // Confirmation popup
+      const confirmOk = this.page.getByRole('button', { name: 'OK', exact: true }).first();
+      if (await confirmOk.isVisible({ timeout: 5000 }).catch(() => false)) {
+        await confirmOk.click();
+        console.log(`[Bonus] ${tc.testId}: Confirmation OK clicked`);
+        await this.page.waitForTimeout(2000);
+        await this.person.waitForJET();
+      }
+      console.log(`[Bonus] ${tc.testId}: Save committed`);
+    } else {
+      throw new Error(`${tc.testId}: Save button not found on Individual Compensation page`);
+    }
   }
 
   /** Extract person name from bonus testData (e.g., "bonus for Paul Gladney"). */

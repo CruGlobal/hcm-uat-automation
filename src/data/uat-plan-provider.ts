@@ -5,6 +5,7 @@ import { getBotForTester } from '../config/bot-users';
 import { pickEmployeeFromPool, PAYROLL_ELEMENT_OVERRIDES, PAYROLL_REASON_OVERRIDES } from './payroll-employee-pools';
 import { getLeaveMapping } from './leave-actions';
 import { getSalaryMapping } from './salary-actions';
+import { getBonusMapping } from './bonus-actions';
 
 const CACHE_FILE = path.resolve(process.cwd(), '.cache', 'uat-plan.json');
 const FIELD_DATA_FILE = path.resolve(process.cwd(), '.cache-generated', 'field-data.json');
@@ -178,6 +179,26 @@ export function getFieldData(testId: string): TestCase | undefined {
         "What's the way": salaryMap.action,
         'Why': salaryMap.reason,
         'Salary > Salary': salaryMap.salaryAmount,
+      },
+      columnIndex: -1,
+    };
+  }
+
+  // Synthesize field data for bonus tests (HR-439..454). Path: Person
+  // Management → row Actions ▼ → Compensation → Individual Compensation →
+  // Award Compensation dialog (Plan + Option + Amount).
+  const bonusMap = getBonusMapping(testId);
+  if (bonusMap) {
+    return {
+      testId,
+      tab: 'AI Core Compensation',
+      scenario: 'Bonus',
+      fields: {
+        'Person Number': bonusMap.personNumber,
+        'Person Name': bonusMap.personName,
+        'Plan': bonusMap.plan,
+        'Option': bonusMap.option,
+        'Amount': bonusMap.amount,
       },
       columnIndex: -1,
     };
