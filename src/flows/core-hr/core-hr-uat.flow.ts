@@ -4025,14 +4025,14 @@ export class CoreHRUATFlow extends BaseFlow {
    * results table is populated.
    */
   private async selectRowActionPath(parent: string, child: string): Promise<boolean> {
-    // Selector for visible child items — scoped broadly across menuitem/anchor/
-    // td so we don't depend on Oracle's specific role labeling. ":visible"
-    // pseudo prevents matching hidden duplicates elsewhere on the page.
-    const childSel =
-      `[role="menuitem"]:visible:has-text("${child}"), ` +
-      `a:visible:has-text("${child}"), ` +
-      `td:visible:has-text("${child}"), ` +
-      `li:visible:has-text("${child}")`;
+    // Oracle ADF renders cascading popup menus inside this container — scoping
+    // parent/child searches here prevents accidentally matching unrelated text
+    // elsewhere on the page (e.g. a sidebar link or hidden duplicate).
+    //
+    // IMPORTANT: use exact text match. "Compensation" is a substring of
+    // "Individual Compensation" and "View Compensation History", so a substring
+    // match (`:has-text`) would pick the wrong menu item.
+    const popup = this.page.locator('#DhtmlZOrderManagerLayerContainer');
 
     for (let attempt = 0; attempt < 3; attempt++) {
       if (attempt > 0) {
@@ -4042,11 +4042,17 @@ export class CoreHRUATFlow extends BaseFlow {
         await this.person.waitForJET();
       }
 
-      // Find and click the per-row Actions ▼ button on the search results
+      // Per-row Actions ▼ button at the FAR END of the row. The row has multiple
+      // buttons matching loose patterns (one near the Name column, one at the
+      // end); we need the trailing dropdown specifically. The trailing button:
+      //   - has title="Actions"
+      //   - has id ending with ":cil1" (cil0 is a different earlier-column icon)
+      //   - contains the drop-menu-arrow image
+      // Use these together so we hit the right element on the first try.
       const rowAction = this.page.locator(
-        '[id*="table2:0:commandImageLink"], [id*="table2:0:cil"], ' +
-        '[id*="table2:0:"] [aria-label*="Action" i], ' +
-        'tr[_afrrk]:first-child [aria-label*="Action" i]'
+        'button[title="Actions"][id$=":cil1"]:has(img[src*="drop-menu-arrow"]), ' +
+        'button[title="Actions"][id*="table2:0:cil1"], ' +
+        'button[id*="table2:0:cil1"]:has(img[alt="Actions"])'
       ).first();
       if (!(await rowAction.isVisible({ timeout: 3000 }).catch(() => false))) {
         console.log('[selectRowActionPath] Row Actions ▼ not visible — retrying');
@@ -4055,52 +4061,31 @@ export class CoreHRUATFlow extends BaseFlow {
       await rowAction.click({ force: true });
       await this.page.waitForTimeout(1500);
 
-      // Find the parent submenu trigger (e.g. "Compensation"). Filter by
-      // visibility — there may be hidden duplicates elsewhere in the DOM.
-      const parentItem = this.page.locator(
-        `[role="menuitem"]:visible:has-text("${parent}"), ` +
-        `td:visible:has-text("${parent}"), ` +
-        `a:visible:has-text("${parent}"), ` +
-        `li:visible:has-text("${parent}")`
-      ).first();
+      // Parent menu item (Compensation/Absences/Payroll/...) — exact text match,
+      // scoped to the popup container.
+      const parentItem = popup.getByText(parent, { exact: true }).first();
       if (!(await parentItem.isVisible({ timeout: 3000 }).catch(() => false))) {
-        console.log(`[selectRowActionPath] Parent "${parent}" not visible after row Actions click`);
+        console.log(`[selectRowActionPath] Parent "${parent}" not visible in popup after row Actions click`);
         continue;
       }
 
-      // Try hover first (Oracle ADF cascading menus expand on hover)
-      await parentItem.hover();
+      // Click the parent (hover doesn't reliably expand the submenu in this env;
+      // clicking does — confirmed by manual walkthrough on 2026-05-04).
+      await parentItem.click({ force: true });
       await this.page.waitForTimeout(1500);
 
-      let childItem = this.page.locator(childSel).first();
-      let childVisible = await childItem.isVisible({ timeout: 2000 }).catch(() => false);
-
-      // Hover didn't expand → try click on parent
-      if (!childVisible) {
-        await parentItem.click({ force: true }).catch(() => {});
-        await this.page.waitForTimeout(1500);
-        childItem = this.page.locator(childSel).first();
-        childVisible = await childItem.isVisible({ timeout: 2000 }).catch(() => false);
-      }
-
-      if (!childVisible) {
-        // Final attempt: hover via mouseover JS event (some ADF menus need it)
-        await parentItem.dispatchEvent('mouseover').catch(() => {});
-        await this.page.waitForTimeout(1500);
-        childItem = this.page.locator(childSel).first();
-        childVisible = await childItem.isVisible({ timeout: 2000 }).catch(() => false);
-      }
-
-      if (!childVisible) {
-        // Capture what's visible to aid debugging
-        const visible = await this.page.locator('[role="menuitem"]:visible, a:visible, td:visible')
-          .allTextContents().catch(() => []);
-        const items = visible.map(t => t.trim()).filter(t => t && t.length < 40).slice(0, 25);
-        console.log(`[selectRowActionPath] Child "${child}" not visible. Visible labels nearby: [${items.join(', ')}]`);
+      // Child item — exact text match in the popup container. Substring would
+      // match "Compensation" inside "Individual Compensation" etc.
+      const childItem = popup.getByText(child, { exact: true }).first();
+      if (!(await childItem.isVisible({ timeout: 3000 }).catch(() => false))) {
+        // Capture what's actually in the popup to aid debugging
+        const popupItems = await popup.locator('td, [role="menuitem"]').allTextContents().catch(() => []);
+        const items = popupItems.map(t => t.trim()).filter(t => t && t.length < 50).slice(0, 25);
+        console.log(`[selectRowActionPath] Child "${child}" not in popup. Popup items: [${items.join(', ')}]`);
         continue;
       }
 
-      await childItem.click();
+      await childItem.click({ force: true });
       await this.page.waitForTimeout(3000);
       await this.person.waitForJET();
       return true;
