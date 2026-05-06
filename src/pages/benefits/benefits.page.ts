@@ -778,9 +778,10 @@ export class BenefitsPage extends BasePage {
         if (await btn.isVisible({ timeout: 3000 }).catch(() => false)) {
           await btn.click();
         } else {
-          console.log('[Benefits] No Submit button found');
+          // Previously: silent return + screenshot, which let downstream
+          // verifyEnrollmentConfirmation accept any page as "success".
           await this.screenshot('benefits-no-submit');
-          return;
+          throw new Error('Benefits submitEnrollment: no Submit / Confirm button found on the page');
         }
       }
     }
@@ -980,12 +981,14 @@ export class BenefitsPage extends BasePage {
 
   /** Verify enrollment confirmation is displayed after submission. */
   async verifyEnrollmentConfirmation(): Promise<void> {
-    // Look for confirmation text or banner
-    const confirmText = this.page.getByText(/submitted|confirmed|success|processed/i).first();
-    const confirmVisible = await confirmText
-      .isVisible({ timeout: 10_000 })
-      .catch(() => false);
-    if (confirmVisible) {
+    // Look for confirmation text inside an alert/banner/dialog — NOT anywhere
+    // on the page. The previous getByText(/submitted|.../).isVisible used to
+    // match column headers, audit-log rows, and other unrelated text, which
+    // made every navigation-only test silently pass.
+    const confirmInBanner = this.page.locator(
+      '[role="alert"], .af_messages, [class*="confirmation" i], [class*="success" i], [id*="confirm" i]'
+    ).filter({ hasText: /submitted|confirmed|success|processed|completed/i }).first();
+    if (await confirmInBanner.isVisible({ timeout: 8000 }).catch(() => false)) {
       await this.screenshot('benefits-enrollment-confirmation');
       return;
     }
@@ -995,9 +998,10 @@ export class BenefitsPage extends BasePage {
       return;
     }
 
-    // If no confirmation message, still capture current state as evidence
-    console.log('[Benefits] No explicit confirmation message found, capturing current state');
+    // No real success indicator. Used to log + return; now throw so the test
+    // fails loudly instead of silently passing.
     await this.screenshot('benefits-enrollment-result');
+    throw new Error('Benefits verifyEnrollmentConfirmation: no confirmation banner / alert / success message found after submit');
   }
 
   /** Verify the plan summary / enrollment summary is displayed. */

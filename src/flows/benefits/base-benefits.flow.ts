@@ -110,8 +110,13 @@ export class BaseBenefitsFlow extends BaseFlow {
     ).first();
     const detected = await noBenefits.isVisible({ timeout: 5000 }).catch(() => false);
     if (detected) {
-      console.log(`[Benefits] ${testId}: No benefits relationship detected`);
+      // Previously returned true and the 51 callers all silently `return`'d,
+      // turning every "no enrollment opportunity" run into a silent pass. The
+      // test scenarios assume an active relationship — if none exists, the
+      // test cannot do real work, so fail loudly. The screenshot captures
+      // evidence of the no-relationship state.
       await this.benefits.captureBenefitsState(`no-relationship-${testId}`);
+      throw new Error(`${testId}: No active benefits relationship / enrollment opportunity — test cannot proceed (person/role setup issue, not a code bug)`);
     }
     return detected;
   }
