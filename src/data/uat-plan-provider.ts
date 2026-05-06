@@ -6,6 +6,7 @@ import { pickEmployeeFromPool, PAYROLL_ELEMENT_OVERRIDES, PAYROLL_REASON_OVERRID
 import { getLeaveMapping } from './leave-actions';
 import { getSalaryMapping } from './salary-actions';
 import { getBonusMapping } from './bonus-actions';
+import { getTimecardMapping } from './timecard-actions';
 
 const CACHE_FILE = path.resolve(process.cwd(), '.cache', 'uat-plan.json');
 const FIELD_DATA_FILE = path.resolve(process.cwd(), '.cache-generated', 'field-data.json');
@@ -199,6 +200,23 @@ export function getFieldData(testId: string): TestCase | undefined {
         'Plan': bonusMap.plan,
         'Option': bonusMap.option,
         'Amount': bonusMap.amount,
+      },
+      columnIndex: -1,
+    };
+  }
+
+  // Synthesize field data for T&L tests. Bot logs in as itself and opens its
+  // own timecard for ESS — no Person Name/Number needed (would trigger an
+  // unwanted searchPerson call). Only the Time Type drives form fill; the
+  // flow defaults to 8h on Monday.
+  const timecardMap = getTimecardMapping(testId);
+  if (timecardMap) {
+    return {
+      testId,
+      tab: 'AI Time and Labor',
+      scenario: 'Timecard',
+      fields: {
+        'Time Type': timecardMap.timeType,
       },
       columnIndex: -1,
     };
