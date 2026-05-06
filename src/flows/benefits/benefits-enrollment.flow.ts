@@ -162,17 +162,27 @@ export class BenefitsEnrollmentFlow extends BaseBenefitsFlow {
 
     if (await this.checkNoBenefitsRelationship(tc.testId)) return;
 
-    // Report the life event via the ESS sidebar quick action
-    const eventType = this.extractLifeEventType(tc);
-    const eventDate = this.getEnrollmentDate(tc)
-      || this.extractDate(tc, 'event date')
-      || this.extractDate(tc, 'date');
+    // If an "Enroll Now" / "Make Changes" button is already visible, a life
+    // event is already pending — skip the Report step (otherwise we'd try to
+    // file a duplicate event on top of the existing one). This handles tests
+    // run after a manually-pre-staged life event.
+    const enrollNowVisible = await this.page
+      .getByRole('button', { name: /enroll now|make changes/i }).first()
+      .isVisible({ timeout: 3000 }).catch(() => false);
 
-    if (eventType) {
-      await this.benefits.reportLifeEvent(eventType, eventDate || undefined);
+    if (!enrollNowVisible) {
+      const eventType = this.extractLifeEventType(tc);
+      const eventDate = this.getEnrollmentDate(tc)
+        || this.extractDate(tc, 'event date')
+        || this.extractDate(tc, 'date');
+      if (eventType) {
+        await this.benefits.reportLifeEvent(eventType, eventDate || undefined);
+      }
+    } else {
+      console.log(`[Benefits] ${tc.testId}: Pending enrollment already exists — skipping life event report`);
     }
 
-    // After life event is reported, enrollment options update
+    // Open enrollment, fill plans / dependents / beneficiaries, submit
     await this.benefits.openEnrollment();
     await this.selectPlansFromFieldData(tc);
     await this.handleDependents(tc);

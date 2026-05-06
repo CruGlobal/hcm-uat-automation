@@ -7,6 +7,7 @@ import { getLeaveMapping } from './leave-actions';
 import { getSalaryMapping } from './salary-actions';
 import { getBonusMapping } from './bonus-actions';
 import { getTimecardMapping } from './timecard-actions';
+import { getBenefitsMapping } from './benefits-actions';
 
 const CACHE_FILE = path.resolve(process.cwd(), '.cache', 'uat-plan.json');
 const FIELD_DATA_FILE = path.resolve(process.cwd(), '.cache-generated', 'field-data.json');
@@ -218,6 +219,26 @@ export function getFieldData(testId: string): TestCase | undefined {
       fields: {
         'Time Type': timecardMap.timeType,
       },
+      columnIndex: -1,
+    };
+  }
+
+  // Synthesize field data for Benefits ESS tests. Plan/Option drive plan card
+  // selection; dependent name/relationship drive handleDependents. Empty
+  // mapping is fine for view-only tests (BN-020 etc.) — the flow falls back
+  // to navigation-only completion in those cases.
+  const benefitsMap = getBenefitsMapping(testId);
+  if (benefitsMap) {
+    const fields: Record<string, string> = {};
+    if (benefitsMap.plan) fields['Plan'] = benefitsMap.plan;
+    if (benefitsMap.option) fields['Option'] = benefitsMap.option;
+    if (benefitsMap.dependentName) fields['Dependent'] = benefitsMap.dependentName;
+    if (benefitsMap.dependentRelationship) fields['Relationship'] = benefitsMap.dependentRelationship;
+    return {
+      testId,
+      tab: 'AI Benefits',
+      scenario: 'Benefits Enrollment',
+      fields,
       columnIndex: -1,
     };
   }
