@@ -1558,61 +1558,39 @@ export class TimecardPage extends BasePage {
    * that don't produce explicit success messages.
    */
   async expectSuccess(): Promise<void> {
-    // Check for "Time card was submitted" message
+    // Reject login/error pages outright before any positive checks.
+    const url = this.page.url();
+    if (url.includes('login') || url.includes('okta') || url.includes('signin')) {
+      throw new Error('Session expired or login required — test failed');
+    }
+
+    // Real success signals only: a confirmation message, banner, or process
+    // status. Substring-matching "success" anywhere on the page is loose but
+    // tolerated because Oracle's success widgets vary across pages.
     const hasSubmittedMsg = await this.timecardSubmittedMessage.isVisible({ timeout: 10000 }).catch(() => false);
     if (hasSubmittedMsg) return;
 
-    // Check for confirmation banner
     const hasBanner = await this.confirmationBanner.isVisible({ timeout: 5000 }).catch(() => false);
     if (hasBanner) return;
 
-    // Check for process succeeded status
     const hasSucceeded = await this.processSucceededStatus.isVisible({ timeout: 5000 }).catch(() => false);
     if (hasSucceeded) return;
 
-    // Check for common success text patterns
-    const successText = this.page.locator(
-      'text=/submitted|approved|saved|completed|success|succeeded/i'
-    ).first();
-    const hasSuccess = await successText.isVisible({ timeout: 5000 }).catch(() => false);
-    if (hasSuccess) return;
+    // Look for explicit success text — but require it appears in a content
+    // region (banner / message / dialog), NOT anywhere on the page (which used
+    // to match column headers, history rows, etc. and silently pass).
+    const successInBanner = this.page.locator(
+      '[role="alert"], .af_messages, [class*="confirmation" i], [class*="success" i]'
+    ).filter({ hasText: /submitted|approved|saved|completed|success|succeeded/i }).first();
+    if (await successInBanner.isVisible({ timeout: 5000 }).catch(() => false)) return;
 
-    // If we navigated back to the Time and Absences landing page, the operation completed
-    const backOnLanding = await this.addTimecardTile.isVisible({ timeout: 5000 }).catch(() => false)
-      || await this.currentTimecardTile.isVisible({ timeout: 2000 }).catch(() => false);
-    if (backOnLanding) {
-      console.log('[Timecard] Back on landing page — operation completed successfully');
-      return;
-    }
-
-    // Check URL for time-related or HCM pages (covers config/view/report tests)
-    const url = this.page.url();
-    if (url.includes('time') || url.includes('absence')) {
-      console.log(`[Timecard] On time-related page — assuming success: ${url}`);
-      return;
-    }
-
-    // Broad check: any Oracle HCM page (fscmUI) that isn't an error page
-    // This covers HR Specialist configuration, reports, and other navigation-only tests
-    if (url.includes('fscmUI') || url.includes('oraclecloud.com')) {
-      // Make sure we're not on a login page or error page
-      const isLoginPage = url.includes('login') || url.includes('okta') || url.includes('signin');
-      if (isLoginPage) {
-        throw new Error('Session expired or login required — test failed');
-      }
-      console.log(`[Timecard] On Oracle HCM page — assuming navigation success: ${url}`);
-      return;
-    }
-
-    // Check for Navigator visibility as proof we're on an HCM page
-    const hasNavigator = await this.page.locator('a[title="Navigator"]')
-      .isVisible({ timeout: 3000 }).catch(() => false);
-    if (hasNavigator) {
-      console.log('[Timecard] Navigator visible — on an HCM page, assuming success');
-      return;
-    }
-
-    throw new Error('Timecard operation did not complete successfully — not on any recognized HCM page');
+    // No real success indicator found. Previously this fell through to "URL
+    // contains time/absence/fscmUI → pass" which made every navigation-only
+    // test silently pass. Now we throw so the test fails loudly.
+    throw new Error(
+      `Timecard operation produced no success indicator (no submitted message, ` +
+      `confirmation banner, or success alert). URL: ${url}`
+    );
   }
 
   /**

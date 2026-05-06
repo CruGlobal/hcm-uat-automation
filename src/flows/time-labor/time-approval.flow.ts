@@ -94,8 +94,7 @@ export class TimeApprovalFlow extends BaseTimeLaborFlow {
   private async managerApproveRedwood(tc: UATTestCase): Promise<void> {
     const hasTeamTC = await this.navigateToTeamTimeCards();
     if (!hasTeamTC) {
-      console.log(`[TimeApproval] ${tc.testId}: Team Time Cards not available — navigation validated`);
-      return;
+      throw new Error(`${tc.testId}: Team Time Cards not available — manager approval cannot proceed (likely Manager Self-Service path needed)`);
     }
 
     await this.timecardPage.setStatusFilter('Submitted');
@@ -209,8 +208,7 @@ export class TimeApprovalFlow extends BaseTimeLaborFlow {
   private async timecardAmendments(tc: UATTestCase): Promise<void> {
     const hasTeamTC = await this.navigateToTeamTimeCards();
     if (!hasTeamTC) {
-      console.log(`[TimeApproval] ${tc.testId}: Team Time Cards not available — navigation validated`);
-      return;
+      throw new Error(`${tc.testId}: Team Time Cards not available — timecard amendments cannot proceed`);
     }
 
     const fd = this.getTestFieldData(tc.testId);
@@ -246,18 +244,11 @@ export class TimeApprovalFlow extends BaseTimeLaborFlow {
     const pendingLink = this.page.getByText(/Pending Approval/i).first();
     const hasPending = await pendingLink.isVisible({ timeout: 5000 }).catch(() => false);
     if (!hasPending) {
-      // No pending change requests — navigation validated, nothing to approve
-      console.log(`[TimeApproval] ${tc.testId}: No pending time change requests found — navigation validated`);
-      return;
+      throw new Error(`${tc.testId}: No pending time change requests found — cannot validate approval flow`);
     }
     await pendingLink.click();
     await this.page.waitForTimeout(3000);
-    // Attempt to approve; if no Approve button exists (no rows), pass gracefully
-    const approved = await this.timecardPage.approveTimecard().then(() => true).catch(() => false);
-    if (!approved) {
-      console.log(`[TimeApproval] ${tc.testId}: No timecard rows available to approve — navigation validated`);
-      return;
-    }
+    await this.timecardPage.approveTimecard();
     await this.timecardPage.expectSuccess();
   }
 

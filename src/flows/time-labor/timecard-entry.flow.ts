@@ -127,26 +127,19 @@ export class TimecardEntryFlow extends BaseTimeLaborFlow {
     if (hasAdd) {
       await this.timecardPage.clickAddTimeCard();
     } else {
-      // clickCurrentTimeCard() is navigation-only if tile not visible
+      const currentTile = this.page.getByText(/Current Time\s*Card/i).first();
+      const hasCurrent = await currentTile.isVisible({ timeout: 3000 }).catch(() => false);
+      if (!hasCurrent) {
+        throw new Error(`${tc.testId}: Neither "Add Time Card" nor "Current Time Card" tile is visible — ESS landing not reached`);
+      }
       await this.timecardPage.clickCurrentTimeCard();
-      // If neither tile was found, page may still be on ESS landing — that's OK
     }
 
-    // Fill timecard from test case data — don't let field errors block submission
+    // Errors filling fields or submitting used to be swallowed — that turned
+    // every failure into a silent navigation-only "pass". Let them surface.
     const fd = this.getTestFieldData(tc.testId);
-    try {
-      await this.fillTimecardFields(tc, fd);
-    } catch (err) {
-      console.warn(`[TimecardEntry] ${tc.testId}: fillTimecardFields failed — continuing to submit: ${err}`);
-    }
-
-    // Submit with attestation handling — don't let submit errors block expectSuccess
-    try {
-      await this.timecardPage.submitTimecard();
-    } catch (err) {
-      console.warn(`[TimecardEntry] ${tc.testId}: submitTimecard failed — continuing to expectSuccess: ${err}`);
-    }
-
+    await this.fillTimecardFields(tc, fd);
+    await this.timecardPage.submitTimecard();
     await this.timecardPage.expectSuccess();
   }
 
