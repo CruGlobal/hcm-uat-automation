@@ -310,18 +310,15 @@ export class TimecardEntryFlow extends BaseTimeLaborFlow {
     await this.navigateToTimeESS();
     const hasTimeChangeTile = await this.timecardPage.clickRequestTimeChanges();
 
-    if (hasTimeChangeTile) {
-      const fd = this.getTestFieldData(tc.testId);
-      await this.fillTimecardFields(tc, fd);
-      await this.timecardPage.clickSave();
-      await this.timecardPage.submitTimecard();
-      await this.timecardPage.expectSuccess();
-    } else {
-      // Fallback: on Existing Time Cards list — click into first submitted timecard to verify
-      console.log(`[TimecardEntry] ${tc.testId}: No "Request Time Changes" tile — viewing existing timecard instead`);
-      await this.timecardPage.selectFirstTimecardRow();
-      await this.page.waitForTimeout(3000);
+    if (!hasTimeChangeTile) {
+      throw new Error(`${tc.testId}: "Request Time Changes" tile not available — time change request cannot be submitted`);
     }
+
+    const fd = this.getTestFieldData(tc.testId);
+    await this.fillTimecardFields(tc, fd);
+    await this.timecardPage.clickSave();
+    await this.timecardPage.submitTimecard();
+    await this.timecardPage.expectSuccess();
   }
 
   /**

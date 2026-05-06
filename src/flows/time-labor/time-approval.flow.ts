@@ -122,30 +122,26 @@ export class TimeApprovalFlow extends BaseTimeLaborFlow {
    */
   private async managerCreateTimecard(tc: UATTestCase): Promise<void> {
     const hasTeamTC = await this.navigateToTeamTimeCards();
-
-    if (hasTeamTC) {
-      // Click create button
-      await this.timecardPage.clickCreateTimecard();
-
-      // Search and select employee
-      const fd = this.getTestFieldData(tc.testId);
-      const personName = this.extractFieldWithFallback(fd, tc.testData, 'Person Name', 'person');
-      if (personName) {
-        await this.timecardPage.searchPerson(personName);
-      }
-
-      // Fill timecard data
-      await this.timecardPage.fillFromTestCase(tc, fd);
-
-      // Submit
-      await this.timecardPage.submitTimecard();
-      await this.timecardPage.expectSuccess();
-    } else {
-      // ESS fallback: bot lacks Team Time Cards admin access
-      console.log(`[TimeApproval] ${tc.testId}: Using ESS fallback — navigating to Existing Time Cards`);
-      await this.timecardPage.navigateToExistingTimecards();
-      await this.timecardPage.screenshot(`timecard-ess-fallback-${tc.testId}`);
+    if (!hasTeamTC) {
+      throw new Error(`${tc.testId}: Team Time Cards not available — manager cannot create timecard for team member (bot likely lacks Manager Self-Service access)`);
     }
+
+    // Click create button
+    await this.timecardPage.clickCreateTimecard();
+
+    // Search and select employee
+    const fd = this.getTestFieldData(tc.testId);
+    const personName = this.extractFieldWithFallback(fd, tc.testData, 'Person Name', 'person');
+    if (personName) {
+      await this.timecardPage.searchPerson(personName);
+    }
+
+    // Fill timecard data
+    await this.timecardPage.fillFromTestCase(tc, fd);
+
+    // Submit
+    await this.timecardPage.submitTimecard();
+    await this.timecardPage.expectSuccess();
   }
 
   /**
@@ -155,25 +151,21 @@ export class TimeApprovalFlow extends BaseTimeLaborFlow {
    */
   private async managerUpdateTimecard(tc: UATTestCase): Promise<void> {
     const hasTeamTC = await this.navigateToTeamTimeCards();
-
-    if (hasTeamTC) {
-      const fd = this.getTestFieldData(tc.testId);
-      await this.timecardPage.editTimecardRedwood({
-        personName: this.extractFieldWithFallback(fd, tc.testData, 'Person Name', 'person'),
-        fromDate: this.extractFieldWithFallback(fd, tc.testData, 'From Date', 'from'),
-        toDate: this.extractFieldWithFallback(fd, tc.testData, 'To Date', 'to'),
-        hoursType: this.extractFieldWithFallback(fd, tc.testData, 'Hours Type', 'hours type'),
-        hours: this.extractFieldWithFallback(fd, tc.testData, 'Hours', 'hours'),
-      });
-
-      await this.timecardPage.submitTimecard();
-      await this.timecardPage.expectSuccess();
-    } else {
-      // ESS fallback: navigate to Existing Time Cards and view/edit if available
-      console.log(`[TimeApproval] ${tc.testId}: Using ESS fallback — navigating to Existing Time Cards`);
-      await this.timecardPage.navigateToExistingTimecards();
-      await this.timecardPage.screenshot(`timecard-ess-fallback-${tc.testId}`);
+    if (!hasTeamTC) {
+      throw new Error(`${tc.testId}: Team Time Cards not available — manager cannot update team timecard (bot likely lacks Manager Self-Service access)`);
     }
+
+    const fd = this.getTestFieldData(tc.testId);
+    await this.timecardPage.editTimecardRedwood({
+      personName: this.extractFieldWithFallback(fd, tc.testData, 'Person Name', 'person'),
+      fromDate: this.extractFieldWithFallback(fd, tc.testData, 'From Date', 'from'),
+      toDate: this.extractFieldWithFallback(fd, tc.testData, 'To Date', 'to'),
+      hoursType: this.extractFieldWithFallback(fd, tc.testData, 'Hours Type', 'hours type'),
+      hours: this.extractFieldWithFallback(fd, tc.testData, 'Hours', 'hours'),
+    });
+
+    await this.timecardPage.submitTimecard();
+    await this.timecardPage.expectSuccess();
   }
 
   /**
@@ -182,23 +174,19 @@ export class TimeApprovalFlow extends BaseTimeLaborFlow {
    */
   private async managerAbsenceOnTimecard(tc: UATTestCase): Promise<void> {
     const hasTeamTC = await this.navigateToTeamTimeCards();
-
-    if (hasTeamTC) {
-      await this.timecardPage.clickCreateTimecard();
-
-      const fd = this.getTestFieldData(tc.testId);
-      const personName = this.extractFieldWithFallback(fd, tc.testData, 'Person Name', 'person');
-      if (personName) await this.timecardPage.searchPerson(personName);
-
-      await this.timecardPage.fillFromTestCase(tc, fd);
-      await this.timecardPage.submitTimecard();
-      await this.timecardPage.expectSuccess();
-    } else {
-      // ESS fallback: bot lacks Team Time Cards admin access
-      console.log(`[TimeApproval] ${tc.testId}: Using ESS fallback — navigating to Existing Time Cards`);
-      await this.timecardPage.navigateToExistingTimecards();
-      await this.timecardPage.screenshot(`timecard-ess-fallback-${tc.testId}`);
+    if (!hasTeamTC) {
+      throw new Error(`${tc.testId}: Team Time Cards not available — manager cannot enter absence on team timecard (bot likely lacks Manager Self-Service access)`);
     }
+
+    await this.timecardPage.clickCreateTimecard();
+
+    const fd = this.getTestFieldData(tc.testId);
+    const personName = this.extractFieldWithFallback(fd, tc.testData, 'Person Name', 'person');
+    if (personName) await this.timecardPage.searchPerson(personName);
+
+    await this.timecardPage.fillFromTestCase(tc, fd);
+    await this.timecardPage.submitTimecard();
+    await this.timecardPage.expectSuccess();
   }
 
   /**
@@ -256,7 +244,10 @@ export class TimeApprovalFlow extends BaseTimeLaborFlow {
    * Edit Existing Timecard in Redwood UI (manager).
    */
   private async editTimecardRedwood(tc: UATTestCase): Promise<void> {
-    await this.navigateToTeamTimeCards();
+    const hasTeamTC = await this.navigateToTeamTimeCards();
+    if (!hasTeamTC) {
+      throw new Error(`${tc.testId}: Team Time Cards not available — cannot edit team timecard in Redwood UI`);
+    }
 
     const fd = this.getTestFieldData(tc.testId);
     await this.timecardPage.editTimecardRedwood({
@@ -276,7 +267,10 @@ export class TimeApprovalFlow extends BaseTimeLaborFlow {
    * Mass Action Using Existing Timecard in Redwood UI.
    */
   private async massActionRedwood(tc: UATTestCase): Promise<void> {
-    await this.navigateToTeamTimeCards();
+    const hasTeamTC = await this.navigateToTeamTimeCards();
+    if (!hasTeamTC) {
+      throw new Error(`${tc.testId}: Team Time Cards not available — cannot perform mass action in Redwood UI`);
+    }
 
     const fd = this.getTestFieldData(tc.testId);
     const personName = this.extractFieldWithFallback(fd, tc.testData, 'Person Name', 'person');
@@ -354,44 +348,54 @@ export class TimeApprovalFlow extends BaseTimeLaborFlow {
 
     console.log(`[TimeApproval] Fallback routing: bp="${bp}" cat="${cat}"`);
 
+    // Helper: navigate and require the Team Time Cards page for any manager
+    // mutation. Without it, every downstream action is a navigation-only no-op.
+    const requireTeamTimeCards = async (op: string): Promise<void> => {
+      const ok = await this.navigateToTeamTimeCards();
+      if (!ok) {
+        throw new Error(`${tc.testId}: Team Time Cards not available — ${op} cannot proceed`);
+      }
+    };
+
     if (bp.includes('reject')) {
-      await this.navigateToTeamTimeCards();
+      await requireTeamTimeCards('reject timecard');
       const reason = this.extractFieldWithFallback(fd, tc.testData, 'Reason', 'reason');
       const personName = this.extractFieldWithFallback(fd, tc.testData, 'Person Name', 'person');
       await this.timecardPage.rejectTimecard(personName, reason);
     } else if (bp.includes('request') && bp.includes('info')) {
-      await this.navigateToTeamTimeCards();
+      await requireTeamTimeCards('request more info');
       await this.timecardPage.requestMoreInfo();
     } else if (bp.includes('bell') || bp.includes('notification')) {
       await this.timecardPage.approveViaBell();
     } else if (bp.includes('mass')) {
-      await this.navigateToTeamTimeCards();
+      await requireTeamTimeCards('mass action');
       const action = bp.includes('approve') ? 'Approve' : 'Submit';
       await this.timecardPage.massApproveTimecards(action);
     } else if (bp.includes('change request') || bp.includes('team change')) {
       await this.navigateToTeamChangeRequests();
       const pendingLink = this.page.getByText(/Pending Approval/i).first();
       const hasPending = await pendingLink.isVisible({ timeout: 5000 }).catch(() => false);
-      if (hasPending) {
-        await pendingLink.click();
-        await this.page.waitForTimeout(3000);
+      if (!hasPending) {
+        throw new Error(`${tc.testId}: No pending change requests found — cannot validate approval flow`);
       }
+      await pendingLink.click();
+      await this.page.waitForTimeout(3000);
       await this.timecardPage.approveTimecard();
     } else if (bp.includes('approv') || bp.includes('approval')) {
       // Default approval via Team Time Cards
-      await this.navigateToTeamTimeCards();
+      await requireTeamTimeCards('approve timecard');
       const personName = this.extractFieldWithFallback(fd, tc.testData, 'Person Name', 'person');
       await this.timecardPage.approveTimecard(personName);
     } else if (bp.includes('entry') || bp.includes('create') || bp.includes('add')) {
       // Manager creating timecard for team member
-      await this.navigateToTeamTimeCards();
+      await requireTeamTimeCards('manager timecard create');
       await this.timecardPage.clickCreateTimecard();
       const personName = this.extractFieldWithFallback(fd, tc.testData, 'Person Name', 'person');
       if (personName) await this.timecardPage.searchPerson(personName);
       await this.timecardPage.fillFromTestCase(tc, fd);
       await this.timecardPage.submitTimecard();
     } else if (bp.includes('absence on timecard') || bp.includes('absence')) {
-      await this.navigateToTeamTimeCards();
+      await requireTeamTimeCards('manager absence on timecard');
       await this.timecardPage.clickCreateTimecard();
       const personName = this.extractFieldWithFallback(fd, tc.testData, 'Person Name', 'person');
       if (personName) await this.timecardPage.searchPerson(personName);
@@ -399,7 +403,7 @@ export class TimeApprovalFlow extends BaseTimeLaborFlow {
       await this.timecardPage.submitTimecard();
     } else {
       // Default: navigate to Team Time Cards and approve
-      await this.navigateToTeamTimeCards();
+      await requireTeamTimeCards('approve timecard (default)');
       const personName = this.extractFieldWithFallback(fd, tc.testData, 'Person Name', 'person');
       await this.timecardPage.approveTimecard(personName);
     }

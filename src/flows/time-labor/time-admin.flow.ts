@@ -258,44 +258,40 @@ export class TimeAdminFlow extends BaseTimeLaborFlow {
   /**
    * HR Processing: generate time cards from devices, transfer to payroll, etc.
    * Steps: Time Management > Tasks > Scheduled Processes > Run process
+   * These are mutation flows — failure to submit a scheduled process / Process click
+   * must surface as a real failure, not a silent navigation-only pass.
    */
   private async hrProcessing(tc: UATTestCase): Promise<void> {
     const scenario = (tc.testScenario || '').toLowerCase();
 
-    try {
-      await this.navigateToTimeAdmin();
+    await this.navigateToTimeAdmin();
 
-      if (scenario.includes('generate') && scenario.includes('device')) {
-        // Generate Time Cards from Time Collection Devices
-        await this.timecardPage.runScheduledProcess(
-          'Generate Time Cards from Time Collection Devices'
-        );
-        await this.timecardPage.submitScheduledProcess();
-        await this.timecardPage.waitForProcessSuccess();
-      } else if (scenario.includes('transfer') || scenario.includes('payroll')) {
-        // Transfer time data to payroll
-        await this.openTasksPanelAndClickLink('Scheduled Processes');
+    if (scenario.includes('generate') && scenario.includes('device')) {
+      // Generate Time Cards from Time Collection Devices
+      await this.timecardPage.runScheduledProcess(
+        'Generate Time Cards from Time Collection Devices'
+      );
+      await this.timecardPage.submitScheduledProcess();
+      await this.timecardPage.waitForProcessSuccess();
+    } else if (scenario.includes('transfer') || scenario.includes('payroll')) {
+      // Transfer time data to payroll
+      await this.openTasksPanelAndClickLink('Scheduled Processes');
 
-        const fd = this.getTestFieldData(tc.testId);
-        const personName = this.extractFieldWithFallback(fd, tc.testData, 'Person Name', 'person');
-
-        const processBtn = this.page.getByRole('button', { name: /Process/i }).or(
-          this.page.locator('a[role="button"]:has-text("Process")')
-        ).first();
-        const hasProcess = await processBtn.isVisible({ timeout: 5000 }).catch(() => false);
-        if (hasProcess) {
-          await processBtn.click();
-          await this.page.waitForTimeout(10000);
-          await this.timecardPage.waitForJET();
-        }
-      } else {
-        // Generic processing — navigate to admin tasks
-        const fd = this.getTestFieldData(tc.testId);
-        const personName = this.extractFieldWithFallback(fd, tc.testData, 'Person Name', 'person');
-        if (personName) await this.timecardPage.searchPerson(personName);
+      const processBtn = this.page.getByRole('button', { name: /Process/i }).or(
+        this.page.locator('a[role="button"]:has-text("Process")')
+      ).first();
+      const hasProcess = await processBtn.isVisible({ timeout: 5000 }).catch(() => false);
+      if (!hasProcess) {
+        throw new Error(`${tc.testId}: Process button not found on Scheduled Processes — transfer to payroll cannot proceed`);
       }
-    } catch (err) {
-      console.log(`[TimeAdmin] HR processing failed (user may lack access): ${err}`);
+      await processBtn.click();
+      await this.page.waitForTimeout(10000);
+      await this.timecardPage.waitForJET();
+    } else {
+      // Generic processing — navigate to admin tasks and search for the target person
+      const fd = this.getTestFieldData(tc.testId);
+      const personName = this.extractFieldWithFallback(fd, tc.testData, 'Person Name', 'person');
+      if (personName) await this.timecardPage.searchPerson(personName);
     }
 
     await this.timecardPage.expectSuccess();
@@ -575,11 +571,9 @@ export class TimeAdminFlow extends BaseTimeLaborFlow {
       const personName = this.extractFieldWithFallback(fd, tc.testData, 'Person Name', 'person');
       if (personName) await this.timecardPage.searchPerson(personName);
       await this.timecardPage.fillFromTestCase(tc, fd);
-      try {
-        await this.timecardPage.submitTimecard();
-      } catch (err) {
-        console.log(`[TimeAdmin] Submit failed (may be expected for config/view tests): ${err}`);
-      }
+      // Submit must succeed — the fallback used to swallow this and turned every
+      // missing-button failure into a navigation-only pass.
+      await this.timecardPage.submitTimecard();
     }
 
     await this.timecardPage.expectSuccess();
