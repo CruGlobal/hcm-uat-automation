@@ -164,8 +164,7 @@ export class BenefitsEnrollmentFlow extends BaseBenefitsFlow {
 
     // If an "Enroll Now" / "Make Changes" button is already visible, a life
     // event is already pending — skip the Report step (otherwise we'd try to
-    // file a duplicate event on top of the existing one). This handles tests
-    // run after a manually-pre-staged life event.
+    // file a duplicate event on top of the existing one).
     const enrollNowVisible = await this.page
       .getByRole('button', { name: /enroll now|make changes/i }).first()
       .isVisible({ timeout: 3000 }).catch(() => false);
@@ -182,13 +181,17 @@ export class BenefitsEnrollmentFlow extends BaseBenefitsFlow {
       console.log(`[Benefits] ${tc.testId}: Pending enrollment already exists — skipping life event report`);
     }
 
-    // Open enrollment, fill plans / dependents / beneficiaries, submit
+    // Click Enroll Now then walk the multi-step wizard. Per user direction
+    // (2026-05-06): reaching the Enroll step is sufficient even when the bot
+    // has no actual electable plans — the test env's enrollment opportunity
+    // list is currently empty for these bots. We don't try to submit because
+    // there's nothing to submit; navigation success IS test success.
     await this.benefits.openEnrollment();
-    await this.selectPlansFromFieldData(tc);
-    await this.handleDependents(tc);
-    await this.handleBeneficiaries(tc);
-
-    await this.navigateAndSubmitEnrollment(tc);
+    const wizardReached = await this.benefits.walkEnrollmentWizard();
+    if (!wizardReached) {
+      throw new Error(`${tc.testId}: Enrollment wizard did not reach the Enroll step`);
+    }
+    await this.benefits.captureBenefitsState(`life-event-ess-${tc.testId}`);
   }
 
   // =================================================================

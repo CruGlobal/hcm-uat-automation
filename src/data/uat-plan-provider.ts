@@ -229,7 +229,9 @@ export function getFieldData(testId: string): TestCase | undefined {
   // to navigation-only completion in those cases.
   const benefitsMap = getBenefitsMapping(testId);
   if (benefitsMap) {
-    const fields: Record<string, string> = {};
+    const fields: Record<string, string> = {
+      'Person Number': benefitsMap.personNumber,
+    };
     if (benefitsMap.plan) fields['Plan'] = benefitsMap.plan;
     if (benefitsMap.option) fields['Option'] = benefitsMap.option;
     if (benefitsMap.dependentName) fields['Dependent'] = benefitsMap.dependentName;

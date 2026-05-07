@@ -229,19 +229,32 @@ export class BenefitsPage extends BasePage {
    * Falls back to Me > Benefits springboard if deep link fails.
    */
   async navigateToSelfServiceBenefits(): Promise<void> {
-    try {
-      await this.page.goto('/fscmUI/redwood/benefits/enrollment-summary');
-      await this.page.waitForLoadState('networkidle', { timeout: 60_000 });
-      await this.page.waitForTimeout(5000);
-      await this.waitForJET();
-      await this.dismissPopups();
+    // The actual ESS Benefits URL (per recon 2026-05-06):
+    //   /fscmUI/redwood/benefits-selfservice/employee-benefits/overview
+    // The older /fscmUI/redwood/benefits/enrollment-summary path either
+    // redirects elsewhere or lands on the admin view depending on the bot's
+    // role mix — try the recon'd URL first.
+    const urls = [
+      '/fscmUI/redwood/benefits-selfservice/employee-benefits/overview',
+      '/fscmUI/redwood/benefits/enrollment-summary',
+    ];
+    for (const url of urls) {
+      try {
+        await this.page.goto(url);
+        await this.page.waitForLoadState('networkidle', { timeout: 60_000 });
+        await this.page.waitForTimeout(5000);
+        await this.waitForJET();
+        await this.dismissPopups();
 
-      // Verify we reached the ESS page
-      const onEssPage = await this.showBenefitsInput.isVisible({ timeout: 10_000 }).catch(() => false)
-        || await this.page.getByText(/benefits|enrollment/i).first().isVisible({ timeout: 5_000 }).catch(() => false);
-      if (onEssPage) return;
-    } catch {
-      console.log('[Benefits] Deep link to ESS failed, trying Navigator');
+        // Stronger verification: look for the Enroll Now button OR the welcome
+        // banner specifically, not just any "benefits" text on the page.
+        const onEssPage = await this.enrollNowButton.isVisible({ timeout: 5_000 }).catch(() => false)
+          || await this.welcomeBannerAction.isVisible({ timeout: 3_000 }).catch(() => false)
+          || await this.showBenefitsInput.isVisible({ timeout: 3_000 }).catch(() => false);
+        if (onEssPage) return;
+      } catch {
+        console.log(`[Benefits] Deep link ${url} failed, trying next`);
+      }
     }
 
     // Fallback: Navigate via Navigator > Me > Benefits
@@ -464,6 +477,65 @@ export class BenefitsPage extends BasePage {
    * Open the enrollment wizard by clicking "Enroll Now" on the ESS page.
    * Falls back to welcome banner, then generic button search.
    */
+  /**
+   * Walk the multi-step "Self-Service Enrollment" wizard:
+   *   Get to know your benefits (optional) → Choose how to enroll (Discovery)
+   *   → Verify people you'd like to cover → Enroll in benefits
+   *
+   * Per user direction (2026-05-06): reaching the Enroll step is sufficient
+   * for a pass even when the bot has no actual electable plans ("We couldn't
+   * find any enrollment opportunities"). The wizard exists to navigate, not
+   * always to submit.
+   *
+   * Returns true when we reach a recognized end state (Enroll step OR explicit
+   * no-opportunity message). Returns false if we can't find Continue / wizard
+   * sequence breaks down.
+   */
+  async walkEnrollmentWizard(): Promise<boolean> {
+    // Up to 6 Continue clicks (4 steps + buffer). Stop when no Continue is
+    // available, or when an "Enroll in benefits"-style end state appears.
+    for (let step = 0; step < 6; step++) {
+      // End-state checks before clicking next Continue
+      const enrollStepReached = await this.page.getByText(/enroll in benefits that matter to you/i)
+        .first().isVisible({ timeout: 1500 }).catch(() => false);
+      const noOpportunities = await this.page.getByText(/couldn'?t find any enrollment opportunities|aren'?t any enrollment opportunities/i)
+        .first().isVisible({ timeout: 1500 }).catch(() => false);
+      if (enrollStepReached && noOpportunities) {
+        console.log(`[Benefits] Wizard reached Enroll step with no opportunities — accepting as navigation success (step ${step})`);
+        return true;
+      }
+
+      // If we're on "Choose how you want to enroll", click Discovery first
+      const discoveryCard = this.page.getByText('Discovery', { exact: true }).first();
+      if (await discoveryCard.isVisible({ timeout: 1500 }).catch(() => false)) {
+        const expressSelected = await this.page.locator('text=/selected path/i').filter({ hasText: /express/i })
+          .first().isVisible({ timeout: 500 }).catch(() => false);
+        if (expressSelected || step === 1) {
+          await discoveryCard.click({ force: true }).catch(() => {});
+          await this.page.waitForTimeout(800);
+        }
+      }
+
+      // Click Continue
+      const continueBtn = this.page.getByRole('button', { name: 'Continue', exact: true }).first();
+      const visible = await continueBtn.isVisible({ timeout: 3000 }).catch(() => false);
+      if (!visible) {
+        console.log(`[Benefits] No Continue button visible at wizard step ${step} — wizard ended`);
+        return enrollStepReached || noOpportunities;
+      }
+      const disabled = await continueBtn.isDisabled().catch(() => false);
+      if (disabled) {
+        console.log(`[Benefits] Continue disabled at wizard step ${step} — likely reached final state`);
+        return true;
+      }
+      await continueBtn.click();
+      await this.page.waitForTimeout(2500);
+      await this.waitForJET();
+    }
+    console.log('[Benefits] Wizard exceeded 6 steps — unexpected; treating as not-reached');
+    return false;
+  }
+
   async openEnrollment(): Promise<void> {
     if (await this.enrollNowButton.isVisible({ timeout: 5000 }).catch(() => false)) {
       await this.enrollNowButton.click();

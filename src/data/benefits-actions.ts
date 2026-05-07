@@ -22,27 +22,39 @@
  */
 
 export interface BenefitsMapping {
+  /** Person Number — required by OutcomeValidator. For ESS tests the bot
+   *  acts on its own record, so this is the BOT's person number, not a
+   *  separate target person. */
+  personNumber: string;
   plan?: string;
   option?: string;
   dependentName?: string;
   dependentRelationship?: string;
 }
 
+// Bot person numbers (from src/config/bot-users.ts) for ESS Benefits tests:
+//   bot_benefit_admin           — 10817008 (Santi Torres, Jason Price, Melanie Hanlon)
+//   bot_hr_admin                — 10816995 (Greg Johnson)
+//   bot_line_manager            — 10816992 (Jairo Hernandez)
+//   bot_hr_generalist_no_nid    — 10816985 (Amanda Nelson)
+//   bot_local_us_capacity       — 10817009 (Lisa Copeland)
+//   bot_hr_local_familylife     — 10817006 (Lisa Mitchell)
+
 export const BENEFITS_TESTS: Record<string, BenefitsMapping> = {
-  // ── Birth life event (the manually-staged event) ──
+  // ── Birth life event (manually-staged on bot_benefit_admin) ──
   'BN-042': {
+    personNumber: '10817008',
     plan: 'Healthcare',
     option: 'Family',
     dependentName: 'Test Child',
     dependentRelationship: 'Child',
   },
 
-  // ── View Benefits Summary — view-only, no fill needed ──
-  'BN-020': {},
+  // ── View Benefits Summary — view-only ──
+  'BN-020': { personNumber: '10816995' }, // Greg Johnson / bot_hr_admin
 
-  // ── Add/update beneficiaries to life plans — no plan election needed,
-  // beneficiary handled separately via handleBeneficiaries ──
-  'BN-019': {},
+  // ── Add/update beneficiaries to life plans ──
+  'BN-019': { personNumber: '10816995' }, // Greg Johnson / bot_hr_admin
 };
 
 export function getBenefitsMapping(testId: string): BenefitsMapping | undefined {
