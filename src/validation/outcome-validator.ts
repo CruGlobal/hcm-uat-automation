@@ -455,6 +455,17 @@ export class OutcomeValidator {
       return;
     }
 
+    // ESS Benefits tests with no field data also run in nav-only mode
+    // (BenefitsEnrollmentFlow.runEssBenefitsNavPass). Accept if URL is on
+    // the ESS Benefits area — the bot reached its own enrollment page,
+    // which is the test pass criterion until plan/data is wired in.
+    if (!fieldData
+        && (tc.transactionCategory || '').toLowerCase().includes('employee')
+        && (url.includes('benefits-selfservice') || url.includes('enrollment-container') || url.includes('employee-benefits'))) {
+      console.log(`[OutcomeValidator] ${tc.testId}: Reached ESS Benefits area (nav-only mode) — pass`);
+      return;
+    }
+
     const { personNumber } = this.requirePersonNumber(tc.testId);
 
     let enrollments: any[];

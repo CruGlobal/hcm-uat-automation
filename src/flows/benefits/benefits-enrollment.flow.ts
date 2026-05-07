@@ -106,20 +106,46 @@ export class BenefitsEnrollmentFlow extends BaseBenefitsFlow {
    * 5. Navigate through wizard and submit
    * 6. Verify confirmation
    */
-  private async executeNewHireEnrollment(tc: UATTestCase): Promise<void> {
+  /**
+   * Common ESS Benefits navigation-pass helper. Per user direction
+   * (2026-05-06), reaching the Benefits ESS area cleanly is sufficient for
+   * a test pass while plan/data buildout is pending. Detects:
+   *   - "no opportunities" banners (consumed life event window or never-staged)
+   *   - broken benefits relationship (throws)
+   *   - active "Enroll Now" → walk the multi-step wizard to the Enroll step
+   *
+   * Used by all ESS executors below except executeLifeEventEnrollment, which
+   * has an additional event-report step before calling this same logic.
+   */
+  private async runEssBenefitsNavPass(tc: UATTestCase, attemptWizard = true): Promise<void> {
     await this.loginAndNavigateToSelfService(tc);
+
+    const noOppsBanner = await this.page.getByText(
+      /there aren'?t any enrollment opportunities|couldn'?t find any enrollment opportunities/i
+    ).first().isVisible({ timeout: 3000 }).catch(() => false);
+    if (noOppsBanner) {
+      console.log(`[Benefits] ${tc.testId}: No active enrollment opportunities — navigation success`);
+      await this.benefits.captureBenefitsState(`no-active-opp-${tc.testId}`);
+      return;
+    }
 
     if (await this.checkNoBenefitsRelationship(tc.testId)) return;
 
-    // Open enrollment wizard
-    await this.benefits.openEnrollment();
+    if (attemptWizard) {
+      const enrollEnabled = await this.page
+        .getByRole('button', { name: /enroll now|make changes/i }).first()
+        .isEnabled({ timeout: 3000 }).catch(() => false);
+      if (enrollEnabled) {
+        await this.benefits.openEnrollment();
+        await this.benefits.walkEnrollmentWizard();
+      }
+    }
 
-    // Select plans from field data
-    await this.selectPlansFromFieldData(tc);
-    await this.handleDependents(tc);
-    await this.handleBeneficiaries(tc);
+    await this.benefits.captureBenefitsState(`ess-${tc.testId}`);
+  }
 
-    await this.navigateAndSubmitEnrollment(tc);
+  private async executeNewHireEnrollment(tc: UATTestCase): Promise<void> {
+    await this.runEssBenefitsNavPass(tc);
   }
 
   // =================================================================
@@ -132,19 +158,7 @@ export class BenefitsEnrollmentFlow extends BaseBenefitsFlow {
    * Includes within-1-year rehire scenarios (no waiting period).
    */
   private async executeRehireEnrollment(tc: UATTestCase): Promise<void> {
-    await this.loginAndNavigateToSelfService(tc);
-
-    if (await this.checkNoBenefitsRelationship(tc.testId)) return;
-
-    // Check for pending enrollment from rehire event
-    await this.benefits.setShowBenefitsFilter('Pending enrollment');
-    await this.benefits.openEnrollment();
-
-    await this.selectPlansFromFieldData(tc);
-    await this.handleDependents(tc);
-    await this.handleBeneficiaries(tc);
-
-    await this.navigateAndSubmitEnrollment(tc);
+    await this.runEssBenefitsNavPass(tc);
   }
 
   // =================================================================
@@ -213,17 +227,7 @@ export class BenefitsEnrollmentFlow extends BaseBenefitsFlow {
    * Shows "Pending enrollment" filter to see available events.
    */
   private async executeOpenEnrollment(tc: UATTestCase): Promise<void> {
-    await this.loginAndNavigateToSelfService(tc);
-
-    if (await this.checkNoBenefitsRelationship(tc.testId)) return;
-
-    await this.benefits.setShowBenefitsFilter('Pending enrollment');
-    await this.benefits.openEnrollment();
-    await this.selectPlansFromFieldData(tc);
-    await this.handleDependents(tc);
-    await this.handleBeneficiaries(tc);
-
-    await this.navigateAndSubmitEnrollment(tc);
+    await this.runEssBenefitsNavPass(tc);
   }
 
   // =================================================================
@@ -235,16 +239,7 @@ export class BenefitsEnrollmentFlow extends BaseBenefitsFlow {
    * Navigate to dependents, manage them, verify enrollment reflects changes.
    */
   private async executeDependentEnrollment(tc: UATTestCase): Promise<void> {
-    await this.loginAndNavigateToSelfService(tc);
-
-    if (await this.checkNoBenefitsRelationship(tc.testId)) return;
-
-    await this.handleDependents(tc);
-
-    // Verify the enrollment summary reflects dependent changes
-    await this.benefits.viewEnrollmentSummary();
-    await this.benefits.verifyPlanSummary();
-    await this.benefits.captureBenefitsState(`dependent-ess-${tc.testId}`);
+    await this.runEssBenefitsNavPass(tc, false /* skip wizard — dependent flow goes to dependents page */);
   }
 
   // =================================================================
@@ -256,17 +251,7 @@ export class BenefitsEnrollmentFlow extends BaseBenefitsFlow {
    * Staff adds/updates beneficiaries on life plans.
    */
   private async executeBeneficiaryEnrollment(tc: UATTestCase): Promise<void> {
-    await this.loginAndNavigateToSelfService(tc);
-
-    if (await this.checkNoBenefitsRelationship(tc.testId)) return;
-
-    await this.benefits.openEnrollment();
-    await this.handleBeneficiaries(tc);
-
-    await this.benefits.submitEnrollment();
-    await this.benefits.clickDone();
-    await this.benefits.verifyEnrollmentConfirmation();
-    await this.benefits.captureBenefitsState(`beneficiary-ess-${tc.testId}`);
+    await this.runEssBenefitsNavPass(tc);
   }
 
   // =================================================================
@@ -278,13 +263,7 @@ export class BenefitsEnrollmentFlow extends BaseBenefitsFlow {
    * Verifies the enrollment summary page loads and shows plan cards.
    */
   private async executeViewBenefits(tc: UATTestCase): Promise<void> {
-    await this.loginAndNavigateToSelfService(tc);
-
-    if (await this.checkNoBenefitsRelationship(tc.testId)) return;
-
-    await this.benefits.viewEnrollmentSummary();
-    await this.benefits.verifyPlanSummary();
-    await this.benefits.captureBenefitsState(`view-ess-${tc.testId}`);
+    await this.runEssBenefitsNavPass(tc, false /* view-only, no wizard */);
   }
 
   // =================================================================
@@ -295,13 +274,7 @@ export class BenefitsEnrollmentFlow extends BaseBenefitsFlow {
    * Verify confirmation statement after enrollment event.
    */
   private async executeConfirmationStatement(tc: UATTestCase): Promise<void> {
-    await this.loginAndNavigateToSelfService(tc);
-
-    if (await this.checkNoBenefitsRelationship(tc.testId)) return;
-
-    await this.benefits.viewEnrollmentSummary();
-    await this.benefits.verifyPlanSummary();
-    await this.benefits.captureBenefitsState(`confirmation-ess-${tc.testId}`);
+    await this.runEssBenefitsNavPass(tc, false /* view-only */);
   }
 
   // =================================================================
@@ -314,18 +287,7 @@ export class BenefitsEnrollmentFlow extends BaseBenefitsFlow {
    * 5/10/15 year anniversaries allow election between medical and retirement.
    */
   private async executeFlexBenefits(tc: UATTestCase): Promise<void> {
-    await this.loginAndNavigateToSelfService(tc);
-
-    if (await this.checkNoBenefitsRelationship(tc.testId)) return;
-
-    // Look for pending enrollment with flex benefit options
-    await this.benefits.setShowBenefitsFilter('Pending enrollment');
-    await this.benefits.openEnrollment();
-
-    // Select flex plan from field data
-    await this.selectPlansFromFieldData(tc);
-
-    await this.navigateAndSubmitEnrollment(tc);
+    await this.runEssBenefitsNavPass(tc);
   }
 
   // =================================================================
@@ -337,13 +299,7 @@ export class BenefitsEnrollmentFlow extends BaseBenefitsFlow {
    * Hawaii staff default to Select Healthcare plan.
    */
   private async executeRegionalEnrollment(tc: UATTestCase): Promise<void> {
-    await this.loginAndNavigateToSelfService(tc);
-
-    if (await this.checkNoBenefitsRelationship(tc.testId)) return;
-
-    await this.benefits.openEnrollment();
-    await this.selectPlansFromFieldData(tc);
-    await this.navigateAndSubmitEnrollment(tc);
+    await this.runEssBenefitsNavPass(tc);
   }
 
   // =================================================================
@@ -354,13 +310,7 @@ export class BenefitsEnrollmentFlow extends BaseBenefitsFlow {
    * ESS benefits handling during international assignment.
    */
   private async executeInternationalESS(tc: UATTestCase): Promise<void> {
-    await this.loginAndNavigateToSelfService(tc);
-
-    if (await this.checkNoBenefitsRelationship(tc.testId)) return;
-
-    await this.benefits.viewEnrollmentSummary();
-    await this.benefits.verifyPlanSummary();
-    await this.benefits.captureBenefitsState(`intl-ess-${tc.testId}`);
+    await this.runEssBenefitsNavPass(tc, false /* view-only intl page */);
   }
 
   // =================================================================
@@ -371,16 +321,7 @@ export class BenefitsEnrollmentFlow extends BaseBenefitsFlow {
    * Staff member waives healthcare through ESS.
    */
   private async executeWaiveHealthcareESS(tc: UATTestCase): Promise<void> {
-    await this.loginAndNavigateToSelfService(tc);
-
-    if (await this.checkNoBenefitsRelationship(tc.testId)) return;
-
-    await this.benefits.openEnrollment();
-    // Select waive option for healthcare plan
-    const plan = this.getPlan(tc) || 'Healthcare';
-    await this.benefits.selectPlan(plan);
-
-    await this.navigateAndSubmitEnrollment(tc);
+    await this.runEssBenefitsNavPass(tc);
   }
 
   // =================================================================
@@ -391,16 +332,7 @@ export class BenefitsEnrollmentFlow extends BaseBenefitsFlow {
    * ESS enrollment changes triggered by job reclassification.
    */
   private async executeReclassEnrollment(tc: UATTestCase): Promise<void> {
-    await this.loginAndNavigateToSelfService(tc);
-
-    if (await this.checkNoBenefitsRelationship(tc.testId)) return;
-
-    // Check for pending enrollment from reclass event
-    await this.benefits.setShowBenefitsFilter('Pending enrollment');
-    await this.benefits.openEnrollment();
-    await this.selectPlansFromFieldData(tc);
-
-    await this.navigateAndSubmitEnrollment(tc);
+    await this.runEssBenefitsNavPass(tc);
   }
 
   // =================================================================
@@ -411,13 +343,7 @@ export class BenefitsEnrollmentFlow extends BaseBenefitsFlow {
    * ESS benefits view during/after unpaid leave of absence.
    */
   private async executeLeaveESS(tc: UATTestCase): Promise<void> {
-    await this.loginAndNavigateToSelfService(tc);
-
-    if (await this.checkNoBenefitsRelationship(tc.testId)) return;
-
-    await this.benefits.viewEnrollmentSummary();
-    await this.benefits.verifyPlanSummary();
-    await this.benefits.captureBenefitsState(`leave-ess-${tc.testId}`);
+    await this.runEssBenefitsNavPass(tc, false /* view-only leave page */);
   }
 
   // =================================================================
@@ -428,15 +354,7 @@ export class BenefitsEnrollmentFlow extends BaseBenefitsFlow {
    * RMO spouse enrollment scenarios through ESS.
    */
   private async executeSpouseEnrollment(tc: UATTestCase): Promise<void> {
-    await this.loginAndNavigateToSelfService(tc);
-
-    if (await this.checkNoBenefitsRelationship(tc.testId)) return;
-
-    await this.benefits.openEnrollment();
-    await this.selectPlansFromFieldData(tc);
-    await this.handleDependents(tc);
-
-    await this.navigateAndSubmitEnrollment(tc);
+    await this.runEssBenefitsNavPass(tc);
   }
 
   // =================================================================
@@ -447,17 +365,7 @@ export class BenefitsEnrollmentFlow extends BaseBenefitsFlow {
    * General enrollment flow (fallback for unmatched scenarios).
    */
   private async executeGeneralEnrollment(tc: UATTestCase): Promise<void> {
-    await this.loginAndNavigateToSelfService(tc);
-
-    if (await this.checkNoBenefitsRelationship(tc.testId)) return;
-
-    await this.benefits.viewEnrollmentSummary();
-    await this.benefits.openEnrollment();
-    await this.selectPlansFromFieldData(tc);
-    await this.handleDependents(tc);
-    await this.handleBeneficiaries(tc);
-
-    await this.navigateAndSubmitEnrollment(tc);
+    await this.runEssBenefitsNavPass(tc);
   }
 
   // =================================================================
