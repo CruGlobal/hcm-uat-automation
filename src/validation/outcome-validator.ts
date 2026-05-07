@@ -465,10 +465,14 @@ export class OutcomeValidator {
     }
 
     if (enrollments.length === 0) {
-      // Check if the flow already detected "no benefits" / "not eligible" on the page.
-      // This happens for employees without benefits relationships — not a test failure.
-      const noBenefitsText = await this.page.getByText(/no benefits|not eligible|no enrollment/i)
-        .first().isVisible({ timeout: 3000 }).catch(() => false);
+      // Check if the flow already detected "no benefits" / "not eligible" / "no
+      // enrollment opportunities" on the page. Includes the post-consumption
+      // banner "There aren't any enrollment opportunities for you at this time"
+      // and the wizard-step "We couldn't find any enrollment opportunities".
+      // Either case = navigation success, no enrollment to verify.
+      const noBenefitsText = await this.page.getByText(
+        /no benefits|not eligible|no enrollment|aren'?t any enrollment opportunities|couldn'?t find any enrollment/i
+      ).first().isVisible({ timeout: 3000 }).catch(() => false);
       if (noBenefitsText) {
         console.log(`[OutcomeValidator] ${tc.testId}: Employee ${personNumber} not enrolled in benefits (page confirmed) — skipping validation`);
         return;
