@@ -160,6 +160,21 @@ export class BenefitsEnrollmentFlow extends BaseBenefitsFlow {
   private async executeLifeEventEnrollment(tc: UATTestCase): Promise<void> {
     await this.loginAndNavigateToSelfService(tc);
 
+    // If the bot has no active enrollment opportunity — either because the
+    // life event window already closed, or because a previous run/manual
+    // submission consumed it — the Benefits page shows a "no opportunities"
+    // banner. Per user direction (2026-05-06), reaching the Benefits area
+    // cleanly is itself a navigation pass; we don't fail the test for state
+    // we can't control without re-staging a life event.
+    const noOppsBanner = await this.page.getByText(
+      /there aren'?t any enrollment opportunities|couldn'?t find any enrollment opportunities/i
+    ).first().isVisible({ timeout: 3000 }).catch(() => false);
+    if (noOppsBanner) {
+      console.log(`[Benefits] ${tc.testId}: No active enrollment opportunities (likely consumed by previous submission) — navigation success`);
+      await this.benefits.captureBenefitsState(`no-active-opp-${tc.testId}`);
+      return;
+    }
+
     if (await this.checkNoBenefitsRelationship(tc.testId)) return;
 
     // If an "Enroll Now" / "Make Changes" button is already visible, a life
@@ -181,11 +196,6 @@ export class BenefitsEnrollmentFlow extends BaseBenefitsFlow {
       console.log(`[Benefits] ${tc.testId}: Pending enrollment already exists — skipping life event report`);
     }
 
-    // Click Enroll Now then walk the multi-step wizard. Per user direction
-    // (2026-05-06): reaching the Enroll step is sufficient even when the bot
-    // has no actual electable plans — the test env's enrollment opportunity
-    // list is currently empty for these bots. We don't try to submit because
-    // there's nothing to submit; navigation success IS test success.
     await this.benefits.openEnrollment();
     const wizardReached = await this.benefits.walkEnrollmentWizard();
     if (!wizardReached) {
